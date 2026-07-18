@@ -37,6 +37,16 @@ export interface ProFeature {
   description: string
   /** Concrete capabilities, shown as a checklist. */
   highlights: string[]
+  /**
+   * Platforms this feature is tested + supported on — the SINGLE SOURCE OF TRUTH
+   * for per-feature availability. macOS (`'darwin'`) is the reference platform and
+   * MUST be present on every feature (Pro was built Mac-first). As a feature is
+   * ported and verified on Windows, add `'win32'` here — that one edit flips the
+   * feature live everywhere (nav routing, the coming-soon gate, upsell copy), since
+   * every surface reads this list through `featureSupportsPlatform`. Do not gate a
+   * feature on the platform anywhere else; add the platform here instead.
+   */
+  platforms: DevicePlatform[]
 }
 
 export const PRO_FEATURES: ProFeature[] = [
@@ -51,7 +61,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'A morning briefing built from your real activity',
       'Per-meeting prep: who’s in it and your open items',
       'Priorities surfaced from what you actually did'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'reflect',
@@ -64,7 +75,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'Daily & weekly mind-share',
       'Focus vs. distraction trends',
       'All computed locally — never uploaded'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'replay',
@@ -77,7 +89,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'Timeline of captured frames',
       'Jump straight to the moment',
       'Stays on your machine'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'meetings',
@@ -90,7 +103,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'Auto-detects calls',
       'On-device transcription',
       'Searchable transcripts & summaries'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'actions',
@@ -103,7 +117,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'Auto-extracted to-dos',
       'Secretary-proposed actions',
       'Approval-gated — you’re always in control'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'entities',
@@ -116,7 +131,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'Auto-built people & project records',
       'Cross-source narrative summaries',
       'Relationship graph'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'search',
@@ -125,7 +141,8 @@ export const PRO_FEATURES: ProFeature[] = [
     tagline: 'Search everything you’ve ever seen.',
     description:
       'One search bar across your captured activity, meetings, entities, and connectors — semantic + keyword, all on-device.',
-    highlights: ['Unified semantic search', 'Across capture, meetings & connectors', 'Fully local']
+    highlights: ['Unified semantic search', 'Across capture, meetings & connectors', 'Fully local'],
+    platforms: ['darwin']
   },
   {
     route: 'notifications',
@@ -138,7 +155,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'Proactive briefings & meeting prep',
       'Approval queue for actions',
       'Auto-extracted to-dos'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'voice',
@@ -150,7 +168,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'Option+Space push-to-talk or toggle, anywhere',
       'Paste-at-cursor + a searchable recordings library',
       'Transcribe any audio/video file, all on-device'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'vault',
@@ -163,7 +182,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'AES-256 + Argon2id, device-key bound',
       'Logins, app passwords, API keys, notes, and files',
       'KDBX4 format - compatible with KeePassXC'
-    ]
+    ],
+    platforms: ['darwin']
   },
   {
     route: 'clipboard',
@@ -176,7 +196,8 @@ export const PRO_FEATURES: ProFeature[] = [
       'Searchable history of text, images & files',
       'Cmd+Shift+C quick-paste popup anywhere',
       'Stored locally in your encrypted database'
-    ]
+    ],
+    platforms: ['darwin']
   }
 ]
 
@@ -184,16 +205,50 @@ export function getProFeature(route: string): ProFeature | undefined {
   return PRO_FEATURES.find((f) => f.route === route)
 }
 
-/** Pro runtime features are macOS-tested only for now. */
+/**
+ * Whether a single Pro feature is tested + supported on a platform. This is the
+ * per-feature seam: read a feature's `platforms` list (its single source of truth)
+ * rather than a blanket `!isMac` rule, so features go live on a new platform ONE AT
+ * A TIME as each is ported and verified. Pure + unit-testable.
+ *
+ * macOS is the reference platform and is always supported, even if a `platforms`
+ * list somehow omits it — so a data typo can never dark-out a feature on Mac (the
+ * only platform where the whole Pro tier is known-good today).
+ */
+export function featureSupportsPlatform(feature: ProFeature, platform: DevicePlatform): boolean {
+  return isMac(platform) || feature.platforms.includes(platform)
+}
+
+/**
+ * The baseline rule for Pro surfaces that don't (yet) have their own per-feature
+ * `platforms` declaration — today just the pro Settings sections (proactive
+ * delivery, learned prefs), which aren't catalog routes. Pro runtime features are
+ * macOS-tested only on those, so a Pro subscriber off macOS sees a "coming soon"
+ * placeholder; free users are unaffected (they get the upsell). Catalog ROUTES use
+ * the per-feature `featureSupportsPlatform` seam via `proFeatureComingSoon`
+ * instead — prefer that for anything backed by a ProFeature.
+ */
 export function proComingSoonHere(platform: DevicePlatform, isPro: boolean): boolean {
   return isPro && !isMac(platform)
 }
 
-/** Apply the platform rule only to registered Pro routes, never core or unknown views. */
+/**
+ * Apply the platform rule only to registered Pro routes, never core or unknown
+ * views — gated PER FEATURE on that feature's `platforms` list. Never fires for
+ * free users (they get the upsell). Flip a feature live on a platform by adding it
+ * to that feature's `platforms`.
+ */
 export function proFeatureComingSoon(
   route: string,
   platform: DevicePlatform,
   isPro: boolean
 ): boolean {
-  return proComingSoonHere(platform, isPro) && getProFeature(route) !== undefined
+  if (!isPro) {
+    return false
+  }
+  const feature = getProFeature(route)
+  if (!feature) {
+    return false
+  }
+  return !featureSupportsPlatform(feature, platform)
 }
