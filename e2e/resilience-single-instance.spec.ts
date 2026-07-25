@@ -11,6 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import electronExecutable from 'electron'
 import { GATEWAY_PORT, MEDIA_PORT } from '../src/shared/ports'
+import { enginePortsUnavailableReason } from './helpers/ports'
 
 const executable = electronExecutable as unknown as string
 
@@ -45,6 +46,14 @@ const waitForOwnedPortsToClose = async (): Promise<void> => {
   }
   throw new Error('Electron model ports remained reachable after app teardown')
 }
+
+// This whole spec is about exclusive ownership of the fixed model ports — including the
+// teardown assertion that they close. It cannot share them with a running app, so skip
+// rather than emit a false failure. CI runs clean and executes it for real.
+test.beforeAll(async () => {
+  const reason = await enginePortsUnavailableReason()
+  test.skip(reason !== null, reason ?? '')
+})
 
 test.beforeEach(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-single-instance-e2e-'))
