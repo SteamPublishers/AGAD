@@ -1,10 +1,5 @@
-import {
-  expect,
-  test,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -57,8 +52,7 @@ test.beforeAll(async () => {
 
 test.beforeEach(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-single-instance-e2e-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

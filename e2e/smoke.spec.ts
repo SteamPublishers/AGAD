@@ -10,13 +10,8 @@
  *
  * Requires a build first: `npm run build` (the test:e2e script does this).
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -36,8 +31,7 @@ test.beforeAll(async () => {
 
 test.beforeEach(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-e2e-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir, // pristine first-run

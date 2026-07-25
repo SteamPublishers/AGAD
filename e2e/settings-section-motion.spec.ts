@@ -11,7 +11,8 @@
  *
  * Core build (OFFGRID_PRO=0), fresh temp profile, seeded demo data.
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -26,8 +27,7 @@ const shot = async (name: string): Promise<void> => {
 
 test.beforeAll(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-settings-motion-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,
@@ -92,7 +92,10 @@ test('drills into a Settings section and back without distorting the card', asyn
   }
 
   // Close it — the back affordance collapses the detail and the grid returns.
-  await page.getByText(/All settings/i).first().click()
+  await page
+    .getByText(/All settings/i)
+    .first()
+    .click()
   await page.waitForTimeout(900)
   await expect(page.getByText(/All settings/i)).toHaveCount(0)
   // Sibling sections are back in the grid (drill-out complete).

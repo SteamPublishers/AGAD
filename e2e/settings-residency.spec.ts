@@ -1,11 +1,5 @@
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Locator,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import type { ChildProcess } from 'child_process'
 import fs from 'fs'
 import os from 'os'
@@ -24,8 +18,7 @@ let page: Page
 let userDataDir: string
 
 const launchApp = async (): Promise<void> => {
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

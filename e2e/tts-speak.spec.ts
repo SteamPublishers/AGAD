@@ -3,13 +3,8 @@
  * TTS path, strips markdown for speech, returns playable local WAV audio, and can
  * be stopped. The heavyweight ONNX worker is the only replaced boundary.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -80,8 +75,7 @@ test.beforeAll(async () => {
   spokenTextPath = path.join(root, 'spoken.txt')
   writeWorkerFixture()
 
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

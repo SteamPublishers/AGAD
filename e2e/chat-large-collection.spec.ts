@@ -3,13 +3,8 @@
  * searchable, scrollable, and usable in the real desktop master-detail layout.
  * Synthetic records enter through production preload and main-process IPC.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -28,8 +23,7 @@ async function finishOnboarding(): Promise<void> {
 
 test.beforeAll(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-chat-collection-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

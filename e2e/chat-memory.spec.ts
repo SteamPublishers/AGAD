@@ -8,13 +8,8 @@
  * Runs against the built app with OFFGRID_PRO=1 so the memory dropdown is visible.
  * No LLM model is expected — we only assert UI state and IPC plumbing, not model output.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -26,8 +21,7 @@ let userDataDir: string
 let modelBoundaryBinDir: string | undefined
 
 const launchApp = async (): Promise<void> => {
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

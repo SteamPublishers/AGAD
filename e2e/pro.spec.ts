@@ -19,13 +19,8 @@
  * The file-flavor assertions are macOS-only because they use NSPasteboard via osascript. Requires
  * the pro package to be present - skipped in a core-only checkout, exactly as the build gates pro.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -137,8 +132,8 @@ test.beforeAll(async () => {
   const modelsDir = path.join(userDataDir, 'models')
   fs.mkdirSync(modelsDir, { recursive: true })
   fs.writeFileSync(path.join(modelsDir, 'ggml-base.bin'), 'synthetic whisper model')
-  app = await electron.launch({
-    args: ['.', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+  app = await launchOffGrid({
+    extraArgs: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,
