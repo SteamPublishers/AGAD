@@ -24,9 +24,7 @@ const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\
  * meeting-transcription.spec.ts. Matches the label with or without the suffix.
  */
 export const navButton = (page: Page, label: string) =>
-  page
-    .getByRole('button', { name: new RegExp(`^${escapeForRegExp(label)}( Pro)?$`) })
-    .first()
+  page.getByRole('button', { name: new RegExp(`^${escapeForRegExp(label)}( Pro)?$`) }).first()
 
 /** Expand the sidebar (so nav labels are visible) and open the Settings screen. */
 export const gotoSettings = async (page: Page): Promise<void> => {
