@@ -10,6 +10,13 @@ import type { ChildProcess } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import {
+  lockedResidencyRows,
+  residencyStatusText,
+  residencySwitchLabel,
+  unlockedResidencyRows
+} from '../src/renderer/src/lib/residency-rows'
+import { gotoSettings, openSettingsSection } from './helpers/settings'
 
 let app: ElectronApplication | null = null
 let page: Page
@@ -26,6 +33,10 @@ const launchApp = async (): Promise<void> => {
     }
   })
   page = await app.firstWindow()
+  // Reduced motion disables the decorative infinite background animation, whose perpetual
+  // transform otherwise keeps the page from ever satisfying Playwright's "stable" check
+  // (same reason tour.spec.ts does this).
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.waitForLoadState('domcontentloaded')
 }
 
@@ -51,27 +62,35 @@ const completeOnboarding = async (): Promise<void> => {
   }
 }
 
+// "Model memory" is an <h4> inside the Capture & processing section body — not a button and
+// not a top-level section. Reaching it means opening that section first.
 const openModelMemory = async (): Promise<void> => {
-  const expandSidebar = page.getByRole('button', { name: 'Expand sidebar' })
-  if (await expandSidebar.isVisible().catch(() => false)) await expandSidebar.click()
-  await page.getByRole('button', { name: 'Settings', exact: true }).first().click()
-  await page.getByRole('button', { name: /Model memory/ }).click()
+  await gotoSettings(page)
+  await openSettingsSection(page, 'Capture & processing')
+  await expect(page.getByText('Model memory', { exact: true })).toBeVisible()
 }
 
 const persistedResidency = async (): Promise<Record<string, string>> =>
   page.evaluate(() => window.api.residencyGet())
 
+const residencySwitch = (label: string): Locator =>
+  page.getByRole('switch', { name: residencySwitchLabel({ label }) })
+
+// Selectors are DERIVED from RESIDENCY_ROWS, the module the UI renders from. Re-hardcoding
+// the names here is what let them drift out of sync with the app (the spec asked for
+// 'Chat model residency' while the UI rendered 'Chat and capture model residency').
 const residencyControls = (): {
   chat: Locator
   unlocked: Locator[]
 } => ({
-  chat: page.getByRole('switch', { name: 'Chat model residency' }),
-  unlocked: [
-    page.getByRole('switch', { name: 'Image generation residency' }),
-    page.getByRole('switch', { name: 'Dictation (speech-to-text) residency' }),
-    page.getByRole('switch', { name: 'Text-to-speech residency' })
-  ]
+  chat: residencySwitch(lockedResidencyRows()[0].label),
+  unlocked: unlockedResidencyRows().map((row) => residencySwitch(row.label))
 })
+
+const expectedResidentState = (): Record<string, string> =>
+  Object.fromEntries(
+    [...lockedResidencyRows(), ...unlockedResidencyRows()].map((row) => [row.modality, 'resident'])
+  )
 
 test.beforeEach(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-residency-e2e-'))
@@ -90,7 +109,7 @@ test('runtime residency controls persist across relaunch while chat stays requir
   const { chat, unlocked } = residencyControls()
   await expect(chat).toBeChecked()
   await expect(chat).toBeDisabled()
-  await expect(page.getByText('in-memory (required)')).toBeVisible()
+  await expect(page.getByText(residencyStatusText({ locked: true }, true))).toBeVisible()
 
   for (const control of unlocked) {
     await expect(control).not.toBeChecked()
@@ -98,9 +117,7 @@ test('runtime residency controls persist across relaunch while chat stays requir
     await expect(control).toBeChecked()
   }
 
-  await expect
-    .poll(persistedResidency)
-    .toEqual({ llm: 'resident', image: 'resident', stt: 'resident', tts: 'resident' })
+  await expect.poll(persistedResidency).toEqual(expectedResidentState())
 
   await closeApp()
   await launchApp()
@@ -110,10 +127,5 @@ test('runtime residency controls persist across relaunch while chat stays requir
   await expect(relaunched.chat).toBeChecked()
   await expect(relaunched.chat).toBeDisabled()
   for (const control of relaunched.unlocked) await expect(control).toBeChecked()
-  await expect(persistedResidency()).resolves.toEqual({
-    llm: 'resident',
-    image: 'resident',
-    stt: 'resident',
-    tts: 'resident'
-  })
+  await expect(persistedResidency()).resolves.toEqual(expectedResidentState())
 })
