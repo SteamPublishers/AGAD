@@ -9,5 +9,11 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
+  // Retry in CI only. The blocker keeping the CI e2e job advisory is headless-Electron
+  // launch instability on the ubuntu runner (waitForEvent 'window' timeouts,
+  // "page/context closed"), not product failures — a whole-instance launch failure is
+  // exactly the kind of thing a retry clears. Locally retries stay off, so a flake a dev
+  // introduces is visible immediately instead of being papered over.
+  retries: process.env.CI ? 2 : 0,
   reporter: 'list'
 })
