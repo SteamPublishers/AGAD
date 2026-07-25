@@ -48,8 +48,10 @@ export const residencySwitchLabel = (row: Pick<ResidencyRow, 'label'>): string =
   `${row.label} residency`
 
 /** The status text shown beside a row's switch. */
-export const residencyStatusText = (row: Pick<ResidencyRow, 'locked'>, resident: boolean): string =>
-  row.locked ? 'in-memory (required)' : resident ? 'in-memory' : 'on-demand'
+export const residencyStatusText = (
+  row: Pick<ResidencyRow, 'locked'>,
+  resident: boolean
+): string => (row.locked ? 'in-memory (required)' : resident ? 'in-memory' : 'on-demand')
 
 export const lockedResidencyRows = (): ResidencyRow[] => RESIDENCY_ROWS.filter((r) => r.locked)
 export const unlockedResidencyRows = (): ResidencyRow[] => RESIDENCY_ROWS.filter((r) => !r.locked)

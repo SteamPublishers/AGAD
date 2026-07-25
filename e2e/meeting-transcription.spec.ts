@@ -5,7 +5,13 @@
  * saved recording; seeded meetings are transcript-only), so here we verify the provenance the
  * user sees and capture a screenshot for the record.
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page
+} from '@playwright/test'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'

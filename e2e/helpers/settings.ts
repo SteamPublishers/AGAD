@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 /**
  * Shared Settings navigation for E2E specs.
@@ -23,7 +23,7 @@ const escapeForRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\
  * 'Meetings' match finds nothing in a free build — the drift that broke
  * meeting-transcription.spec.ts. Matches the label with or without the suffix.
  */
-export const navButton = (page: Page, label: string) =>
+export const navButton = (page: Page, label: string): Locator =>
   page.getByRole('button', { name: new RegExp(`^${escapeForRegExp(label)}( Pro)?$`) }).first()
 
 /** Expand the sidebar (so nav labels are visible) and open the Settings screen. */
@@ -35,7 +35,7 @@ export const gotoSettings = async (page: Page): Promise<void> => {
 }
 
 /** The accordion header button for a section (its accessible name starts with the title). */
-export const settingsSectionHeader = (page: Page, title: string) =>
+export const settingsSectionHeader = (page: Page, title: string): Locator =>
   page.getByRole('button', { name: new RegExp(`^(All settings\\s*)?${escapeForRegExp(title)}`) })
 
 /**
