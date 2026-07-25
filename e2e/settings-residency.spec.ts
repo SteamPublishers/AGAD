@@ -17,6 +17,7 @@ import {
   unlockedResidencyRows
 } from '../src/renderer/src/lib/residency-rows'
 import { gotoSettings, openSettingsSection } from './helpers/settings'
+import { completeOnboarding } from './helpers/onboarding'
 
 let app: ElectronApplication | null = null
 let page: Page
@@ -54,14 +55,6 @@ const closeApp = async (): Promise<void> => {
   await waitForExit(child)
 }
 
-const completeOnboarding = async (): Promise<void> => {
-  for (let step = 0; step < 8; step += 1) {
-    const button = page.getByRole('button', { name: /Continue|Start using Off Grid/i })
-    if (!(await button.isVisible().catch(() => false))) return
-    await button.click()
-  }
-}
-
 // "Model memory" is an <h4> inside the Capture & processing section body — not a button and
 // not a top-level section. Reaching it means opening that section first.
 const openModelMemory = async (): Promise<void> => {
@@ -95,7 +88,7 @@ const expectedResidentState = (): Record<string, string> =>
 test.beforeEach(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-residency-e2e-'))
   await launchApp()
-  await completeOnboarding()
+  await completeOnboarding(page)
 })
 
 test.afterEach(async () => {

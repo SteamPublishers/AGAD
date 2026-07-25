@@ -17,6 +17,7 @@ import path from 'path'
 import fs from 'fs'
 import { OFF_GRID_MOBILE_URL } from '../src/renderer/src/constants/links'
 import { openSettingsSection } from './helpers/settings'
+import { completeOnboarding } from './helpers/onboarding'
 
 let app: ElectronApplication
 let page: Page
@@ -46,12 +47,7 @@ test.beforeAll(async () => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.waitForLoadState('domcontentloaded')
   // Click through onboarding into the app shell.
-  for (let i = 0; i < 6; i++) {
-    const btn = page.getByRole('button', { name: /Continue|Start using Off Grid/i })
-    if (!(await btn.isVisible().catch(() => false))) break
-    await btn.click()
-    await page.waitForTimeout(400)
-  }
+  await completeOnboarding(page)
   // Expand the sidebar so nav items have visible labels.
   try {
     await page.getByRole('button', { name: 'Expand sidebar' }).click({ timeout: 4000 })

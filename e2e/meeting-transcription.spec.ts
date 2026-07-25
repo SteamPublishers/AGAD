@@ -9,6 +9,8 @@ import { test, expect, _electron as electron, type ElectronApplication, type Pag
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
+import { navButton } from './helpers/settings'
+import { completeOnboarding } from './helpers/onboarding'
 
 const PRO_PRESENT = fs.existsSync(path.resolve('pro/package.json'))
 let app: ElectronApplication
@@ -32,12 +34,7 @@ test.beforeAll(async () => {
   page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.waitForLoadState('domcontentloaded')
-  for (let i = 0; i < 8; i++) {
-    const btn = page.getByRole('button', { name: /Continue|Start using Off Grid AI Desktop/i })
-    if (!(await btn.isVisible().catch(() => false))) break
-    await btn.click().catch(() => {})
-    await page.waitForTimeout(400)
-  }
+  await completeOnboarding(page)
   await page.waitForTimeout(1500)
 })
 
@@ -47,7 +44,9 @@ test.afterAll(async () => {
 })
 
 test('meeting detail exposes the STT model picker (view + change)', async () => {
-  await page.getByRole('button', { name: 'Meetings', exact: true }).first().click()
+  // navButton tolerates the locked-Pro accessible name ('Meetings Pro') so this lookup does
+  // not depend on the tier the build was launched in.
+  await navButton(page, 'Meetings').click()
   await page.waitForTimeout(800)
   // Open the first seeded meeting so the detail (with the transcription controls) renders.
   const firstMeeting = page.locator('[class*="cursor-pointer"]').filter({ hasText: /·/ }).first()
