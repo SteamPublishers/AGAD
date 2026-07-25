@@ -16,6 +16,8 @@ import os from 'os'
 import path from 'path'
 import fs from 'fs'
 import { OFF_GRID_MOBILE_URL } from '../src/renderer/src/constants/links'
+import { openSettingsSection } from './helpers/settings'
+import { completeOnboarding } from './helpers/onboarding'
 
 let app: ElectronApplication
 let page: Page
@@ -45,12 +47,7 @@ test.beforeAll(async () => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.waitForLoadState('domcontentloaded')
   // Click through onboarding into the app shell.
-  for (let i = 0; i < 6; i++) {
-    const btn = page.getByRole('button', { name: /Continue|Start using Off Grid/i })
-    if (!(await btn.isVisible().catch(() => false))) break
-    await btn.click()
-    await page.waitForTimeout(400)
-  }
+  await completeOnboarding(page)
   // Expand the sidebar so nav items have visible labels.
   try {
     await page.getByRole('button', { name: 'Expand sidebar' }).click({ timeout: 4000 })
@@ -85,11 +82,14 @@ test('Models: merged tab + use-cases + import', async () => {
 test('Settings: setup, resource modes, storage, data & privacy all render', async () => {
   await nav('Settings')
   // Sections are collapsed accordions — the titles (headings) are always visible;
-  // expand a card to reveal its body before asserting the body content.
+  // expand a card to reveal its body before asserting the body content. Only ONE card
+  // can be open at a time (SettingsCardsGroup): opening the second section must collapse
+  // the first, or the click lands on a card that is exit-animating out of the DOM.
+  // openSettingsSection() handles that; do not click the headers directly here.
   await expect(page.getByRole('heading', { name: 'Setup & health' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Data & privacy' })).toBeVisible()
 
-  await page.getByRole('button', { name: /Setup & health/ }).click() // expand
+  await openSettingsSection(page, 'Setup & health')
   await expect(page.getByText('Configure it for me')).toBeVisible()
   // The resource-mode selector now lives inside the Configure card.
   for (const m of ['Conservative', 'Balanced', 'Extreme']) {
@@ -97,17 +97,16 @@ test('Settings: setup, resource modes, storage, data & privacy all render', asyn
     await expect(page.getByRole('button', { name: m }).first()).toBeVisible()
   }
 
-  await page.getByRole('button', { name: /Data & privacy/ }).click() // expand
+  await openSettingsSection(page, 'Data & privacy')
   await expect(page.getByText('Screen captures')).toBeVisible()
   await expect(page.getByText('Your data on this device')).toBeVisible()
 })
 
 test('Resource mode is selectable (Conservative)', async () => {
-  // Ensure the Setup & health accordion is expanded (the modes live in its body).
+  // The modes live in the Setup & health body. A previous test may have left another
+  // section open, so always route through the helper rather than probing visibility.
+  await openSettingsSection(page, 'Setup & health')
   const cons = page.getByRole('button', { name: 'Conservative' }).first()
-  if (!(await cons.isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: /Setup & health/ }).click()
-  }
   await cons.click()
   await expect(cons).toHaveAttribute('aria-pressed', 'true')
 })

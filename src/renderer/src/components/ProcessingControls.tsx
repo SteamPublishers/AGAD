@@ -1,34 +1,10 @@
 import { useEffect, useState } from 'react'
 import { persistToggle } from '@renderer/lib/persist-toggle'
-
-const RESIDENCY_ROWS: {
-  modality: 'llm' | 'image' | 'stt' | 'tts'
-  label: string
-  hint: string
-  locked?: boolean
-}[] = [
-  {
-    modality: 'llm',
-    label: 'Chat and capture model',
-    locked: true,
-    hint: 'Kept in memory because Replay analyzes captures continuously. It is freed briefly when image generation needs the memory.'
-  },
-  {
-    modality: 'image',
-    label: 'Image generation',
-    hint: 'In-memory cuts a typical cold start from about 45s to about 7s.'
-  },
-  {
-    modality: 'stt',
-    label: 'Dictation',
-    hint: 'In-memory keeps Whisper ready for live speech. Parakeet loads per use.'
-  },
-  {
-    modality: 'tts',
-    label: 'Text-to-speech',
-    hint: 'In-memory keeps the voice model ready; on-demand frees about 330MB.'
-  }
-]
+import {
+  RESIDENCY_ROWS,
+  residencyStatusText,
+  residencySwitchLabel
+} from '@renderer/lib/residency-rows'
 
 interface QueueCfg {
   enabled: boolean
@@ -84,7 +60,7 @@ export function RuntimeResidencySection(): React.ReactElement {
                 <span
                   className={`text-[11px] tabular-nums ${resident ? 'text-emerald-400' : 'text-neutral-500'}`}
                 >
-                  {row.locked ? 'in-memory (required)' : resident ? 'in-memory' : 'on-demand'}
+                  {residencyStatusText(row, resident)}
                 </span>
                 <button
                   type="button"
@@ -93,7 +69,7 @@ export function RuntimeResidencySection(): React.ReactElement {
                   aria-checked={resident}
                   aria-disabled={row.locked}
                   disabled={row.locked}
-                  aria-label={`${row.label} residency`}
+                  aria-label={residencySwitchLabel(row)}
                   className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-all duration-150 active:scale-95 ${resident ? 'bg-emerald-500' : 'bg-neutral-700'} ${row.locked ? 'cursor-not-allowed opacity-50' : ''}`}
                 >
                   <span

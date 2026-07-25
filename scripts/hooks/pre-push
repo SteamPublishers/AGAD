@@ -47,15 +47,19 @@ elif port_busy 8439 || port_busy 7878; then
   echo "[pre-push] here (the fresh-profile app would fall back off those ports and the port-pinned"
   echo "[pre-push] smoke specs would false-fail). CI runs the full e2e in a clean environment."
 else
-  # ADVISORY, not blocking: some specs need a real model/engine (they don't all self-skip yet) and
-  # can't pass on the fresh e2e profile, so a hard block would false-fail routine pushes. Run it and
-  # SURFACE failures (with screenshots) without stopping the push; CI runs it too (also advisory).
-  # Graduate to blocking once the model-dependent specs self-skip — tracked in docs/GAPS_BACKLOG.md.
+  # ADVISORY, not blocking. NOTE: the old reason given here — "some specs need a real model/engine"
+  # — was a misdiagnosis. The specs that were failing had stale selectors, not missing models, and
+  # being advisory hid that for days. They are fixed (73/73 on a real display). What remains is
+  # genuinely environment-dependent: the clipboard quick-open spec drives a real global hotkey and
+  # depends on window focus (see docs/GAPS_BACKLOG.md). Run it and SURFACE failures with screenshots
+  # without stopping the push; CI runs it too. Graduate to blocking once that spec is deterministic.
   echo "[pre-push] e2e (advisory) — npm run test:e2e"
   if ! npm run --silent test:e2e; then
     echo ""
     echo "[pre-push] WARNING: e2e reported failures (see e2e/screenshots + output above). NOT blocking"
-    echo "[pre-push] the push — some specs need a real model/engine the fresh profile lacks. Review them."
+    echo "[pre-push] the push. Do NOT assume it's environmental — check the actual failure. The known"
+    echo "[pre-push] flaky one is pro.spec.ts clipboard quick-open (needs window focus for its native"
+    echo "[pre-push] hotkey); anything else is most likely a real break."
   else
     echo "[pre-push] e2e passed."
   fi

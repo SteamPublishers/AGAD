@@ -122,18 +122,49 @@ assert tools-ON → `toolChat`, not a direct `generateImage`).
 ## e2e gate: graduate from advisory → blocking
 
 The Playwright e2e is wired into CI (own `e2e` job) and pre-push, but **advisory** (non-blocking)
-for now. Two things block making it a hard gate:
+for now.
 
-1. **Model-dependent specs don't all self-skip.** `meeting-transcription` (STT picker),
-   `settings-residency` ("chat stays required"), and a couple of others need a real model/engine and
-   fail on the fresh e2e profile. Only `functional-real-engine` + voice/tts self-skip today. Add the
-   same `test.skip(!HAVE_MODEL, …)` guard to every spec that requires a model so a model-free run is
-   green.
-2. **Headless-Electron flakiness in CI.** First clean CI run: 49 passed / 6 skipped / 15 failed, the
-   15 dominated by `electronApplication.waitForEvent('window')` timeouts + "page/context closed"
-   under xvfb. Needs stabilizing: `--no-sandbox` (set), plus GPU (`--disable-gpu` /
-   `--use-gl=swiftshader`) in the Playwright electron launch args, and per-spec retries.
+**RESOLVED — item (1) was a misdiagnosis.** This doc previously claimed `meeting-transcription`
+and `settings-residency` "need a real model/engine and fail on the fresh e2e profile", and the fix
+was to add `test.skip(!HAVE_MODEL, …)` guards. That was wrong, and acting on it would have skipped
+two specs that should run. Neither needed a model. They had stale selectors that could never match:
 
-Once (1) + (2) hold and a clean run is green, flip the CI `e2e` step and the pre-push e2e from
-advisory to blocking. No product regressions are known — the local/real-display run's only failures
-traced to a running app / no-model profile.
+- `settings-residency` clicked a `/Model memory/` **button** — it is an `<h4>` — and never opened
+  the `Capture & processing` section that contains the residency controls; 2 of its 4 switch names
+  were also stale (`Chat model residency` vs the rendered `Chat and capture model residency`).
+- `meeting-transcription` matched an onboarding CTA of `Start using Off Grid AI Desktop` while the
+  button renders `Start using Off Grid`, so it never left onboarding, then looked for `Meetings`
+  exact where a locked-Pro item computes `Meetings Pro`.
+- Both Settings tests in `tour.spec.ts` clicked a second section while the first was open —
+  sections are single-open, so the target was exit-animating out ("element detached").
+
+All fixed; selectors are now derived from source (`RESIDENCY_ROWS`, `navButton`) so a rename fails
+a test instead of orphaning it. Full suite on a real display: **73 passed, 0 failed.** The lesson:
+an advisory gate let 7 specs fail on main while CI stayed green — advisory gates rot silently.
+
+**Still blocking (item 2): headless-Electron flakiness in CI.** A clean CI run was 49 passed /
+6 skipped / 15 failed, dominated by `electronApplication.waitForEvent('window')` timeouts +
+"page/context closed" under xvfb. Done so far: `--no-sandbox` (set), `retries: 2` in CI
+(`playwright.config.ts`), and fixed-port specs self-skip rather than fail against a foreign
+engine (`e2e/helpers/ports.ts`). Likely still needed: GPU flags (`--disable-gpu` /
+`--use-gl=swiftshader`) in the Electron launch args.
+
+Flip the CI `e2e` step and the pre-push e2e to blocking once a few consecutive runs are green.
+Do not flip while the runner still drops instances — a gate that gets reverted loses the signal
+again. No product regressions are known.
+
+### Known residual flake: `pro.spec.ts` clipboard quick-open (focus-dependent)
+
+`Clipboard quick-open renders populated content on the first native hotkey press` drives a REAL
+global hotkey through `osascript` → System Events, which delivers the keystroke to whatever app is
+**frontmost**. It was therefore order-dependent: it passed in a full-suite run (an earlier spec left
+the window focused) and failed **3/3 when `pro.spec.ts` ran alone** — the keystroke went to the
+terminal. Pre-existing, reproduced on `main` @ 556d435; not a product bug.
+
+Mitigated, not solved: the spec now calls `app.focus({steal: true})` and polls `isFocused()` before
+sending the keystroke, which takes isolation from 3/3 failing to roughly 1-in-3. The residual cause
+is that `isFocused()` reporting true still does not guarantee System Events targets our app (macOS
+Accessibility/automation timing). With `retries: 2` in CI the practical failure rate is low, but
+this spec should not be trusted as a hard gate until the hotkey is driven deterministically —
+options: assert the global-shortcut registration before pressing, or expose a test-only IPC that
+triggers the same handler and keep the native-key path as a separate, quarantined check.

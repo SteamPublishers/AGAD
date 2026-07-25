@@ -139,13 +139,20 @@ jobs:
       # Electron needs an X server on Linux; xvfb-run provides a virtual one. --no-sandbox via env
       # (Electron's sandbox can't run under the CI user without SUID setup).
       #
-      # ADVISORY (continue-on-error) for now — same policy as lint/test:heavy above. A first clean run
-      # is 49 passed / 6 skipped / 15 failed, and the 15 are headless-Electron flakiness on the runner
-      # (waitForEvent 'window' timeouts, "page/context closed", clipboard/display-dependent specs), NOT
-      # product failures — the local/pre-push e2e on a real display shows no regressions. This still
-      # RUNS the tour and uploads screenshots so a real break is visible; graduate it to BLOCKING once
-      # the headless-Electron launch is stabilized (GPU/swiftshader + sandbox flags + retries).
-      # Tracked in docs/GAPS_BACKLOG.md.
+      # ADVISORY (continue-on-error) for now — same policy as lint/test:heavy above. The remaining
+      # reason is headless-Electron launch instability on the ubuntu runner (waitForEvent 'window'
+      # timeouts, "page/context closed", clipboard/display-dependent specs), NOT product failures.
+      #
+      # NOTE: this being advisory hid four real spec defects on main for days (a selector that
+      # could never match, a section never opened, two stale accessible names) — the job was green
+      # while 7 specs failed. Every one is fixed and the full suite is 73/73 on a real display, so
+      # the ONLY thing still standing between this and BLOCKING is runner stability. Steps taken:
+      # retries: 2 in CI (playwright.config.ts) for whole-instance launch flakes, and fixed-port
+      # specs now self-skip instead of failing (e2e/helpers/ports.ts).
+      #
+      # Graduate to BLOCKING (delete continue-on-error) once a few consecutive runs are green —
+      # do NOT flip it while the runner still drops instances, or the gate gets reverted and we
+      # lose the signal again. Tracked in docs/GAPS_BACKLOG.md.
       - name: E2E (Playwright, xvfb)
         timeout-minutes: 28
         continue-on-error: true
