@@ -422,6 +422,26 @@ test('Clipboard quick-open renders populated content on the first native hotkey 
     timeout: 10_000
   })
   if (process.platform === 'darwin') {
+    // System Events delivers the keystroke to whatever app is FRONTMOST, so the app has to
+    // be it. Without this the spec only passed when an earlier spec happened to leave the
+    // window focused: it passed in a full-suite run and failed 3/3 with pro.spec.ts alone,
+    // because the keystroke went to the terminal instead. Order-dependent, not a product bug.
+    await app.evaluate(({ app: electronApp, BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.show()
+      electronApp.focus({ steal: true })
+    })
+    // Focus is asynchronous at the OS level — asking for it is not the same as having it, and
+    // sending the keystroke too early delivers it to the previously-frontmost app. Wait for
+    // the window to actually report focus.
+    await expect
+      .poll(
+        () =>
+          app.evaluate(
+            ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isFocused() ?? false
+          ),
+        { timeout: 5_000 }
+      )
+      .toBe(true)
     await execFileAsync('/usr/bin/osascript', [
       '-e',
       'tell application "System Events" to keystroke "c" using {command down, shift down}'

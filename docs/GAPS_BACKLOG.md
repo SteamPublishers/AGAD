@@ -152,3 +152,19 @@ engine (`e2e/helpers/ports.ts`). Likely still needed: GPU flags (`--disable-gpu`
 Flip the CI `e2e` step and the pre-push e2e to blocking once a few consecutive runs are green.
 Do not flip while the runner still drops instances — a gate that gets reverted loses the signal
 again. No product regressions are known.
+
+### Known residual flake: `pro.spec.ts` clipboard quick-open (focus-dependent)
+
+`Clipboard quick-open renders populated content on the first native hotkey press` drives a REAL
+global hotkey through `osascript` → System Events, which delivers the keystroke to whatever app is
+**frontmost**. It was therefore order-dependent: it passed in a full-suite run (an earlier spec left
+the window focused) and failed **3/3 when `pro.spec.ts` ran alone** — the keystroke went to the
+terminal. Pre-existing, reproduced on `main` @ 556d435; not a product bug.
+
+Mitigated, not solved: the spec now calls `app.focus({steal: true})` and polls `isFocused()` before
+sending the keystroke, which takes isolation from 3/3 failing to roughly 1-in-3. The residual cause
+is that `isFocused()` reporting true still does not guarantee System Events targets our app (macOS
+Accessibility/automation timing). With `retries: 2` in CI the practical failure rate is low, but
+this spec should not be trusted as a hard gate until the hotkey is driven deterministically —
+options: assert the global-shortcut registration before pressing, or expose a test-only IPC that
+triggers the same handler and keep the native-key path as a separate, quarantined check.
