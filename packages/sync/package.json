@@ -1,0 +1,61 @@
+{
+  "name": "@offgrid/sync",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Off Grid sync engine: device pairing, discovery, encrypted framed messaging, and transfer. Platform-agnostic; embeddable in desktop and mobile via a TransportBridge. Extracted from EasyShare.",
+  "license": "AGPL-3.0-only",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/adapters/node-tcp.d.ts",
+      "import": "./dist/adapters/node-tcp.mjs",
+      "require": "./dist/adapters/node-tcp.js"
+    },
+    "./node-discovery": {
+      "types": "./dist/adapters/node-discovery.d.ts",
+      "import": "./dist/adapters/node-discovery.mjs",
+      "require": "./dist/adapters/node-discovery.js"
+    },
+    "./rn": {
+      "types": "./dist/adapters/rn-tcp.d.ts",
+      "import": "./dist/adapters/rn-tcp.mjs",
+      "require": "./dist/adapters/rn-tcp.js"
+    },
+    "./rn-discovery": {
+      "types": "./dist/adapters/rn-discovery.d.ts",
+      "import": "./dist/adapters/rn-discovery.mjs",
+      "require": "./dist/adapters/rn-discovery.js"
+    },
+    "./portable": {
+      "types": "./dist/portable/index.d.ts",
+      "import": "./dist/portable/index.mjs",
+      "require": "./dist/portable/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/adapters/node-tcp.ts src/adapters/node-discovery.ts src/adapters/rn-tcp.ts src/adapters/rn-discovery.ts src/portable/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts src/adapters/node-tcp.ts src/adapters/node-discovery.ts src/adapters/rn-tcp.ts src/adapters/rn-discovery.ts src/portable/index.ts --format esm,cjs --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build",
+    "test": "npm run build && node --test 'test/**/*.test.mjs'"
+  },
+  "dependencies": {
+    "bonjour-service": "^1.2.1",
+    "js-sha512": "^0.9.0",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
+  },
+  "offgridVendoredFrom": {
+    "repo": "off-grid-ai/shared",
+    "path": "packages/sync",
+    "commit": "9b671b5",
+    "vendoredAt": "2026-07-26"
+  }
+}
