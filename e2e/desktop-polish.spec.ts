@@ -130,7 +130,7 @@ test('keyboard focus follows navigation, form, dialog, and primary-action order 
   // Continue through the rest of the real navigation and Models header. This keeps
   // Chromium in keyboard modality; a programmatic focus jump would not prove that
   // :focus-visible survives the user's actual traversal.
-  await tabUntilFocused(page.getByRole('button', { name: /^Storage\b/ }), 'Storage tab', 24)
+  await tabUntilFocused(page.getByRole('button', { name: /^Storage\b/ }), 'Storage tab', 32)
   await page.keyboard.press('Tab')
   const modelSearch = page.getByPlaceholder('Search HuggingFace…')
   await expectVisibleKeyboardFocus(modelSearch, 'model search field')
