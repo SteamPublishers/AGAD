@@ -37,6 +37,7 @@ import {
   ENGINE_TEARDOWN_GRACE_MS,
   type TeardownOutcome
 } from './llm/engine-teardown'
+import { emitChangedLlmSettings } from './sync-mutation'
 
 export type { KvCacheType, PerformanceMode }
 
@@ -56,6 +57,11 @@ export interface LlmSettings {
   gpuLayers?: number // -ngl: layers offloaded to GPU (Metal). 99 = all.
   threads?: number // CPU threads for inference
   batchSize?: number // -b: prompt batch size
+}
+
+export interface LlmSettingsUpdateOptions {
+  /** Remote sync applies the winning value without creating a new local op. */
+  emitSync?: boolean
 }
 
 export interface ChatStreamResult extends StreamResult {
@@ -349,7 +355,8 @@ export class LLMService {
 
   /** Update inference settings; respawns the server if any launch-time arg changed
    *  (context, KV-cache type, flash-attn, GPU layers, threads, batch). */
-  async setSettings(s: LlmSettings): Promise<void> {
+  async setSettings(s: LlmSettings, options: LlmSettingsUpdateOptions = {}): Promise<void> {
+    const before = options.emitSync === false ? undefined : this.getSettings()
     // Granular launch-time fields the user sets in THIS patch become pinned: a mode
     // preset (now or on a future restart / mode re-pick) must NOT clobber them. Pin
     // BEFORE applying the preset so an explicit q8_0 in the same patch survives.
@@ -408,6 +415,12 @@ export class LLMService {
     // Quantized KV cache requires FlashAttention — auto-enable it so the pair is valid.
     if (this.kvCacheType !== 'f16' && !this.flashAttn) this.flashAttn = true
     this.persist()
+    if (before) {
+      emitChangedLlmSettings(
+        before as Record<string, unknown>,
+        this.getSettings() as Record<string, unknown>
+      )
+    }
     if (launchChanged && !this.paused) {
       this.stop()
       await this.init()
