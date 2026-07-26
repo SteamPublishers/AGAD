@@ -9,7 +9,8 @@ import {
   Broadcast,
   ClipboardText,
   Waveform,
-  ShieldCheck
+  ShieldCheck,
+  Devices as DevicesIcon
 } from '@phosphor-icons/react'
 import type { ComponentType } from 'react'
 import { deviceNoun } from '@renderer/lib/device'
@@ -176,6 +177,19 @@ export const PRO_FEATURES: ProFeature[] = [
       'Searchable history of text, images & files',
       'Cmd+Shift+C quick-paste popup anywhere',
       'Stored locally in your encrypted database'
+    ]
+  },
+  {
+    route: 'devices',
+    label: 'Devices',
+    icon: DevicesIcon,
+    tagline: 'Your chats and settings, on every device.',
+    description:
+      'Pair your Mac and phone over your local network to keep chats, projects and model settings in step. Data moves through a direct encrypted connection between your devices. Nothing is uploaded to an Off Grid server.',
+    highlights: [
+      'Chats, projects and model settings stay in step across devices',
+      'Known devices reconnect when they return to the network',
+      'Direct encrypted transfer on your local network'
     ]
   }
 ]

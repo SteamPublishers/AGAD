@@ -80,6 +80,7 @@ type ViewMode =
   | 'clipboard'
   | 'voice'
   | 'vault'
+  | 'devices'
 
 // Navigation state type for history tracking
 interface NavigationState {
@@ -308,7 +309,8 @@ function AppContent() {
       '/notifications': 'notifications',
       '/search': 'search',
       '/settings': 'settings',
-      '/voice': 'voice'
+      '/voice': 'voice',
+      '/devices': 'devices'
     }
 
     if (viewMap[path]) {
@@ -354,7 +356,8 @@ function AppContent() {
       settings: '/settings',
       clipboard: '/clipboard',
       voice: '/voice',
-      vault: '/vault'
+      vault: '/vault',
+      devices: '/devices'
     }
 
     const newPath = urlMap[viewMode]
@@ -678,6 +681,7 @@ function AppContent() {
     proItem('voice'),
     proItem('vault'),
     proItem('clipboard'),
+    proItem('devices'),
     {
       label: 'Integrations',
       icon: <IconPlug className="h-5 w-5 shrink-0" />,
