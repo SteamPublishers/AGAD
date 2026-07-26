@@ -14,17 +14,22 @@ present + wired is not closure (same bar as `docs/GAPS_BACKLOG.md`).
 
 ## Non-negotiable placement rules
 
-| Thing | Where | Why |
-|---|---|---|
-| Sync **engine** (crypto, pairing, wire protocol, transfer, op-log) | `@offgrid/sync` in `shared/` — **public** | The encryption and wire format must be auditable. That is the whole point of publishing it. |
-| Desktop **integration** of that engine (service, IPC, UI, settings) | `pro/` (the `desktop-pro` submodule) | Sync is a **pro feature**. Core must not carry pro business logic. |
-| Core's share | `proCatalog` entry + `locked: !isPro` nav item → `UpgradeScreen`; dimmed `ProPlaceholder` in Settings | The inert shell only. |
-| Pro renderer → main | generic `proInvoke` / `proOn` passthrough | Do **not** add per-feature namespaces to the core preload. |
+| Thing                                                               | Where                                                                                                 | Why                                                                                         |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Sync **engine** (crypto, pairing, wire protocol, transfer, op-log)  | `@offgrid/sync` in `shared/` — **public**                                                             | The encryption and wire format must be auditable. That is the whole point of publishing it. |
+| Desktop **integration** of that engine (service, IPC, UI, settings) | `pro/` (the `desktop-pro` submodule)                                                                  | Sync is a **pro feature**. Core must not carry pro business logic.                          |
+| Core's share                                                        | `proCatalog` entry + `locked: !isPro` nav item → `UpgradeScreen`; dimmed `ProPlaceholder` in Settings | The inert shell only.                                                                       |
+| Pro renderer → main                                                 | generic `proInvoke` / `proOn` passthrough                                                             | Do **not** add per-feature namespaces to the core preload.                                  |
 
 Commit order for pro changes: land in `desktop-pro` first, then bump the submodule pointer in
 `desktop` with `git add pro`.
 
 ## Cross-lane contract (desktop ↔ mobile, read this first)
+
+> Shared log both lanes update: **`shared/docs/SYNC_CROSS_LANE_LOG.md`** — the entity/channel/column
+> contracts, per-lane progress, engine asks, and a corrections log. The authoritative design is
+> `shared/docs/DESKTOP_SYNC_INTEGRATION_PLAN.md` (Track A free export/import in core, Track B pro
+> sync in `pro/`).
 
 The one guaranteed conflict is two sessions editing `shared/packages/sync`. Therefore:
 
@@ -47,7 +52,7 @@ The one guaranteed conflict is two sessions editing `shared/packages/sync`. Ther
   `AMBIENT_SHARING.md`). M4 is therefore **not blocked**.
 - ~~**A-2 (ACK semantics).**~~ **RESTATED as a host-wiring rule.** `createFileAck` and
   `verifyFileIntegrity` exist in the engine, so the vocabulary is there. G-007 was a defect in
-  *EasyShare's desktop* resolve timing, not in the engine: it resolved `sendFile(true)` after
+  _EasyShare's desktop_ resolve timing, not in the engine: it resolved `sendFile(true)` after
   emitting chunks rather than after peer confirmation. **Our integration must resolve only on a
   correlated positive ACK following the peer's durable write + integrity check**, and must surface
   negative ACKs. "Synced" that does not mean "written and verified on the peer" silently loses data.
@@ -65,12 +70,15 @@ The one guaranteed conflict is two sessions editing `shared/packages/sync`. Ther
 
 Each milestone states its **verification gate**. No milestone is done without it.
 
-### M0 — Vendor the engine into desktop
+### M0 — Consume the engine (do NOT vendor it)
 
-- Copy `shared/packages/sync` → `desktop/packages/sync` (the existing convention: `desktop/packages/*`
-  are real, git-tracked copies consumed via `file:` deps, as `@offgrid/clipboard|design|models|rag`
-  already are). Note those copies have **drifted** from `shared/` — record the source commit in the
-  vendored `package.json` so drift is visible rather than silent.
+- **CORRECTED.** This originally said to copy `shared/packages/sync` → `desktop/packages/sync`,
+  following the existing `@offgrid/clipboard|design|models|rag` convention. That is wrong:
+  `shared/docs/DESKTOP_SYNC_INTEGRATION_PLAN.md` §1 says explicitly **do not duplicate
+  `@offgrid/sync`** — reference it directly, as mobile does:
+  `"@offgrid/sync": "file:../shared/packages/sync"`. The vendored copy was removed.
+  (The other `desktop/packages/*` copies have silently drifted from `shared/`, which is the
+  argument for the direct ref.)
 - Add `@offgrid/sync` as a `file:./packages/sync` dep, plus `bonjour-service` (pure-JS mDNS, no
   native build) for `node-discovery`.
 - **Gate:** `npx tsc --noEmit` clean on both tsconfigs; the package's own 24 tests pass from the
@@ -79,6 +87,7 @@ Each milestone states its **verification gate**. No milestone is done without it
 ### M1 — Pairing + discovery + transport, headless and real
 
 `pro/main/sync/`:
+
 - `sync-service.ts` — composes `NodeDiscovery` + `NodeTcpTransport` + the engine. Owns lifecycle and
   teardown (no leaked sockets/timers).
 - `sync-store.ts` — persistence behind a **small interface** (`getPairedDevices`, `addPairedDevice`,
@@ -128,6 +137,7 @@ Then: compose watcher → policy → `FileSender` (over the sync transport) in `
 share-mode matrix in Settings. macOS watcher at the OS boundary
 (`NSMetadataQuery` on `kMDItemIsScreenCapture` + FSEvents), every event through `shouldEmit`
 (dedup + anti-loop on the app's own save dir).
+
 - **Gate:** an observed screenshot reaches the paired peer with no user interaction, is **not**
   re-shared on receipt, and `off` genuinely sends nothing.
 

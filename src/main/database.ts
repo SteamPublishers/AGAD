@@ -374,6 +374,34 @@ export function getDB(): Database.Database {
     // Column already exists, ignore
   }
 
+  // Migration: Add a stable UUID to rag_messages so chat messages can replicate across devices.
+  //
+  // WHY: `rag_messages.id` is INTEGER AUTOINCREMENT, which is device-local. Cross-device sync keys
+  // every record by a globally-unique id, so device A's row 7 and device B's row 7 would look like
+  // the SAME message and silently overwrite each other. The autoincrement id stays as the local
+  // primary key; `uuid` is the cross-device identity. Mobile uses the same column name and the same
+  // 'message' entity name — they must match or the two platforms will not converge.
+  try {
+    db.exec(`ALTER TABLE rag_messages ADD COLUMN uuid TEXT`)
+  } catch {
+    // Column already exists, ignore
+  }
+  // Backfill rows that predate the column. Done in JS because SQLite has no uuid() function.
+  try {
+    const needsUuid = db
+      .prepare('SELECT id FROM rag_messages WHERE uuid IS NULL OR uuid = ?')
+      .all('') as Array<{ id: number }>
+    if (needsUuid.length > 0) {
+      const assign = db.prepare('UPDATE rag_messages SET uuid = ? WHERE id = ?')
+      for (const row of needsUuid) assign.run(crypto.randomUUID(), row.id)
+    }
+  } catch {
+    // Table may not exist yet on a brand-new profile; the CREATE above covers that path.
+  }
+  // Unique so a replayed remote op upserts instead of duplicating. SQLite treats NULLs as
+  // distinct, so this is safe to create even if a backfill ever misses a row.
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_rag_messages_uuid ON rag_messages(uuid)')
+
   return db
 }
 
@@ -1475,14 +1503,15 @@ export function addRagMessage(
   const db = getDB()
   const contextJson = context ? JSON.stringify(context) : null
 
+  // uuid is the cross-device identity for sync (the autoincrement id is device-local).
   const info = db
     .prepare(
       `
-        INSERT INTO rag_messages (conversation_id, role, content, context, created_at)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO rag_messages (uuid, conversation_id, role, content, context, created_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `
     )
-    .run(conversationId, role, content, contextJson)
+    .run(crypto.randomUUID(), conversationId, role, content, contextJson)
 
   // Update conversation updated_at timestamp
   db.prepare(
