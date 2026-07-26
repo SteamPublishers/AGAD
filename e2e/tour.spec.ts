@@ -5,13 +5,8 @@
  * real one) and only navigates / reads — no destructive clicks — so it's safe.
  * OFFGRID_PRO=0 forces deterministic free-tier UI.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -30,8 +25,7 @@ const nav = async (label: string): Promise<void> => {
 
 test.beforeAll(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-tour-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

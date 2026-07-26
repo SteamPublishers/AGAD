@@ -5,13 +5,8 @@
  * file format owned by the production model manager; all recovery reads and UI
  * behavior run through the production app.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import type { ChildProcess } from 'child_process'
 import fs from 'fs'
 import os from 'os'
@@ -33,8 +28,7 @@ async function waitForExit(child: ChildProcess): Promise<void> {
 }
 
 async function launchApp(): Promise<void> {
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

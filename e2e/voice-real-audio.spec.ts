@@ -6,13 +6,8 @@
  * The profile is always temporary. Only the required model files are symlinked into it, so this
  * test cannot read or mutate the user's conversations, settings, or database.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -120,8 +115,7 @@ test.beforeAll(async () => {
     JSON.stringify({ transcription: WHISPER_MODEL, speech: 'kokoro' })
   )
 
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: profile,

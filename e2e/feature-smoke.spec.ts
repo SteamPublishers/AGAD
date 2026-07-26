@@ -12,7 +12,8 @@
  *  - Global hotkeys (OS-level globalShortcut can't be synthesized in Playwright); we assert the
  *    shortcuts surface renders instead.
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -25,8 +26,7 @@ let userDataDir: string
 test.beforeAll(async () => {
   test.skip(!PRO_PRESENT, 'pro package not present')
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-smoke-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

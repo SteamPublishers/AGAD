@@ -8,13 +8,8 @@
  * absent (CI, a fresh checkout) so it never turns the suite red where the models can't exist.
  * Profile stays synthetic (seeded temp dir); only the model files are the real, shared ones.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -71,8 +66,7 @@ test.beforeAll(async () => {
     path.join(modelDir, 'active-modalities.json'),
     JSON.stringify({ transcription: WHISPER_MODEL, speech: 'kokoro', image: IMAGE_MODEL })
   )
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

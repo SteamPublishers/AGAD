@@ -6,7 +6,8 @@
  * e2e/screenshots/ for the PR body. Capture-only: navigation is best-effort and each shot is
  * validated by a human/vision pass before it goes in the PR.
  */
-import { test, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { test, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -32,8 +33,7 @@ const nav = async (label: string): Promise<boolean> => {
 test.beforeAll(async () => {
   test.skip(!PRO_PRESENT, 'pro package not present')
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-qh-shots-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

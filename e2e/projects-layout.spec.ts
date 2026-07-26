@@ -4,13 +4,8 @@
  * multi-column collection. Synthetic records enter through the production IPC
  * handlers and are rendered by the production Electron UI.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -29,8 +24,7 @@ async function finishOnboarding(): Promise<void> {
 
 test.beforeAll(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-projects-layout-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

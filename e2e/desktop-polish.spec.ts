@@ -1,11 +1,5 @@
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Page,
-  type Locator
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Page, type Locator } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -69,8 +63,7 @@ async function tabUntilFocused(locator: Locator, label: string, maxTabs: number)
 
 test.beforeAll(async () => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-desktop-polish-'))
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,

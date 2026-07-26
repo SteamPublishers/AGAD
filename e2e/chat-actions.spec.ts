@@ -3,14 +3,8 @@
  * cross the real Electron renderer, preload, IPC, SQLite, and OS clipboard seams.
  * Synthetic records are created through production IPC in a fresh temp profile.
  */
-import {
-  test,
-  expect,
-  _electron as electron,
-  type ElectronApplication,
-  type Locator,
-  type Page
-} from '@playwright/test'
+import { test, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { launchOffGrid } from './helpers/launch'
 import type { ChildProcess } from 'child_process'
 import fs from 'fs'
 import os from 'os'
@@ -38,8 +32,7 @@ async function waitForExit(child: ChildProcess): Promise<void> {
 }
 
 async function launchApp(): Promise<void> {
-  app = await electron.launch({
-    args: ['.'],
+  app = await launchOffGrid({
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir,
