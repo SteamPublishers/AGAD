@@ -6,6 +6,7 @@ import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
 import { createSettingsStore, initializeSettingsStore } from './settings-store'
+import { CORE_SYNC_ENTITIES, emitSyncMutation } from './sync-mutation'
 import type {
   RagConversationContract,
   RagMessageContract,
@@ -1374,6 +1375,7 @@ export function createRagConversation(
         VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `
   ).run(id, title || null, projectId || null)
+  emitSyncMutation({ entity: CORE_SYNC_ENTITIES.conversation, entityId: id, kind: 'put' })
   return id
 }
 
@@ -1415,9 +1417,14 @@ export function getRagConversation(id: string): RagConversation | null {
 
 export function setRagConversationProject(id: string, projectId: string | null): void {
   const db = getDB()
-  db.prepare(
-    `UPDATE rag_conversations SET project_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-  ).run(projectId, id)
+  const result = db
+    .prepare(
+      `UPDATE rag_conversations SET project_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    )
+    .run(projectId, id)
+  if (result.changes === 1) {
+    emitSyncMutation({ entity: CORE_SYNC_ENTITIES.conversation, entityId: id, kind: 'put' })
+  }
 }
 
 /** Conversation ids whose MESSAGE CONTENT matches a query (all terms, AND) — so the
@@ -1482,16 +1489,29 @@ export function updateRagConversationTitle(id: string, title: string): RagConver
   if (result.changes !== 1) {
     throw new Error(`Conversation not found: ${id}`)
   }
+  emitSyncMutation({ entity: CORE_SYNC_ENTITIES.conversation, entityId: id, kind: 'put' })
   return getRagConversation(id)!
 }
 
 export function deleteRagConversation(id: string): boolean {
   const db = getDB()
+  const messages = db
+    .prepare('SELECT uuid FROM rag_messages WHERE conversation_id = ?')
+    .all(id) as Array<{ uuid: string }>
   // FKs are off (no PRAGMA foreign_keys), so rag_messages' ON DELETE CASCADE never
   // fires — delete the conversation's messages explicitly or they orphan (D23).
   db.prepare('DELETE FROM rag_messages WHERE conversation_id = ?').run(id)
   const info = db.prepare('DELETE FROM rag_conversations WHERE id = ?').run(id)
-  return info.changes > 0
+  if (info.changes === 0) return false
+  for (const message of messages) {
+    emitSyncMutation({
+      entity: CORE_SYNC_ENTITIES.message,
+      entityId: message.uuid,
+      kind: 'delete'
+    })
+  }
+  emitSyncMutation({ entity: CORE_SYNC_ENTITIES.conversation, entityId: id, kind: 'delete' })
+  return true
 }
 
 export function addRagMessage(
@@ -1502,6 +1522,7 @@ export function addRagMessage(
 ): number {
   const db = getDB()
   const contextJson = context ? JSON.stringify(context) : null
+  const uuid = crypto.randomUUID()
 
   // uuid is the cross-device identity for sync (the autoincrement id is device-local).
   const info = db
@@ -1511,7 +1532,7 @@ export function addRagMessage(
         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `
     )
-    .run(crypto.randomUUID(), conversationId, role, content, contextJson)
+    .run(uuid, conversationId, role, content, contextJson)
 
   // Update conversation updated_at timestamp
   db.prepare(
@@ -1520,6 +1541,12 @@ export function addRagMessage(
     `
   ).run(conversationId)
 
+  emitSyncMutation({ entity: CORE_SYNC_ENTITIES.message, entityId: uuid, kind: 'put' })
+  emitSyncMutation({
+    entity: CORE_SYNC_ENTITIES.conversation,
+    entityId: conversationId,
+    kind: 'put'
+  })
   return Number(info.lastInsertRowid)
 }
 
@@ -1528,12 +1555,22 @@ export function addRagMessage(
 export function truncateRagMessages(conversationId: string, keepCount: number): number {
   const db = getDB()
   const rows = db
-    .prepare(`SELECT id FROM rag_messages WHERE conversation_id = ? ORDER BY id ASC`)
-    .all(conversationId) as { id: number }[]
-  const toDelete = rows.slice(Math.max(0, keepCount)).map((r) => r.id)
+    .prepare(`SELECT id, uuid FROM rag_messages WHERE conversation_id = ? ORDER BY id ASC`)
+    .all(conversationId) as Array<{ id: number; uuid: string }>
+  const toDelete = rows.slice(Math.max(0, keepCount))
   if (!toDelete.length) return 0
   const ph = toDelete.map(() => '?').join(',')
-  return db.prepare(`DELETE FROM rag_messages WHERE id IN (${ph})`).run(...toDelete).changes
+  const result = db
+    .prepare(`DELETE FROM rag_messages WHERE id IN (${ph})`)
+    .run(...toDelete.map(({ id }) => id))
+  for (const message of toDelete) {
+    emitSyncMutation({
+      entity: CORE_SYNC_ENTITIES.message,
+      entityId: message.uuid,
+      kind: 'delete'
+    })
+  }
+  return result.changes
 }
 
 export function getRagMessages(conversationId: string): RagMessage[] {

@@ -6,6 +6,7 @@
 
 import { getDB } from '../database'
 import { deleteArtifactsForProject } from '../artifacts'
+import { CORE_SYNC_ENTITIES, emitSyncMutation } from '../sync-mutation'
 import type { VectorStore, ChunkCandidate } from '@offgrid/rag'
 import type { MediaKind, Project, RagDocument } from '@offgrid/rag'
 
@@ -236,6 +237,7 @@ export function createProject(p: {
       'INSERT INTO projects (id, name, description, system_prompt, icon) VALUES (?, ?, ?, ?, ?)'
     )
     .run(p.id, p.name, p.description ?? '', p.systemPrompt ?? '', p.icon ?? null)
+  emitSyncMutation({ entity: CORE_SYNC_ENTITIES.project, entityId: p.id, kind: 'put' })
 }
 
 export function updateProject(
@@ -275,12 +277,30 @@ export function updateProject(
   if (!sets.length) return
   sets.push("updated_at = datetime('now')")
   args.push(id)
-  db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...args)
+  const result = db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...args)
+  if (result.changes === 1) {
+    emitSyncMutation({ entity: CORE_SYNC_ENTITIES.project, entityId: id, kind: 'put' })
+  }
 }
 
 export function deleteProject(id: string): void {
   migrate()
   const db = getDB()
+  const projectExists =
+    db.prepare('SELECT 1 AS present FROM projects WHERE id = ?').get(id) !== undefined
+  const conversations = db
+    .prepare('SELECT id FROM rag_conversations WHERE project_id = ?')
+    .all(id) as Array<{ id: string }>
+  const conversationIds = conversations.map(({ id: conversationId }) => conversationId)
+  const messages =
+    conversationIds.length === 0
+      ? []
+      : (db
+          .prepare(
+            `SELECT uuid FROM rag_messages
+             WHERE conversation_id IN (${conversationIds.map(() => '?').join(', ')})`
+          )
+          .all(...conversationIds) as Array<{ uuid: string }>)
   const tx = db.transaction(() => {
     const docs = db.prepare('SELECT id FROM rag_documents WHERE project_id = ?').all(id) as {
       id: number
@@ -307,4 +327,20 @@ export function deleteProject(id: string): void {
   // Artifacts (generated images/docs) are files, not DB rows — clean them outside
   // the transaction so a deleted project's artifacts don't linger in the library.
   deleteArtifactsForProject(id)
+  if (!projectExists) return
+  for (const message of messages) {
+    emitSyncMutation({
+      entity: CORE_SYNC_ENTITIES.message,
+      entityId: message.uuid,
+      kind: 'delete'
+    })
+  }
+  for (const conversation of conversations) {
+    emitSyncMutation({
+      entity: CORE_SYNC_ENTITIES.conversation,
+      entityId: conversation.id,
+      kind: 'delete'
+    })
+  }
+  emitSyncMutation({ entity: CORE_SYNC_ENTITIES.project, entityId: id, kind: 'delete' })
 }

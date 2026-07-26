@@ -38,5 +38,7 @@ export const HOOKS = {
    *  system/context with captured memory + entity/observation context (pro). */
   chatAugmentContext: 'chat.augmentContext',
   /** () => Promise<SearchSource[]> — extra universal-search sources (pro). */
-  searchExtraSources: 'search.extraSources'
+  searchExtraSources: 'search.extraSources',
+  /** (mutation: SyncMutation) => void - record a committed core data change in Pro sync. */
+  syncRecordLocalMutation: 'sync.recordLocalMutation'
 } as const
