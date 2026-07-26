@@ -606,21 +606,21 @@ export interface TransferredModelManifest {
   files: Array<{ name: string; sizeBytes: number }>
 }
 
-function localRegistryFile(): string {
-  return path.join(llm.getModelsDir(), 'local-models.json')
+function localRegistryFile(dir = llm.getModelsDir()): string {
+  return path.join(dir, 'local-models.json')
 }
 
-export function getLocalModels(): LocalModel[] {
+export function getLocalModels(dir = llm.getModelsDir()): LocalModel[] {
   try {
-    const arr = JSON.parse(fs.readFileSync(localRegistryFile(), 'utf-8'))
+    const arr = JSON.parse(fs.readFileSync(localRegistryFile(dir), 'utf-8'))
     return Array.isArray(arr) ? (arr as LocalModel[]) : []
   } catch {
     return []
   }
 }
-function saveLocalModels(list: LocalModel[]): void {
+function saveLocalModels(list: LocalModel[], dir = llm.getModelsDir()): void {
   try {
-    fs.writeFileSync(localRegistryFile(), JSON.stringify(list, null, 2))
+    fs.writeFileSync(localRegistryFile(dir), JSON.stringify(list, null, 2))
   } catch {
     /* best effort */
   }
@@ -675,9 +675,11 @@ function transferredFilesOnDisk(
  * Resolve one installed, file-backed model for device transfer. Runtime caches such as mflux are
  * intentionally excluded because they are directory trees, not portable model files.
  */
-export async function getTransferableModel(modelId: string): Promise<TransferableModel | null> {
-  const dir = llm.getModelsDir()
-  const local = getLocalModels().find((model) => model.id === modelId)
+export async function getTransferableModel(
+  modelId: string,
+  dir = llm.getModelsDir()
+): Promise<TransferableModel | null> {
+  const local = getLocalModels(dir).find((model) => model.id === modelId)
   const downloaded = findDownloaded(dir, modelId)
   const { CATALOG } = await import('@offgrid/models')
   const catalog = CATALOG.find((model) => model.id === modelId)
@@ -717,7 +719,8 @@ export async function getTransferableModel(modelId: string): Promise<Transferabl
  * free-form and local models are recorded in their existing registries.
  */
 export async function registerTransferredModel(
-  manifest: TransferredModelManifest
+  manifest: TransferredModelManifest,
+  dir = llm.getModelsDir()
 ): Promise<{ success: boolean; error?: string; id?: string }> {
   if (
     !manifest.id ||
@@ -730,7 +733,6 @@ export async function registerTransferredModel(
     return { success: false, error: 'model manifest is invalid' }
   }
 
-  const dir = llm.getModelsDir()
   const resolved = transferredFilesOnDisk(dir, manifest.files)
   if (!resolved.files) return { success: false, error: resolved.error }
 
@@ -755,7 +757,7 @@ export async function registerTransferredModel(
       (file) => file.name !== primary.name && /\.gguf$/i.test(file.name)
     )
     const id = `local:${primary.name}`
-    const list = getLocalModels().filter((model) => model.id !== id)
+    const list = getLocalModels(dir).filter((model) => model.id !== id)
     list.push({
       id,
       name: manifest.name,
@@ -764,8 +766,8 @@ export async function registerTransferredModel(
       kind: mmproj ? 'vision' : 'text',
       sizeBytes: primary.sizeBytes
     })
-    saveLocalModels(list)
-    if (!getLocalModels().some((model) => model.id === id)) {
+    saveLocalModels(list, dir)
+    if (!getLocalModels(dir).some((model) => model.id === id)) {
       return { success: false, error: 'could not register the transferred local model' }
     }
     return { success: true, id }
@@ -780,7 +782,9 @@ export async function registerTransferredModel(
   if (!findDownloaded(dir, manifest.id)) {
     return { success: false, error: 'could not register the transferred model' }
   }
-  await reconcileActiveModelProjector().catch(() => false)
+  if (dir === llm.getModelsDir()) {
+    await reconcileActiveModelProjector().catch(() => false)
+  }
   return { success: true, id: manifest.id }
 }
 
