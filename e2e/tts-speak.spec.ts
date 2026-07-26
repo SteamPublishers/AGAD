@@ -4,7 +4,7 @@
  * be stopped. The heavyweight ONNX worker is the only replaced boundary.
  */
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
-import { launchOffGrid } from './helpers/launch'
+import { launchOffGrid, targetIsPackaged } from './helpers/launch'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -114,9 +114,22 @@ test('Speak sends clean text through production TTS and plays local WAV audio (#
   await expect(page.getByText('A local reply with code', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Speak', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
-  await expect.poll(() => fs.existsSync(spokenTextPath)).toBe(true)
-  expect(fs.readFileSync(spokenTextPath, 'utf8')).toBe('A local reply with code')
+  // Generous for the PACKAGED build: first synthesis spawns the TTS worker from inside the
+  // signed bundle, which is slower to start than the dev path (the same cold-start effect that
+  // makes the packaged gateway need ~25s in smoke.spec.ts).
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible({
+    timeout: 45_000
+  })
+  // The markdown-stripping assertion relies on the FAKE tts-worker injected via
+  // OFFGRID_RESOURCE_DIR. A packaged host deliberately ignores that override for executable
+  // code (runtime-env.ts applicationCodeFile: honouring it would let external JavaScript bypass
+  // the integrity-checked ASAR — the anti-tamper lever behind the ASAR fuses). So on the
+  // packaged target the REAL Kokoro worker runs and no capture file is written. Assert the real
+  // path there rather than weakening that control; the dev target keeps the text-cleanup check.
+  if (!targetIsPackaged()) {
+    await expect.poll(() => fs.existsSync(spokenTextPath)).toBe(true)
+    expect(fs.readFileSync(spokenTextPath, 'utf8')).toBe('A local reply with code')
+  }
 
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Speak', exact: true })).toBeVisible()

@@ -128,7 +128,10 @@ test('system:health IPC returns the component list', async () => {
           return false
         }
       },
-      { timeout: 10000 }
+      // Generous because a PACKAGED cold start brings the gateway up noticeably slower than
+      // the dev build: the equivalent check in packaged-app-smoke.spec.ts needs ~24s, so a 10s
+      // budget failed against the real .app while the gateway was merely still starting.
+      { timeout: 30_000 }
     )
     .toBe(true)
 
@@ -183,7 +186,10 @@ test('gateway /v1/models serves active local models with modality metadata', asy
           return false
         }
       },
-      { timeout: 10000 }
+      // Generous because a PACKAGED cold start brings the gateway up noticeably slower than
+      // the dev build: the equivalent check in packaged-app-smoke.spec.ts needs ~24s, so a 10s
+      // budget failed against the real .app while the gateway was merely still starting.
+      { timeout: 30_000 }
     )
     .toBe(true)
 
