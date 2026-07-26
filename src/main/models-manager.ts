@@ -582,6 +582,30 @@ export interface LocalModel {
   sizeBytes: number
 }
 
+export type TransferableModelSource = 'catalog' | 'downloaded' | 'local'
+
+export interface TransferableModelFile {
+  name: string
+  sizeBytes: number
+  path: string
+}
+
+export interface TransferableModel {
+  id: string
+  name: string
+  kind: string
+  source: TransferableModelSource
+  files: TransferableModelFile[]
+}
+
+export interface TransferredModelManifest {
+  id: string
+  name: string
+  kind: string
+  source: TransferableModelSource
+  files: Array<{ name: string; sizeBytes: number }>
+}
+
 function localRegistryFile(): string {
   return path.join(llm.getModelsDir(), 'local-models.json')
 }
@@ -601,6 +625,165 @@ function saveLocalModels(list: LocalModel[]): void {
     /* best effort */
   }
 }
+
+function safeTransferredFileName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name.length <= 255 &&
+    path.basename(name) === name &&
+    name !== '.' &&
+    name !== '..'
+  )
+}
+
+function transferredFilesOnDisk(
+  dir: string,
+  files: Array<{ name: string; sizeBytes: number }>
+): { error?: string; files?: TransferableModelFile[] } {
+  if (files.length === 0) return { error: 'model has no transferable files' }
+  const names = new Set<string>()
+  const resolved: TransferableModelFile[] = []
+  for (const file of files) {
+    if (
+      !safeTransferredFileName(file.name) ||
+      !Number.isSafeInteger(file.sizeBytes) ||
+      file.sizeBytes <= 0 ||
+      names.has(file.name)
+    ) {
+      return { error: 'model manifest contains an invalid file' }
+    }
+    names.add(file.name)
+    const filePath = path.join(dir, file.name)
+    let actualSize = 0
+    try {
+      actualSize = fs.statSync(filePath).size
+    } catch {
+      return { error: `${file.name}: transferred file is missing` }
+    }
+    if (actualSize !== file.sizeBytes) {
+      return { error: `${file.name}: transferred file size does not match the manifest` }
+    }
+    if (/\.gguf$/i.test(file.name) && !isValidGgufFile(filePath, fs)) {
+      return { error: `${file.name}: transferred file is not a valid GGUF model` }
+    }
+    resolved.push({ ...file, path: filePath })
+  }
+  return { files: resolved }
+}
+
+/**
+ * Resolve one installed, file-backed model for device transfer. Runtime caches such as mflux are
+ * intentionally excluded because they are directory trees, not portable model files.
+ */
+export async function getTransferableModel(modelId: string): Promise<TransferableModel | null> {
+  const dir = llm.getModelsDir()
+  const local = getLocalModels().find((model) => model.id === modelId)
+  const downloaded = findDownloaded(dir, modelId)
+  const { CATALOG } = await import('@offgrid/models')
+  const catalog = CATALOG.find((model) => model.id === modelId)
+
+  const source: TransferableModelSource | null = local
+    ? 'local'
+    : downloaded
+      ? 'downloaded'
+      : catalog && catalog.runtime !== 'mflux'
+        ? 'catalog'
+        : null
+  if (!source) return null
+
+  const names = local
+    ? [local.primary, local.mmproj].filter((name): name is string => Boolean(name))
+    : downloaded
+      ? downloaded.files
+      : (catalog?.files.map((file) => file.name) ?? [])
+  const files = transferredFilesOnDisk(
+    dir,
+    names.map((name) => ({ name, sizeBytes: fileSizeOf(dir, name) }))
+  ).files
+  if (!files) return null
+
+  return {
+    id: modelId,
+    name: local?.name ?? downloaded?.name ?? catalog?.name ?? modelId,
+    kind: local?.kind ?? downloaded?.kind ?? catalog?.kind ?? 'text',
+    source,
+    files
+  }
+}
+
+/**
+ * Register model files only after the transfer owner has checksum-verified and atomically promoted
+ * every file into the models directory. The catalog remains the source of truth for known models;
+ * free-form and local models are recorded in their existing registries.
+ */
+export async function registerTransferredModel(
+  manifest: TransferredModelManifest
+): Promise<{ success: boolean; error?: string; id?: string }> {
+  if (
+    !manifest.id ||
+    manifest.id.length > 512 ||
+    !manifest.name ||
+    manifest.name.length > 512 ||
+    !manifest.kind ||
+    manifest.kind.length > 128
+  ) {
+    return { success: false, error: 'model manifest is invalid' }
+  }
+
+  const dir = llm.getModelsDir()
+  const resolved = transferredFilesOnDisk(dir, manifest.files)
+  if (!resolved.files) return { success: false, error: resolved.error }
+
+  const { CATALOG } = await import('@offgrid/models')
+  const catalog = CATALOG.find((model) => model.id === manifest.id)
+  if (catalog) {
+    const expected = new Set(catalog.files.map((file) => file.name))
+    const received = new Set(manifest.files.map((file) => file.name))
+    if (expected.size !== received.size || [...expected].some((name) => !received.has(name))) {
+      return { success: false, error: 'transferred catalog model files do not match the catalog' }
+    }
+    return { success: true, id: manifest.id }
+  }
+
+  if (manifest.source === 'local') {
+    const primary =
+      manifest.files.find(
+        (file) => /\.gguf$/i.test(file.name) && !/mmproj|projector/i.test(file.name)
+      ) ?? manifest.files.find((file) => /\.gguf$/i.test(file.name))
+    if (!primary) return { success: false, error: 'local model transfer requires a GGUF file' }
+    const mmproj = manifest.files.find(
+      (file) => file.name !== primary.name && /\.gguf$/i.test(file.name)
+    )
+    const id = `local:${primary.name}`
+    const list = getLocalModels().filter((model) => model.id !== id)
+    list.push({
+      id,
+      name: manifest.name,
+      primary: primary.name,
+      mmproj: mmproj?.name,
+      kind: mmproj ? 'vision' : 'text',
+      sizeBytes: primary.sizeBytes
+    })
+    saveLocalModels(list)
+    if (!getLocalModels().some((model) => model.id === id)) {
+      return { success: false, error: 'could not register the transferred local model' }
+    }
+    return { success: true, id }
+  }
+
+  recordDownloaded(dir, {
+    id: manifest.id,
+    name: manifest.name,
+    kind: manifest.kind,
+    files: manifest.files.map((file) => file.name)
+  })
+  if (!findDownloaded(dir, manifest.id)) {
+    return { success: false, error: 'could not register the transferred model' }
+  }
+  await reconcileActiveModelProjector().catch(() => false)
+  return { success: true, id: manifest.id }
+}
+
 /** Set of every filename referenced by the local registry (primary + mmproj), so
  *  storage/orphan logic never deletes an imported model. */
 function localProtectedNames(): Set<string> {
