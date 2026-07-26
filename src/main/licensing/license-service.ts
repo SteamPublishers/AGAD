@@ -147,6 +147,43 @@ export function checkProStatus(): boolean {
   return isProActive(cache)
 }
 
+function lastSeenAt(machine: KeygenMachine): number {
+  if (!machine.lastSeen) return Number.NEGATIVE_INFINITY
+  const parsed = Date.parse(machine.lastSeen)
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY
+}
+
+/**
+ * Claim a seat for this install. If all five seats are occupied, replace the least-recently-seen
+ * other install and retry once. Keygen remains the owner of the cap; this service owns the product
+ * policy for which stale seat gives way.
+ */
+async function activateWithSeatReplacement(
+  key: string,
+  licenseId: string,
+  device: { fingerprint: string; platform: string },
+  knownFull = false
+): Promise<{ ok: boolean; limitReached: boolean }> {
+  if (!knownFull) {
+    const firstAttempt = await activateMachine(key, licenseId, device)
+    if (!firstAttempt.limitReached) return firstAttempt
+  }
+
+  const machines = await listMachines(key, licenseId)
+  const replacement = machines
+    .filter((machine) => machine.fingerprint !== device.fingerprint)
+    .sort((left, right) => {
+      const byLastSeen = lastSeenAt(left) - lastSeenAt(right)
+      return byLastSeen || left.id.localeCompare(right.id)
+    })[0]
+
+  if (!replacement) return { ok: false, limitReached: true }
+  if (!(await deactivateMachine(key, replacement.id))) {
+    return { ok: false, limitReached: true }
+  }
+  return activateMachine(key, licenseId, device)
+}
+
 /**
  * Re-check the stored key with Keygen when online. A revoked or expired key flips
  * the cached flag to false and locks the app. Network errors are swallowed so
@@ -179,8 +216,9 @@ async function revalidatePro(): Promise<void> {
         verifiedAt: Date.now()
       })
     } else if (NEEDS_ACTIVATION.includes(r.code) && r.license) {
-      // Valid key but this device lost its slot — try to reclaim it.
-      const act = await activateMachine(lic.key, r.license.id, {
+      // Valid key but this device lost its slot - reclaim it, replacing the stalest other install
+      // when the license is already using all five seats.
+      const act = await activateWithSeatReplacement(lic.key, r.license.id, {
         fingerprint: fp,
         platform: getPlatformTag()
       })
@@ -231,14 +269,35 @@ export async function activateProByKey(rawKey: string): Promise<ActivateResult> 
     })
     return { ok: true }
   }
-  if (r.code === 'TOO_MANY_MACHINES') return { ok: false, reason: 'limit' }
+  if (r.code === 'TOO_MANY_MACHINES') {
+    if (!r.license) return { ok: false, reason: 'limit' }
+    try {
+      const act = await activateWithSeatReplacement(
+        key,
+        r.license.id,
+        { fingerprint: fp, platform: getPlatformTag() },
+        true
+      )
+      if (!act.ok) return { ok: false, reason: act.limitReached ? 'limit' : 'invalid' }
+      writeLicense({
+        isPro: true,
+        key,
+        licenseId: r.license.id,
+        expiry: r.license.expiry,
+        verifiedAt: Date.now()
+      })
+      return { ok: true }
+    } catch {
+      return { ok: false, reason: 'network' }
+    }
+  }
   if (REVOKED_CODES.includes(r.code) || !r.license) return { ok: false, reason: 'invalid' }
 
   // Valid key, this device not yet activated — claim a slot.
   if (NEEDS_ACTIVATION.includes(r.code)) {
     let act
     try {
-      act = await activateMachine(key, r.license.id, {
+      act = await activateWithSeatReplacement(key, r.license.id, {
         fingerprint: fp,
         platform: getPlatformTag()
       })
