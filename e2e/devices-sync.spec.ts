@@ -12,15 +12,37 @@ import path from 'node:path'
 import { launchOffGrid } from './helpers/launch'
 import { completeOnboarding } from './helpers/onboarding'
 import { navButton } from './helpers/settings'
+import { SyncEngine, type DeviceInfo } from '@offgrid/sync'
+import { NodeTcpTransport } from '@offgrid/sync/node'
 
 const PRO_PRESENT = fs.existsSync(path.resolve('pro/package.json'))
 
 let app: ElectronApplication
 let page: Page
 let userDataDir: string
+let syntheticPeer: SyncEngine | null = null
 
 const launch = async (pro: '0' | '1'): Promise<void> => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `offgrid-devices-${pro}-`))
+  if (pro === '1') {
+    const modelsDir = path.join(userDataDir, 'models')
+    const fileName = 'synthetic-transfer-q4.gguf'
+    const bytes = Buffer.alloc(4096, 7)
+    bytes.write('GGUF', 0, 'ascii')
+    fs.mkdirSync(modelsDir, { recursive: true })
+    fs.writeFileSync(path.join(modelsDir, fileName), bytes)
+    fs.writeFileSync(
+      path.join(modelsDir, 'downloaded-models.json'),
+      JSON.stringify([
+        {
+          id: 'off-grid/synthetic-transfer',
+          name: 'Synthetic Transfer Model',
+          kind: 'text',
+          files: [fileName]
+        }
+      ])
+    )
+  }
   app = await launchOffGrid({
     env: { OFFGRID_USER_DATA: userDataDir, OFFGRID_PRO: pro, NODE_ENV: 'production' }
   })
@@ -45,6 +67,8 @@ const openSyncSettings = async (): Promise<void> => {
 }
 
 const teardown = async (): Promise<void> => {
+  await syntheticPeer?.stop().catch(() => {})
+  syntheticPeer = null
   await app?.close().catch(() => {})
   if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true })
 }
@@ -91,6 +115,62 @@ test.describe('Devices surface — pro tier', () => {
       await expect(page.getByRole('switch', { name: label })).toBeVisible()
     }
     await page.screenshot({ path: 'e2e/screenshots/devices-sync-settings.png' })
+  })
+
+  test('pairs a real synthetic peer and opens the model transfer chooser', async () => {
+    await navButton(page, 'Devices').click()
+    const listening = page.getByText(/Listening on port \d+/)
+    const text = await listening.textContent()
+    const port = Number(text?.match(/port (\d+)/)?.[1])
+    expect(port).toBeGreaterThan(0)
+    const desktop = await page.evaluate(async () =>
+      (
+        window as unknown as {
+          api: {
+            proInvoke(channel: string): Promise<{ localDevice: DeviceInfo; port: number }>
+          }
+        }
+      ).api.proInvoke('pro:sync:status')
+    )
+
+    const local: DeviceInfo = {
+      id: 'synthetic-android',
+      name: 'Synthetic Android',
+      platform: 'android',
+      version: 'test',
+      host: '127.0.0.1',
+      port: 0
+    }
+    syntheticPeer = new SyncEngine({
+      localDevice: local,
+      transport: new NodeTcpTransport()
+    })
+    await syntheticPeer.start(0)
+    await syntheticPeer.pair(
+      {
+        ...desktop.localDevice,
+        host: '127.0.0.1',
+        port
+      },
+      'synthetic-pair-code'
+    )
+
+    await expect(
+      page.getByRole('heading', { name: 'Synthetic Android wants to pair' })
+    ).toBeVisible()
+    await page.getByLabel('Incoming pairing code').fill('synthetic-pair-code')
+    await page.getByRole('button', { name: 'Accept' }).click()
+    await expect(page.getByText('Synthetic Android').first()).toBeVisible()
+    await expect(page.getByText('Connected', { exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Send model' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Send a model to Synthetic Android' })
+    ).toBeVisible()
+    await expect(page.getByText('Synthetic Transfer Model')).toBeVisible()
+    await expect(page.getByText('synthetic-transfer-q4.gguf')).toBeVisible()
+    await page.screenshot({ path: 'e2e/screenshots/devices-model-transfer.png' })
+    await page.getByRole('button', { name: 'Close', exact: true }).first().click()
   })
 
   test('turning a category off persists across a screen change', async () => {
