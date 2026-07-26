@@ -1,5 +1,6 @@
 import { _electron as electron, type ElectronApplication } from '@playwright/test'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 /**
@@ -40,6 +41,45 @@ export const packagedTargetUnavailable = (): string | null => {
   return null
 }
 
+/**
+ * Seed a cached Pro license into the launch profile so pro-dependent specs can run against the
+ * PACKAGED build.
+ *
+ * Why this is needed: getForcedProActivation (src/main/bootstrap/pro-activation.ts) honours
+ * OFFGRID_PRO=1 only when NOT packaged — a shipped app deliberately cannot be unlocked by an env
+ * var, it must satisfy a real license check. So in a packaged run every pro spec failed with
+ * "No handler registered for 'vault:init' / 'clipboard:list'", because pro never activated.
+ *
+ * Why a CACHED fixture rather than activating per run: each spec uses a fresh temp profile, and
+ * Keygen claims a machine slot per device fingerprint. Activating per launch would register a new
+ * machine on every app start (20+ per suite run). Instead we activate ONCE out-of-band and copy
+ * the resulting license.json + device-fingerprint in, so every run reuses the SAME machine slot
+ * and validates offline from cache — zero additional activations.
+ *
+ * Seeded ONLY when the spec asks for pro (OFFGRID_PRO=1). Specs that pass OFFGRID_PRO=0 assert
+ * free-tier UI (locked tabs, upgrade screens) and must stay unlicensed — '0' forces free even
+ * when packaged, so those stay deterministic.
+ *
+ * The fixture lives OUTSIDE the repo (default ~/.offgrid-e2e-license) and holds a real license
+ * key — never commit it, never print its contents.
+ */
+const LICENSE_FIXTURE_FILES = ['license.json', 'device-fingerprint']
+
+export const licenseFixtureDir = (): string =>
+  process.env.OFFGRID_E2E_LICENSE_FIXTURE ?? path.join(os.homedir(), '.offgrid-e2e-license')
+
+export const licenseFixtureAvailable = (): boolean =>
+  LICENSE_FIXTURE_FILES.every((f) => fs.existsSync(path.join(licenseFixtureDir(), f)))
+
+const seedLicense = (env: Record<string, string>): void => {
+  const userDataDir = env.OFFGRID_USER_DATA
+  if (!userDataDir || env.OFFGRID_PRO !== '1' || !licenseFixtureAvailable()) return
+  fs.mkdirSync(userDataDir, { recursive: true })
+  for (const file of LICENSE_FIXTURE_FILES) {
+    fs.copyFileSync(path.join(licenseFixtureDir(), file), path.join(userDataDir, file))
+  }
+}
+
 export interface LaunchOptions {
   env?: Record<string, string | undefined>
   /** Extra Chromium/Electron flags (e.g. fake media devices). Applied to both targets. */
@@ -53,6 +93,8 @@ export const launchOffGrid = async (options: LaunchOptions = {}): Promise<Electr
   if (targetIsPackaged()) {
     const unavailable = packagedTargetUnavailable()
     if (unavailable) throw new Error(`Cannot launch the packaged app: ${unavailable}`)
+    // A packaged build ignores OFFGRID_PRO=1, so pro specs need a real cached license.
+    seedLicense(env)
     // A packaged app loads its own app.asar — passing '.' would point it at the repo instead.
     return electron.launch({ executablePath: packagedExecutable(), args: extraArgs, env })
   }
