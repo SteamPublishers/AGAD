@@ -656,7 +656,11 @@ function transferredFilesOnDisk(
     const filePath = path.join(dir, file.name)
     let actualSize = 0
     try {
-      actualSize = fs.statSync(filePath).size
+      const stat = fs.lstatSync(filePath)
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        return { error: `${file.name}: transferred file is not a regular file` }
+      }
+      actualSize = stat.size
     } catch {
       return { error: `${file.name}: transferred file is missing` }
     }

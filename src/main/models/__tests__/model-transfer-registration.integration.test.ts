@@ -11,6 +11,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-model-transfer-re
 process.env.OFFGRID_DATA_DIR = dataDir
 
 const manager = await import('../../models-manager')
+const downloaded = await import('../../downloaded-models')
 
 function validGguf(marker: number): Buffer {
   return Buffer.concat([Buffer.from('GGUF', 'ascii'), Buffer.alloc(2_048, marker)])
@@ -87,5 +88,33 @@ describe('device-transferred model registration', () => {
       error: 'corrupt.gguf: transferred file is not a valid GGUF model'
     })
     expect(await manager.listInstalled()).not.toContain('off-grid/corrupt')
+  })
+
+  it('rejects symlinked model bytes for both sending and receiving', async () => {
+    const outside = path.join(dataDir, 'outside.gguf')
+    const linked = 'linked.gguf'
+    const bytes = validGguf(9)
+    fs.writeFileSync(outside, bytes)
+    fs.symlinkSync(outside, path.join(dataDir, 'models', linked))
+    downloaded.recordDownloaded(path.join(dataDir, 'models'), {
+      id: 'off-grid/linked',
+      name: 'Linked',
+      kind: 'text',
+      files: [linked]
+    })
+
+    expect(
+      await manager.registerTransferredModel({
+        id: 'off-grid/linked',
+        name: 'Linked',
+        kind: 'text',
+        source: 'downloaded',
+        files: [{ name: linked, sizeBytes: bytes.length }]
+      })
+    ).toEqual({
+      success: false,
+      error: 'linked.gguf: transferred file is not a regular file'
+    })
+    expect(await manager.getTransferableModel('off-grid/linked')).toBeNull()
   })
 })
