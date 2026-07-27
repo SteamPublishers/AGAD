@@ -223,27 +223,40 @@ interface MemoryChatProps {
 }
 
 function mapRagMessages(raw: any[]): ChatMessage[] {
-  return raw.map((m: any) => {
+  return raw.flatMap((m: any) => {
     const ctx = m.context
       ? typeof m.context === 'string'
         ? JSON.parse(m.context)
         : m.context
       : undefined
-    return {
-      id: String(m.id),
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-      context: ctx,
-      // Reasoning rides in the context blob so the "Thinking" block survives reload.
-      reasoning: readReasoning(ctx),
-      cutoff: readResponseCutoff(ctx),
-      toolCalls: Array.isArray(ctx?.toolCalls) ? ctx.toolCalls : undefined,
-      image: ctx?.image ? `ogcapture://${ctx.image}` : undefined,
-      imagePath: ctx?.image,
-      imageMetadata: ctx?.imageMetadata,
-      // Attachments persisted on the user turn (clickable chips survive reload).
-      attachments: Array.isArray(ctx?.attachments) ? ctx.attachments : undefined
+    const reasoning = readReasoning(ctx)
+    // Mobile tool turns can persist a delimiter-only intermediate assistant row before the
+    // tool result and final answer. It carries no thought content and must not become a visible
+    // "<think> </think>" bubble on Desktop.
+    if (
+      m.role === 'assistant' &&
+      /^<think>\s*<\/think>$/i.test(String(m.content).trim()) &&
+      reasoning === undefined
+    ) {
+      return []
     }
+    return [
+      {
+        id: String(m.id),
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        context: ctx,
+        // Reasoning rides in the context blob so the "Thinking" block survives reload.
+        reasoning,
+        cutoff: readResponseCutoff(ctx),
+        toolCalls: Array.isArray(ctx?.toolCalls) ? ctx.toolCalls : undefined,
+        image: ctx?.image ? `ogcapture://${ctx.image}` : undefined,
+        imagePath: ctx?.image,
+        imageMetadata: ctx?.imageMetadata,
+        // Attachments persisted on the user turn (clickable chips survive reload).
+        attachments: Array.isArray(ctx?.attachments) ? ctx.attachments : undefined
+      }
+    ]
   })
 }
 
