@@ -9,10 +9,11 @@ import { test, expect, type ElectronApplication, type Page } from '@playwright/t
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { launchOffGrid } from './helpers/launch'
 import { completeOnboarding } from './helpers/onboarding'
 import { navButton } from './helpers/settings'
-import { SyncEngine, type DeviceInfo } from '@offgrid/sync'
+import { OpLog, StateSync, SyncEngine, type DeviceInfo, type Materializer } from '@offgrid/sync'
 import { NodeTcpTransport } from '@offgrid/sync/node'
 
 const PRO_PRESENT = fs.existsSync(path.resolve('pro/package.json'))
@@ -21,6 +22,11 @@ let app: ElectronApplication
 let page: Page
 let userDataDir: string
 let syntheticPeer: SyncEngine | null = null
+let syntheticState: StateSync | null = null
+const syntheticRecords = new Map<
+  string,
+  { entity: string; entityId: string; fields: Record<string, unknown> }
+>()
 
 const launch = async (pro: '0' | '1'): Promise<void> => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `offgrid-devices-${pro}-`))
@@ -69,6 +75,8 @@ const openSyncSettings = async (): Promise<void> => {
 const teardown = async (): Promise<void> => {
   await syntheticPeer?.stop().catch(() => {})
   syntheticPeer = null
+  syntheticState = null
+  syntheticRecords.clear()
   await app?.close().catch(() => {})
   if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true })
 }
@@ -117,7 +125,7 @@ test.describe('Devices surface — pro tier', () => {
     await page.screenshot({ path: 'e2e/screenshots/devices-sync-settings.png' })
   })
 
-  test('pairs a real synthetic peer and opens the model transfer chooser', async () => {
+  test('pairs a real peer and converges projects and chats through the rendered app', async () => {
     await navButton(page, 'Devices').click()
     const listening = page.getByText(/Listening on port \d+/)
     const text = await listening.textContent()
@@ -141,9 +149,34 @@ test.describe('Devices surface — pro tier', () => {
       host: '127.0.0.1',
       port: 0
     }
+
+    const materializer: Materializer = {
+      put: (entity, entityId, fields) => {
+        syntheticRecords.set(`${entity}:${entityId}`, { entity, entityId, fields })
+      },
+      remove: (entity, entityId) => {
+        syntheticRecords.delete(`${entity}:${entityId}`)
+      }
+    }
+    const syntheticLog = new OpLog({
+      deviceId: local.id,
+      materializer,
+      uuid: randomUUID,
+      now: Date.now
+    })
+    syntheticState = new StateSync({
+      oplog: syntheticLog,
+      send: (deviceId, message) => {
+        syntheticPeer?.sendApp(deviceId, 'state', message)
+      }
+    })
     syntheticPeer = new SyncEngine({
       localDevice: local,
-      transport: new NodeTcpTransport()
+      transport: new NodeTcpTransport(),
+      onAppMessage: (deviceId, channel, data) => {
+        if (channel === 'state') syntheticState?.onMessage(deviceId, data)
+      },
+      onPaired: (device) => syntheticState?.onConnect(device.id)
     })
     await syntheticPeer.start(0)
     await syntheticPeer.pair(
@@ -162,7 +195,69 @@ test.describe('Devices surface — pro tier', () => {
     await page.getByRole('button', { name: 'Accept' }).click()
     await expect(page.getByText('Synthetic Android').first()).toBeVisible()
     await expect(page.getByText('Connected', { exact: true })).toBeVisible()
+    await expect.poll(() => syntheticPeer?.isPaired(desktop.localDevice.id)).toBe(true)
 
+    const timestamp = new Date().toISOString()
+    const inboundOps = [
+      syntheticLog.record('project', 'synced-project', 'put', {
+        name: 'Synced from phone',
+        description: 'A project delivered over encrypted device sync.',
+        system_prompt: '',
+        icon: null,
+        include_memory: 1,
+        created_at: timestamp,
+        updated_at: timestamp
+      }),
+      syntheticLog.record('conversation', 'synced-conversation', 'put', {
+        title: 'Cross-device notes',
+        project_id: 'synced-project',
+        created_at: timestamp,
+        updated_at: timestamp
+      }),
+      syntheticLog.record('message', 'synced-message', 'put', {
+        conversation_id: 'synced-conversation',
+        role: 'user',
+        content: 'This arrived over encrypted sync.',
+        context: null,
+        created_at: timestamp
+      })
+    ]
+    expect(
+      syntheticPeer.sendApp(desktop.localDevice.id, 'state', { t: 'ops', ops: inboundOps })
+    ).toBe(true)
+    await expect
+      .poll(async () => {
+        const status = await page.evaluate(async () =>
+          (
+            window as unknown as {
+              api: { proInvoke(channel: string): Promise<{ ops: number }> }
+            }
+          ).api.proInvoke('pro:sync:status')
+        )
+        return status.ops
+      })
+      .toBeGreaterThanOrEqual(inboundOps.length)
+
+    await navButton(page, 'Projects').click()
+    const syncedProject = page.getByRole('button', { name: 'Synced from phone' })
+    await expect(syncedProject).toBeVisible()
+    await syncedProject.click()
+    await expect(page.getByRole('button', { name: /Cross-device notes/ })).toBeVisible()
+    await page.screenshot({ path: 'e2e/screenshots/devices-state-sync.png' })
+
+    await page.getByTitle('New project').click()
+    await page.getByPlaceholder('Project name…').fill('Created on desktop')
+    await page.getByPlaceholder('Project name…').press('Enter')
+    await expect(page.getByRole('button', { name: 'Created on desktop' })).toBeVisible()
+    await expect
+      .poll(() =>
+        [...syntheticRecords.values()].some(
+          (record) => record.entity === 'project' && record.fields.name === 'Created on desktop'
+        )
+      )
+      .toBe(true)
+
+    await navButton(page, 'Devices').click()
     await page.getByRole('button', { name: 'Send model' }).click()
     await expect(
       page.getByRole('heading', { name: 'Send a model to Synthetic Android' })
