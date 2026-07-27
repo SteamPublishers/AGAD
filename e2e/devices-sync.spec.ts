@@ -119,9 +119,13 @@ test.describe('Devices surface — pro tier', () => {
     await expect(page.getByRole('heading', { name: 'Data sent from this device' })).toBeVisible()
     // One switch per user-facing category, plus the master switch.
     await expect(page.getByRole('switch', { name: 'Sync enabled' })).toBeVisible()
-    for (const label of ['Sync Chats', 'Sync Projects', 'Sync Model settings']) {
+    for (const label of ['Sync Chats', 'Sync Projects', 'Sync Model settings', 'Sync Clipboard']) {
       await expect(page.getByRole('switch', { name: label })).toBeVisible()
     }
+    await expect(page.getByRole('switch', { name: 'Sync Clipboard' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
     await page.screenshot({ path: 'e2e/screenshots/devices-sync-settings.png' })
   })
 
@@ -272,9 +276,13 @@ test.describe('Devices surface — pro tier', () => {
     await navButton(page, 'Devices').click()
     await openSyncSettings()
     const chats = page.getByRole('switch', { name: 'Sync Chats' })
+    const clipboard = page.getByRole('switch', { name: 'Sync Clipboard' })
     await expect(chats).toHaveAttribute('aria-checked', 'true')
+    await expect(clipboard).toHaveAttribute('aria-checked', 'false')
     await chats.click()
+    await clipboard.click()
     await expect(chats).toHaveAttribute('aria-checked', 'false')
+    await expect(clipboard).toHaveAttribute('aria-checked', 'true')
 
     // Leave and come back: the preference is persisted in main, not just React state.
     await navButton(page, 'Models').click()
@@ -283,6 +291,10 @@ test.describe('Devices surface — pro tier', () => {
     await expect(page.getByRole('switch', { name: 'Sync Chats' })).toHaveAttribute(
       'aria-checked',
       'false'
+    )
+    await expect(page.getByRole('switch', { name: 'Sync Clipboard' })).toHaveAttribute(
+      'aria-checked',
+      'true'
     )
   })
 
