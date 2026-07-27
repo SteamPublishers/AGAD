@@ -329,12 +329,14 @@ describe('macOS artifact integrity', () => {
       },
       path.join(REPO_ROOT, 'electron-builder.yml')
     )
-    const extendInfo = Object.assign({}, ...(loaded.result.mac?.extendInfo ?? []))
+    const extendInfo = loaded.result.mac?.extendInfo
 
-    expect(extendInfo.NSLocalNetworkUsageDescription).toBe(
-      'Off Grid AI Desktop uses your local network to find and sync directly with your devices. Sync traffic is encrypted and no Off Grid server receives it.'
-    )
-    expect(extendInfo.NSBonjourServices).toEqual(['_offgrid._tcp'])
+    expect(Array.isArray(extendInfo)).toBe(false)
+    expect(extendInfo).toMatchObject({
+      NSLocalNetworkUsageDescription:
+        'Off Grid AI Desktop uses your local network to find and sync directly with your devices. Sync traffic is encrypted and no Off Grid server receives it.',
+      NSBonjourServices: ['_offgrid._tcp']
+    })
   })
 
   it('uses the real production matcher to exclude repository data and development modules', async () => {
