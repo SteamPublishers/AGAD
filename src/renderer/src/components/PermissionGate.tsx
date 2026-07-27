@@ -2,8 +2,17 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { BorderBeam } from './ui/border-beam'
 import { GridBackdrop } from './ui/grid-backdrop'
+import { Button } from './ui/button'
 import { cn } from '@renderer/lib/utils'
-import { Shield, Eye, Check, X, ArrowsClockwise as RefreshCw, Cpu } from '@phosphor-icons/react'
+import {
+  Shield,
+  Eye,
+  Check,
+  X,
+  ArrowsClockwise as RefreshCw,
+  Cpu,
+  WifiHigh
+} from '@phosphor-icons/react'
 import { SetupPanel } from './setup/SetupPanel'
 import { deviceNoun } from '@renderer/lib/device'
 import type { PermissionStatusContract } from '../../../shared/ipc-contracts'
@@ -154,6 +163,14 @@ export function PermissionGate({ children }: PermissionGateProps) {
     }
   }
 
+  const handleOpenLocalNetworkSettings = async () => {
+    try {
+      await window.api.openLocalNetworkSettings()
+    } catch (e) {
+      console.error('Failed to open local network settings:', e)
+    }
+  }
+
   const handleRefresh = () => {
     setIsChecking(true)
     checkPermissions()
@@ -214,6 +231,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
         {!ready && !setupDismissed && (
           <SetupNudge
             missingModel={!modelStatus?.downloaded}
+            missingLocalNetwork={isPro && permissionStatus?.localNetwork === false}
             onOpen={() => setShowSetup(true)}
             onDismiss={() => setSetupDismissed(true)}
           />
@@ -325,7 +343,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
             </p>
           </motion.div>
 
-          {/* Capture permissions — Pro only. */}
+          {/* System permissions - Pro only. */}
           {isPro && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -334,9 +352,9 @@ export function PermissionGate({ children }: PermissionGateProps) {
               className="mb-8"
             >
               <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-neutral-600">
-                Capture permissions
+                System permissions
               </div>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
                 <PermissionCard
                   title="Accessibility"
                   description="Read text from AI chat windows"
@@ -352,6 +370,14 @@ export function PermissionGate({ children }: PermissionGateProps) {
                   granted={permissionStatus?.screenRecording ?? false}
                   onOpenSettings={handleOpenScreenRecordingSettings}
                   delay={0.9}
+                />
+                <PermissionCard
+                  title="Local Network"
+                  description="Find and sync directly with your devices"
+                  icon={<WifiHigh className="w-5 h-5" />}
+                  granted={permissionStatus?.localNetwork ?? false}
+                  onOpenSettings={handleOpenLocalNetworkSettings}
+                  delay={0.95}
                 />
               </div>
             </motion.div>
@@ -404,6 +430,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
 // Non-blocking: people can explore the whole app and finish setup whenever.
 function SetupNudge({
   missingModel,
+  missingLocalNetwork,
   issue,
   modelName,
   progress,
@@ -411,6 +438,7 @@ function SetupNudge({
   onDismiss
 }: {
   missingModel?: boolean
+  missingLocalNetwork?: boolean
   issue?: VisionIssue['kind']
   modelName?: string | null
   progress?: number | null
@@ -427,7 +455,9 @@ function SetupNudge({
         ? 'Capture needs a vision model'
         : missingModel
           ? 'Set up your local AI'
-          : 'Finish setting up capture'
+          : missingLocalNetwork
+            ? 'Allow Local Network access'
+            : 'Finish setting up capture'
   const detail =
     issue === 'missing-projector'
       ? `${modelName ?? 'The active model'} can read images after its vision projector is downloaded.`
@@ -435,7 +465,9 @@ function SetupNudge({
         ? `${modelName ?? 'The active model'} cannot analyze Replay frames. Choose a vision-capable chat model.`
         : missingModel
           ? `Pick a model yourself, or let Off Grid configure one for your ${deviceNoun()}.`
-          : 'Grant screen and accessibility access so Off Grid can see and remember.'
+          : missingLocalNetwork
+            ? 'Allow this Mac to find and sync directly with your devices.'
+            : 'Grant screen and accessibility access so Off Grid can see and remember.'
   const cta =
     progress != null
       ? `Downloading ${String(progress)}%`
@@ -546,16 +578,19 @@ function PermissionCard({
         </div>
 
         {!granted && (
-          <button
+          <Button
             onClick={onOpenSettings}
+            aria-label={`Open ${title} settings`}
+            variant="outline"
+            size="sm"
             className={cn(
-              'w-full px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200',
+              'w-full text-xs font-medium transition-all duration-150 active:scale-95',
               'bg-neutral-800 border border-neutral-700 text-neutral-300',
               'hover:bg-neutral-700 hover:text-white'
             )}
           >
             Open Settings
-          </button>
+          </Button>
         )}
       </div>
     </motion.div>

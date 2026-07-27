@@ -46,7 +46,8 @@ import {
   requestScreenRecordingPermission,
   openAccessibilitySettings,
   openScreenRecordingSettings,
-  openMicrophoneSettings
+  openMicrophoneSettings,
+  openLocalNetworkSettings
 } from './permissions'
 import { setupSystemStatusIpc } from './system-status-ipc'
 import { CACHE_CLEANUP_CHANNEL } from '../shared/ipc-contracts'
@@ -1125,6 +1126,11 @@ export function setupIPC() {
 
   ipcMain.handle('permissions:open-microphone-settings', () => {
     openMicrophoneSettings()
+    return true
+  })
+
+  ipcMain.handle('permissions:open-local-network-settings', () => {
+    openLocalNetworkSettings()
     return true
   })
 

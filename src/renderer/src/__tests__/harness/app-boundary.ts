@@ -20,6 +20,7 @@ export function installAppBoundary(overrides: Record<string, unknown> = {}): voi
     getPermissionStatus: async () => ({
       accessibility: true,
       screenRecording: true,
+      localNetwork: true,
       allGranted: true
     }),
     checkModelStatus: async () => ({ downloaded: true, modelsDir: '/tmp/models' }),

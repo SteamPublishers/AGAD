@@ -292,6 +292,7 @@ const offGridApi = {
   openScreenRecordingSettings: () =>
     ipcRenderer.invoke('permissions:open-screen-recording-settings'),
   openMicrophoneSettings: () => ipcRenderer.invoke('permissions:open-microphone-settings'),
+  openLocalNetworkSettings: () => ipcRenderer.invoke('permissions:open-local-network-settings'),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
 

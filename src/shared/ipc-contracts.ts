@@ -44,6 +44,7 @@ export interface RagChatResultContract {
 export interface PermissionStatusContract {
   accessibility: boolean
   screenRecording: boolean
+  localNetwork: boolean
   allGranted: boolean
 }
 
