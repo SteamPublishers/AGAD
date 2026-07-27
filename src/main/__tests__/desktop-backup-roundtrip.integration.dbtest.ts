@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { DesktopBackupArchive } from '../backup/archive'
 import { DesktopBackupDataPort } from '../backup/data-port'
 import { DesktopBackupFileMapper } from '../backup/file-mapper'
-import type { DesktopBackupData, DesktopRestoreSummary } from '../backup/types'
+import { registerDesktopBackupIPC, type BackupIpcBoundary } from '../backup/ipc'
+import type { DesktopBackupDelivery, DesktopBackupEngine } from '../backup'
+import { BACKUP_EXPORT_ALL_CHANNEL, BACKUP_IMPORT_CHANNEL } from '../../shared/backup-contracts'
 
 const roots: string[] = []
 const databases: Database.Database[] = []
@@ -69,12 +71,12 @@ function database(root: string): Database.Database {
   return db
 }
 
-class PathSink implements BackupSink<string> {
+class PathSink implements BackupSink<DesktopBackupDelivery> {
   picked: string | null = null
 
-  async deliverFile(absPath: string): Promise<string> {
+  async deliverFile(absPath: string): Promise<DesktopBackupDelivery> {
     this.picked = absPath
-    return absPath
+    return { canceled: false, path: absPath }
   }
 
   async pickFile(): Promise<string | null> {
@@ -82,11 +84,21 @@ class PathSink implements BackupSink<string> {
   }
 }
 
-function engine(
-  db: Database.Database,
-  root: string,
-  sink: PathSink
-): BackupEngine<DesktopBackupData, DesktopRestoreSummary, string> {
+class BackupIpcHarness implements BackupIpcBoundary {
+  private readonly handlers = new Map<string, (event: unknown) => Promise<unknown>>()
+
+  handle(channel: string, handler: (event: unknown) => Promise<unknown>): void {
+    this.handlers.set(channel, handler)
+  }
+
+  invoke<T>(channel: string): Promise<T> {
+    const handler = this.handlers.get(channel)
+    if (!handler) throw new Error(`No handler registered for ${channel}`)
+    return handler({}) as Promise<T>
+  }
+}
+
+function engine(db: Database.Database, root: string, sink: PathSink): DesktopBackupEngine {
   return new BackupEngine(
     new DesktopBackupDataPort(db),
     new DesktopBackupFileMapper(),
@@ -171,8 +183,8 @@ describe('desktop portable Backup & Restore', () => {
     seedSource(sourceDb, sourceRoot)
 
     const sink = new PathSink()
-    const archivePath = await engine(sourceDb, sourceRoot, sink).exportAll()
-    expect(archivePath).toMatch(/offgrid-backup-2026-07-27T12-00-00-000Z\.zip$/)
+    const delivery = await engine(sourceDb, sourceRoot, sink).exportAll()
+    expect(delivery?.path).toMatch(/offgrid-backup-2026-07-27T12-00-00-000Z\.zip$/)
 
     const first = await engine(targetDb, targetRoot, sink).import()
     expect(first).toEqual({
@@ -209,6 +221,38 @@ describe('desktop portable Backup & Restore', () => {
     })
     expect(targetDb.prepare('SELECT COUNT(*) AS count FROM rag_documents').get()).toEqual({
       count: 1
+    })
+  })
+
+  it('exports and restores through the desktop IPC boundary', async () => {
+    const root = tempRoot('ipc')
+    const db = database(root)
+    seedSource(db, root)
+    const sink = new PathSink()
+    const backup = engine(db, root, sink)
+    const ipc = new BackupIpcHarness()
+    registerDesktopBackupIPC(ipc, backup)
+
+    const delivery = await ipc.invoke<DesktopBackupDelivery>(BACKUP_EXPORT_ALL_CHANNEL)
+    expect(delivery.path).toMatch(/offgrid-backup-2026-07-27T12-00-00-000Z\.zip$/)
+
+    db.exec(`
+      DELETE FROM rag_chunks;
+      DELETE FROM rag_documents;
+      DELETE FROM rag_messages;
+      DELETE FROM rag_conversations;
+      DELETE FROM projects;
+    `)
+
+    await expect(ipc.invoke(BACKUP_IMPORT_CHANNEL)).resolves.toEqual({
+      projectsAdded: 1,
+      conversationsAdded: 1,
+      messagesAdded: 1,
+      documentsAdded: 1
+    })
+    expect(db.prepare('SELECT name FROM projects').get()).toEqual({ name: 'Aurora' })
+    expect(db.prepare('SELECT title FROM rag_conversations').get()).toEqual({
+      title: 'Launch plan'
     })
   })
 })

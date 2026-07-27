@@ -14,6 +14,7 @@ import { currentPlatform } from '@renderer/lib/device'
 import { proComingSoonHere } from './pro/proCatalog'
 import { SoftwareUpdateSection } from './SoftwareUpdateSection'
 import { ProcessingControls } from './ProcessingControls'
+import { BackupRestoreSection } from './BackupRestoreSection'
 export { ModelPipelineSection } from './ProcessingControls'
 
 export function Settings(): React.ReactElement {
@@ -157,6 +158,14 @@ export function Settings(): React.ReactElement {
               delay={0.42}
             >
               <DataPrivacyPanel />
+            </SettingsCard>
+
+            <SettingsCard
+              title="Backup & restore"
+              summary="Save a portable copy of your chats, projects, and knowledge files."
+              delay={0.44}
+            >
+              <BackupRestoreSection />
             </SettingsCard>
 
             {/* Keyboard shortcuts — one reference for every hotkey (core + pro rows). */}

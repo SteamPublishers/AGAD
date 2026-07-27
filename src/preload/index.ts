@@ -7,6 +7,12 @@ import {
   type SystemHealthContract
 } from '../shared/ipc-contracts'
 import type { ImageGenerationRequestContract } from '../shared/image-generation-contract'
+import {
+  BACKUP_EXPORT_ALL_CHANNEL,
+  BACKUP_IMPORT_CHANNEL,
+  type BackupDeliveryContract,
+  type BackupRestoreSummaryContract
+} from '../shared/backup-contracts'
 
 console.log('PRELOAD SCRIPT LOADED')
 
@@ -384,6 +390,10 @@ const offGridApi = {
   clearDataCategory: (id: string, olderThanDays?: number) =>
     ipcRenderer.invoke('data:clear', id, olderThanDays),
   deleteAllData: () => ipcRenderer.invoke('data:delete-all'),
+  exportBackup: () =>
+    ipcRenderer.invoke(BACKUP_EXPORT_ALL_CHANNEL) as Promise<BackupDeliveryContract | null>,
+  importBackup: () =>
+    ipcRenderer.invoke(BACKUP_IMPORT_CHANNEL) as Promise<BackupRestoreSummaryContract | null>,
   onSetupProgress: (callback: (data: unknown) => void) => {
     const subscription = (_event: unknown, data: unknown): void => callback(data)
     ipcRenderer.on('setup:progress', subscription)
