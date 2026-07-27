@@ -70,7 +70,7 @@ describe('core sync mutation contract', () => {
     ])
   })
 
-  it('reports every child tombstone when messages or a parent are removed', () => {
+  it('reports child deletion and unfiling mutations when owners are removed', () => {
     mutations.length = 0
     createProject({ id: 'project-delete', name: 'Delete me' })
     createRagConversation('conversation-delete', 'Delete me', 'project-delete')
@@ -97,8 +97,7 @@ describe('core sync mutation contract', () => {
     mutations.length = 0
     deleteProject('project-delete')
     expect(mutations.map(({ entity, kind }) => [entity, kind])).toEqual([
-      ['message', 'delete'],
-      ['conversation', 'delete'],
+      ['conversation', 'put'],
       ['project', 'delete']
     ])
   })

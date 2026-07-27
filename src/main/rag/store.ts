@@ -12,7 +12,8 @@ import type { MediaKind, Project, RagDocument } from '@offgrid/rag'
 
 let migrated = false
 
-function migrate(): void {
+/** Ensure the core-owned RAG tables exist before any owner reads or materializes them. */
+export function ensureRagStoreSchema(): void {
   if (migrated) return
   const db = getDB()
   db.exec(`
@@ -61,7 +62,7 @@ function parseEmbedding(s: string | null): number[] {
 
 /** Whether a project folds captured memories into its KB (default on). */
 export function projectIncludesMemory(projectId: string): boolean {
-  migrate()
+  ensureRagStoreSchema()
   const row = getDB().prepare('SELECT include_memory FROM projects WHERE id = ?').get(projectId) as
     | { include_memory: number }
     | undefined
@@ -70,7 +71,7 @@ export function projectIncludesMemory(projectId: string): boolean {
 
 export const desktopVectorStore: VectorStore = {
   async addDocument(doc) {
-    migrate()
+    ensureRagStoreSchema()
     const info = getDB()
       .prepare(
         'INSERT INTO rag_documents (project_id, name, path, size, kind) VALUES (?, ?, ?, ?, ?)'
@@ -80,7 +81,7 @@ export const desktopVectorStore: VectorStore = {
   },
 
   async addChunks(docId, chunks, embeddings) {
-    migrate()
+    ensureRagStoreSchema()
     const db = getDB()
     const insert = db.prepare(
       'INSERT INTO rag_chunks (doc_id, content, position, embedding) VALUES (?, ?, ?, ?)'
@@ -95,7 +96,7 @@ export const desktopVectorStore: VectorStore = {
   },
 
   async getChunkCandidates(projectId) {
-    migrate()
+    ensureRagStoreSchema()
     const db = getDB()
     const out: ChunkCandidate[] = []
 
@@ -151,7 +152,7 @@ export const desktopVectorStore: VectorStore = {
   },
 
   async listDocuments(projectId) {
-    migrate()
+    ensureRagStoreSchema()
     const rows = getDB()
       .prepare(
         'SELECT id, project_id, name, path, size, kind, enabled, created_at FROM rag_documents WHERE project_id = ? ORDER BY created_at DESC'
@@ -181,14 +182,14 @@ export const desktopVectorStore: VectorStore = {
   },
 
   async setDocumentEnabled(docId, enabled) {
-    migrate()
+    ensureRagStoreSchema()
     getDB()
       .prepare('UPDATE rag_documents SET enabled = ? WHERE id = ?')
       .run(enabled ? 1 : 0, docId)
   },
 
   async deleteDocument(docId) {
-    migrate()
+    ensureRagStoreSchema()
     const db = getDB()
     const tx = db.transaction(() => {
       db.prepare('DELETE FROM rag_chunks WHERE doc_id = ?').run(docId)
@@ -201,7 +202,7 @@ export const desktopVectorStore: VectorStore = {
 // --- Projects + threads CRUD (not part of the engine's VectorStore) ---------
 
 export function listProjects(): (Project & { includeMemory: boolean })[] {
-  migrate()
+  ensureRagStoreSchema()
   const rows = getDB().prepare('SELECT * FROM projects ORDER BY updated_at DESC').all() as {
     id: string
     name: string
@@ -231,7 +232,7 @@ export function createProject(p: {
   systemPrompt?: string
   icon?: string
 }): void {
-  migrate()
+  ensureRagStoreSchema()
   getDB()
     .prepare(
       'INSERT INTO projects (id, name, description, system_prompt, icon) VALUES (?, ?, ?, ?, ?)'
@@ -250,7 +251,7 @@ export function updateProject(
     includeMemory?: boolean
   }
 ): void {
-  migrate()
+  ensureRagStoreSchema()
   const db = getDB()
   const sets: string[] = []
   const args: unknown[] = []
@@ -284,23 +285,13 @@ export function updateProject(
 }
 
 export function deleteProject(id: string): void {
-  migrate()
+  ensureRagStoreSchema()
   const db = getDB()
   const projectExists =
     db.prepare('SELECT 1 AS present FROM projects WHERE id = ?').get(id) !== undefined
   const conversations = db
     .prepare('SELECT id FROM rag_conversations WHERE project_id = ?')
     .all(id) as Array<{ id: string }>
-  const conversationIds = conversations.map(({ id: conversationId }) => conversationId)
-  const messages =
-    conversationIds.length === 0
-      ? []
-      : (db
-          .prepare(
-            `SELECT uuid FROM rag_messages
-             WHERE conversation_id IN (${conversationIds.map(() => '?').join(', ')})`
-          )
-          .all(...conversationIds) as Array<{ uuid: string }>)
   const tx = db.transaction(() => {
     const docs = db.prepare('SELECT id FROM rag_documents WHERE project_id = ?').all(id) as {
       id: number
@@ -309,18 +300,13 @@ export function deleteProject(id: string): void {
       db.prepare('DELETE FROM rag_chunks WHERE doc_id = ?').run(d.id)
     }
     db.prepare('DELETE FROM rag_documents WHERE project_id = ?').run(id)
-    // Chats scoped to this project live in rag_conversations (+ rag_messages).
-    // Without this they orphan to a now-deleted project id, still badged to a
-    // phantom project and grounding against an empty project. FKs are off (no
-    // PRAGMA foreign_keys), so delete rag_messages explicitly rather than relying
-    // on rag_messages' ON DELETE CASCADE, which never fires.
-    const convs = db.prepare('SELECT id FROM rag_conversations WHERE project_id = ?').all(id) as {
-      id: string
-    }[]
-    for (const c of convs) {
-      db.prepare('DELETE FROM rag_messages WHERE conversation_id = ?').run(c.id)
-    }
-    db.prepare('DELETE FROM rag_conversations WHERE project_id = ?').run(id)
+    // A project is a folder and knowledge scope, not the owner of chat history. Removing it moves
+    // its conversations back to unfiled Chat while preserving every message.
+    db.prepare(
+      `UPDATE rag_conversations
+       SET project_id = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE project_id = ?`
+    ).run(id)
     db.prepare('DELETE FROM projects WHERE id = ?').run(id)
   })
   tx()
@@ -328,18 +314,11 @@ export function deleteProject(id: string): void {
   // the transaction so a deleted project's artifacts don't linger in the library.
   deleteArtifactsForProject(id)
   if (!projectExists) return
-  for (const message of messages) {
-    emitSyncMutation({
-      entity: CORE_SYNC_ENTITIES.message,
-      entityId: message.uuid,
-      kind: 'delete'
-    })
-  }
   for (const conversation of conversations) {
     emitSyncMutation({
       entity: CORE_SYNC_ENTITIES.conversation,
       entityId: conversation.id,
-      kind: 'delete'
+      kind: 'put'
     })
   }
   emitSyncMutation({ entity: CORE_SYNC_ENTITIES.project, entityId: id, kind: 'delete' })

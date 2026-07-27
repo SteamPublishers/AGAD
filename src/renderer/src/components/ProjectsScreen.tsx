@@ -165,7 +165,13 @@ export function ProjectsScreen({
   }
 
   const removeProject = async (id: string): Promise<void> => {
-    if (!window.confirm('Delete this project, its knowledge base and chats?')) return
+    if (
+      !window.confirm(
+        'Delete this project, its knowledge base, and generated artifacts? Its chats stay in Chat.'
+      )
+    ) {
+      return
+    }
     await api.deleteProject?.(id)
     selectProject(null)
     await refreshProjects()
