@@ -374,6 +374,9 @@ export function PermissionGate({ children }: PermissionGateProps) {
                 <PermissionCard
                   title="Local Network"
                   description="Find and sync directly with your devices"
+                  instructions="Select Local Network, then enable Off Grid AI Desktop. Development builds appear as Electron."
+                  actionLabel="Open Privacy & Security"
+                  actionAriaLabel="Open Privacy & Security for Local Network access"
                   icon={<WifiHigh className="w-5 h-5" />}
                   granted={permissionStatus?.localNetwork ?? false}
                   onOpenSettings={handleOpenLocalNetworkSettings}
@@ -511,6 +514,9 @@ function SetupNudge({
 interface PermissionCardProps {
   title: string
   description: string
+  instructions?: string
+  actionLabel?: string
+  actionAriaLabel?: string
   icon: React.ReactNode
   granted: boolean
   onOpenSettings: () => void
@@ -520,6 +526,9 @@ interface PermissionCardProps {
 function PermissionCard({
   title,
   description,
+  instructions,
+  actionLabel = 'Open Settings',
+  actionAriaLabel,
   icon,
   granted,
   onOpenSettings,
@@ -575,12 +584,15 @@ function PermissionCard({
             </div>
           </div>
           <p className="text-xs text-neutral-500">{description}</p>
+          {!granted && instructions ? (
+            <p className="mt-2 text-[10px] leading-4 text-neutral-600">{instructions}</p>
+          ) : null}
         </div>
 
         {!granted && (
           <Button
             onClick={onOpenSettings}
-            aria-label={`Open ${title} settings`}
+            aria-label={actionAriaLabel ?? `Open ${title} settings`}
             variant="outline"
             size="sm"
             className={cn(
@@ -589,7 +601,7 @@ function PermissionCard({
               'hover:bg-neutral-700 hover:text-white'
             )}
           >
-            Open Settings
+            {actionLabel}
           </Button>
         )}
       </div>

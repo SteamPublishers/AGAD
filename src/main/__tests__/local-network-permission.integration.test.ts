@@ -72,10 +72,8 @@ describe('Local Network permission boundary', () => {
     expect(boundary.closeCount).toBe(1)
   })
 
-  it('opens the macOS Local Network privacy pane', () => {
+  it('opens the supported macOS Privacy & Security page', () => {
     openLocalNetworkSettings()
-    expect(boundary.openedUrl).toBe(
-      'x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork'
-    )
+    expect(boundary.openedUrl).toBe('x-apple.systempreferences:com.apple.preference.security')
   })
 })

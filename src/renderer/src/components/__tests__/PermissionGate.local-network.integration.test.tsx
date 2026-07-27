@@ -55,8 +55,15 @@ describe('<PermissionGate/> Local Network recovery', () => {
 
     expect(await screen.findByRole('heading', { name: 'Local Network' })).toBeTruthy()
     expect(screen.getByText('Find and sync directly with your devices')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Select Local Network, then enable Off Grid AI Desktop. Development builds appear as Electron.'
+      )
+    ).toBeTruthy()
 
-    await user.click(screen.getByRole('button', { name: 'Open Local Network settings' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Open Privacy & Security for Local Network access' })
+    )
     expect(openLocalNetworkSettings).toHaveBeenCalledOnce()
   })
 })

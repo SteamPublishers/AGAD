@@ -125,9 +125,10 @@ export function openMicrophoneSettings(): void {
 
 export function openLocalNetworkSettings(): void {
   if (process.platform === 'darwin') {
-    shell.openExternal(
-      'x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork'
-    )
+    // macOS 26 ignores the undocumented Privacy_LocalNetwork anchor and opens the parent page.
+    // Open that supported destination intentionally; the setup card tells the user which row to
+    // select instead of promising a deep link the OS does not honor.
+    shell.openExternal('x-apple.systempreferences:com.apple.preference.security')
   }
 }
 
