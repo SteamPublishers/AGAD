@@ -319,6 +319,24 @@ describe('macOS artifact integrity', () => {
     expect(appMinimum).toBe(llamaMinimum)
   })
 
+  it('declares the local-network purpose and Bonjour service in packaged macOS metadata', async () => {
+    const loaded = await getConfig(
+      {
+        packageKey: 'build',
+        configFilename: 'electron-builder',
+        projectDir: REPO_ROOT,
+        packageMetadata: null
+      },
+      path.join(REPO_ROOT, 'electron-builder.yml')
+    )
+    const extendInfo = Object.assign({}, ...(loaded.result.mac?.extendInfo ?? []))
+
+    expect(extendInfo.NSLocalNetworkUsageDescription).toBe(
+      'Off Grid AI Desktop uses your local network to find and sync directly with your devices. Sync traffic is encrypted and no Off Grid server receives it.'
+    )
+    expect(extendInfo.NSBonjourServices).toEqual(['_offgrid._tcp'])
+  })
+
   it('uses the real production matcher to exclude repository data and development modules', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-builder-matcher-'))
     tempRoots.push(root)
