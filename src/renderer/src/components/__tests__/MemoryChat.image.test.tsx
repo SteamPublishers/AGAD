@@ -33,7 +33,10 @@ import {
 // The real app mounts MemoryChat inside a global TooltipProvider (App shell). Mirror
 // that here so the composer's tooltip-wrapped controls render — this wraps the REAL
 // component, it does not stub any of its behavior.
-function renderChat(openTarget?: { conversationId?: string }): ReturnType<typeof render> {
+function renderChat(openTarget?: {
+  conversationId?: string
+  openGallery?: boolean
+}): ReturnType<typeof render> {
   return render(
     <TooltipProvider>
       <MemoryChat openTarget={openTarget} />
@@ -242,6 +245,7 @@ function installApi(opts: InstallApiOptions): InstalledApi {
     }),
     // --- misc mount-time calls (inert) ---
     listProjects: vi.fn(async () => []),
+    listArtifacts: vi.fn(async () => []),
     styleThumbs: vi.fn(async () => ({})),
     listSkills: vi.fn(async () => []),
     onRagStream: vi.fn(() => () => {}),
@@ -326,6 +330,13 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     })
   })
 
+  it('opens the real Gallery when a synced generated-file destination targets it', async () => {
+    installApi({ active: FULL, models: [FULL] })
+    renderChat({ openGallery: true })
+    expect(await screen.findByText('Gallery')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^images/i })).toBeTruthy()
+  })
+
   it('carries the USER-typed steps (10), not the model default (28), and the picked model', async () => {
     const user = userEvent.setup()
     // Engine reports the full checkpoint (default 28) active, plus the few-step one.
@@ -379,7 +390,9 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
       models: [FULL],
       conversations: [conv],
       // The user already sent the prompt before navigating away, so the conversation has a turn.
-      messages: { 'c-img': [{ id: 1, role: 'user', content: 'a glass observatory under an aurora' }] },
+      messages: {
+        'c-img': [{ id: 1, role: 'user', content: 'a glass observatory under an aurora' }]
+      },
       jobStatus: {
         id: 'job-1',
         phase: 'running',

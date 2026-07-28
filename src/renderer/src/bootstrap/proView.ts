@@ -34,6 +34,7 @@ export interface ProViewContext {
   onSelectEntity: (id: number) => void
   onSelectMemory: (id: number) => void
   onOpenHit: (hit: SearchHit) => void
+  openChatOwner: (target: { conversationId?: string; openGallery?: boolean }) => void
 }
 
 export type ProViewRenderer = (viewMode: string, ctx: ProViewContext) => ReactNode | null

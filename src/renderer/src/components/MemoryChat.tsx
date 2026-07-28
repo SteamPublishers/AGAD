@@ -220,7 +220,7 @@ interface MemoryChatProps {
   /** Open the Replay screen seeked to a capture's moment (epoch ms). */
   onSeekReplay?: (ts: number) => void
   /** Open a specific conversation, or start a new one scoped to a project. */
-  openTarget?: { conversationId?: string; projectId?: string } | null
+  openTarget?: { conversationId?: string; projectId?: string; openGallery?: boolean } | null
   onTargetConsumed?: () => void
 }
 
@@ -1179,6 +1179,7 @@ export function MemoryChat({
           setConvMessages(null, [])
           setActiveProjectId(openTarget.projectId)
         }
+        if (openTarget.openGallery) setShowGallery(true)
         await loadConversations()
       } catch (e) {
         console.error('Failed to open chat target:', e)

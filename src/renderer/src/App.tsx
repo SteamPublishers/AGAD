@@ -260,6 +260,7 @@ function AppContent() {
   const [chatTarget, setChatTarget] = useState<{
     conversationId?: string
     projectId?: string
+    openGallery?: boolean
   } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const rec = useMeetingRecorder()
@@ -615,6 +616,14 @@ function AppContent() {
   // Open a project chat in the main Chat screen (existing convo or new-in-project).
   const handleOpenProjectChat = useCallback(
     (target: { conversationId?: string; projectId?: string }) => {
+      setChatTarget(target)
+      setViewMode('memory-chat')
+    },
+    []
+  )
+
+  const handleOpenChatOwner = useCallback(
+    (target: { conversationId?: string; openGallery?: boolean }) => {
       setChatTarget(target)
       setViewMode('memory-chat')
     },
@@ -1027,7 +1036,8 @@ function AppContent() {
                       rec,
                       onSelectEntity: handleSelectEntity,
                       onSelectMemory: handleSelectMemory,
-                      onOpenHit: handleOpenHit
+                      onOpenHit: handleOpenHit,
+                      openChatOwner: handleOpenChatOwner
                     } satisfies ProViewContext) ?? (
                       <UpgradeScreen feature={getProFeature(viewMode)} />
                     ))
