@@ -2,9 +2,11 @@
 
 Owner: the **desktop** lane. The **mobile** lane runs in parallel on the same engine package.
 Status: implementation in progress. M0-M3 and opt-in text clipboard sharing are verified through
-the desktop user path. M4 has a working first implementation, but its multi-GB, interruption, and
-receiver-load gate remains open. M5 remains open. Code present + wired is not closure (same bar as
-`docs/GAPS_BACKLOG.md`).
+the desktop user path. Knowledge-document Sync, portable tool artifacts, transfer queues, persistent
+device names, stale-session expiry, and Apple nearby transport are implemented on both hosts. Their
+joint physical iOS/macOS gate remains open. M4 has a working first implementation, but its multi-GB,
+interruption, and receiver-load gate remains open. M5 remains open. Code present + wired is not
+closure (same bar as `docs/GAPS_BACKLOG.md`).
 
 ## Scope (first cut, per product direction)
 
@@ -95,8 +97,9 @@ Each milestone states its **verification gate**. No milestone is done without it
 
 ### M1 — Pairing + discovery + transport, headless and real
 
-- **Status: verified.** Real TCP loopback tests cover pairing, encrypted messages, reconnect, bad
-  passphrases, and more than five paired peers.
+- **Status: LAN verified; Apple nearby transport implemented and awaiting the joint physical gate.**
+  Real TCP loopback tests cover pairing, encrypted messages, reconnect, bad passphrases, and more
+  than five paired peers.
   `pro/main/sync/`:
 
 - `sync-service.ts` — composes `NodeDiscovery` + `NodeTcpTransport` + the engine. Owns lifecycle and
@@ -106,9 +109,17 @@ Each milestone states its **verification gate**. No milestone is done without it
   EasyShare's `ConnectionStorage` seam, which is what made its real test possible.
 - Sync does not add a second peer cap. Pro access is owned by licensing, whose five-device seat
   policy automatically replaces the least-recently-seen prior activation when this device signs in.
+- `MultiTransportBridge` and `CompositeDiscoveryService` in shared Sync prefer LAN and fall back to
+  Apple nearby discovery/transport without changing the encrypted Sync protocol. macOS and iOS use
+  MultipeerConnectivity reliable byte sessions with encryption required. BLE and file-type routing
+  are not separate paths.
+- Shared heartbeat traffic runs every 10 seconds and expires a peer after 30 seconds without
+  authenticated traffic, so a removed cable or dead network path cannot remain connected
+  indefinitely.
 - **Gate:** two real service instances pair over **real TCP loopback** in a test, exchange an
-  encrypted message, and tear down cleanly. Fakes only at the persistence boundary. Falsify it:
-  break the pairing check → test goes red.
+  encrypted message, and tear down cleanly. The remaining physical gate disables iPhone Wi-Fi and
+  confirms the same paired devices reconnect over Apple nearby transport, then return to LAN
+  without re-pairing.
 
 ### M2 — Devices surface + inert core shell
 
@@ -166,13 +177,28 @@ Each milestone states its **verification gate**. No milestone is done without it
   same shared coordinator and renders imported documents through its real Project Detail flow.
 - Both hosts stage a file until its project and winning state arrive, honor tombstones before
   import, re-read racing control state after import, and retry staged work after restart.
-- The physical runner is `npm run test:sync:physical`. Preflight is non-mutating; `--execute`
-  builds and restarts the current apps, drives both directions over the existing pair, verifies
-  enable/delete convergence and restart recovery, captures local screenshots, and removes its
-  synthetic documents. It does not pair, forget, push, or run the pre-push gate.
-- **Gate:** with Mac and iPhone on the same Wi-Fi, run the automated journey against an existing
-  synced project and a synthetic file already available in Apple Files. Keep the pre-push gate
-  deferred until this manual-device phase is complete.
+- Transfer attempts are serialized per device by shared `KeyedSerialQueue`. Host UIs retain
+  queued/preparing/active/completed/failed activity, show admission and source failures, and offer
+  retry/dismiss controls without duplicating transport scheduling.
+- **Gate:** manually add a supported text/PDF document on each device and confirm the other device
+  shows and can search it without restart. Toggle enabled and delete from each side, then confirm
+  convergence. Repeat with iPhone Wi-Fi disabled to prove the nearby route carries both state and
+  source bytes. Keep the pre-push gate deferred until this manual-device phase is complete.
+
+### M3d — Chat artifacts, device identity, and physical-test diagnostics
+
+- **Status: implemented on both hosts; physical verification pending.**
+- Completed portable tool artifacts are admitted and serialized by shared Sync, then rendered by
+  each host's existing tool-result UI without re-running the tool.
+- Non-empty short documents such as `op\n` produce an indexed RAG chunk through shared
+  `@offgrid/rag`; Mobile consumes the shared chunker instead of maintaining a divergent copy.
+- The local device name is editable and persistent on both hosts. Renaming updates live discovery
+  advertisement without changing the stable device ID or pairing identity.
+- Generic transfer activity and the knowledge send queue are visible on both hosts. A failed or
+  rejected source remains visible with its error instead of disappearing.
+- **Gate:** manually confirm Desktop tool artifacts render on Mobile, `op.txt` returns its exact
+  indexed contents, local rename is advertised to the peer, queue entries are visible, and an
+  unplugged/unreachable peer changes from Connected to Offline within about 30 seconds.
 
 ### M4 — Model transfer (NOT blocked; use the engine's streaming/HTTP path — see A-1)
 
@@ -213,7 +239,9 @@ Each milestone states its **verification gate**. No milestone is done without it
 
 ## Immediate next action
 
-Run M3c's automated physical iOS ↔ macOS knowledge journey, then run M4's physical multi-GB
-interruption and receiver-load gate. In parallel, resolve A-5 before calling unpair complete. M5
-follows only after the shared policy / queue / watcher contract exists; do not put that policy into
-the desktop host.
+Finish the signed Desktop build with the Apple nearby helper and rebuild/install the Mobile app with
+its native nearby module. Restart Metro once for the Mobile shared-RAG resolution change. Then run
+the manual M1/M3c/M3d iOS/macOS gates without changing the existing pair. After they pass, run the
+deferred pre-push gates once and proceed to M4's physical multi-GB interruption and receiver-load
+gate. Resolve A-5 before calling unpair complete. M5 follows only after the shared policy / queue /
+watcher contract exists; do not put that policy into the desktop host.
