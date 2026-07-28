@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import { canonicalSharedFileMetadataJson } from '@offgrid/sync'
 import {
   type ImageGenerationJobContract,
   type ImageGenerationProgressContract,
@@ -10,6 +13,7 @@ import {
   saveGeneratedImageScope,
   type ImageGenOutput
 } from '../imagegen'
+import { emitSharedFileMutation } from '../sync-shared-file'
 
 export type ImageGenerationJobRequest = ImageGenerationRequestContract & {
   conversationId?: string
@@ -121,6 +125,29 @@ export class ImageGenerationJobService {
         outputPath: result.path ?? null,
         progress: null,
         finishedAt: Date.now()
+      }
+      if (result.path) {
+        const stat = await fs.promises.stat(result.path)
+        emitSharedFileMutation({
+          kind: 'put',
+          filePath: result.path,
+          file: {
+            syncId: id,
+            kind: 'generated_media',
+            name: path.basename(result.path),
+            mimeType: 'image/png',
+            fileSize: stat.size,
+            createdAt: new Date(this.snapshot.startedAt ?? Date.now()).toISOString(),
+            ...(request.conversationId ? { conversationId: request.conversationId } : {}),
+            ...(request.width ? { width: request.width } : {}),
+            ...(request.height ? { height: request.height } : {}),
+            metadataJson: canonicalSharedFileMetadataJson({
+              model: result.model,
+              prompt: request.prompt,
+              seed: result.seed
+            })
+          }
+        })
       }
       this.publish()
       console.log(`[image-job] ${JSON.stringify({ event: 'succeeded', id, path: result.path })}`)

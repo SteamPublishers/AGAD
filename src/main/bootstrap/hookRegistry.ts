@@ -45,5 +45,10 @@ export const HOOKS = {
    * (mutation: KnowledgeDocumentMutation) => void - a committed RAG document lifecycle change.
    * Pro transfers/reconciles it; free builds leave the hook unregistered.
    */
-  syncKnowledgeDocumentMutation: 'sync.knowledgeDocumentMutation'
+  syncKnowledgeDocumentMutation: 'sync.knowledgeDocumentMutation',
+  /**
+   * (mutation: LocalSharedFileMutation) => void - committed generated media or attachment bytes.
+   * Pro owns transfer and consent; free builds leave this inert.
+   */
+  syncSharedFileMutation: 'sync.sharedFileMutation'
 } as const

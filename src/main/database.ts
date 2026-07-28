@@ -1598,7 +1598,7 @@ export function getRagMessages(conversationId: string): RagMessage[] {
   return db
     .prepare(
       `
-        SELECT id, conversation_id, role, content, context,
+        SELECT id, uuid, conversation_id, role, content, context,
                origin_device_id, origin_device_name, created_at
         FROM rag_messages
         WHERE conversation_id = ?

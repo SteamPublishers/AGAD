@@ -1,5 +1,5 @@
 import { callHook, HOOKS } from './bootstrap/hookRegistry'
-import { KNOWLEDGE_DOCUMENT_ENTITY } from '@offgrid/sync'
+import { KNOWLEDGE_DOCUMENT_ENTITY, SHARED_FILE_ENTITY } from '@offgrid/sync'
 
 /**
  * Stable desktop entity names shared by the core writers and the private sync materializer.
@@ -10,6 +10,7 @@ export const CORE_SYNC_ENTITIES = {
   message: 'message',
   project: 'project',
   knowledgeDocument: KNOWLEDGE_DOCUMENT_ENTITY,
+  sharedFile: SHARED_FILE_ENTITY,
   modelSetting: 'model_setting'
 } as const
 

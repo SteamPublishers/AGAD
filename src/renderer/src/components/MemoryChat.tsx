@@ -9,7 +9,6 @@ import { toSpeakableText } from '@renderer/lib/speakable'
 import { isAgenticTurn } from '@renderer/lib/agentic-active'
 import { applyStreamEvent } from '@renderer/lib/stream-reducer'
 import { useActiveModelSummary } from '@renderer/hooks/useActiveModelSummary'
-import { createUiId } from '@renderer/lib/ui-id'
 import { shouldFollowBottom } from '@renderer/lib/scroll-follow'
 import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -200,6 +199,9 @@ type Attachment = {
   kind: 'text' | 'pdf' | 'docx' | 'image' | 'audio' | 'video' | 'pasted'
   text: string
   path?: string // images: persisted path passed to the vision model
+  mimeType?: string
+  fileSize?: number
+  createdAt?: string
   preview?: string // images: a local object URL shown immediately while processing
   status: 'loading' | 'ready' | 'error'
   error?: string
@@ -242,7 +244,7 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
     }
     return [
       {
-        id: String(m.id),
+        id: String(m.uuid ?? m.id),
         role: m.role as 'user' | 'assistant',
         content: m.content,
         context: ctx,
@@ -1297,7 +1299,7 @@ export function MemoryChat({
 
     // Create new conversation if none active
     if (!convId) {
-      convId = createUiId('rag')
+      convId = crypto.randomUUID()
       const title = trimmed.length > 50 ? trimmed.slice(0, 47) + '...' : trimmed
       try {
         await window.api.createRagConversation(convId, title, projectId)
@@ -1316,7 +1318,7 @@ export function MemoryChat({
     markGenerating(convId, true)
     if (!regen) {
       const userMessage: ChatMessage = {
-        id: `u-${Date.now()}`,
+        id: crypto.randomUUID(),
         role: 'user',
         content: trimmed,
         attachments: atts.map((a) => ({ name: a.name, kind: a.kind, text: a.text, path: a.path })),
@@ -1333,10 +1335,14 @@ export function MemoryChat({
     try {
       if (!regen) {
         const attMeta = atts.map((a) => ({
+          id: a.id,
           name: a.name,
           kind: a.kind,
           text: a.text,
-          path: a.path
+          path: a.path,
+          mimeType: a.mimeType,
+          fileSize: a.fileSize,
+          createdAt: a.createdAt
         }))
         await window.api.addRagMessage(
           convId,
@@ -2234,7 +2240,7 @@ export function MemoryChat({
       }
       const usable = chatVision ? arr : arr.filter((f) => !f.type.startsWith('image/'))
       for (const file of usable) {
-        const id = createUiId('att')
+        const id = crypto.randomUUID()
         // Show images as images straight away (local preview) so an upload reads as
         // an image while it captions in the background, not a generic TEXT box.
         const isImg = file.type.startsWith('image/')
@@ -2246,6 +2252,9 @@ export function MemoryChat({
             name: file.name,
             kind: isImg ? 'image' : 'text',
             text: '',
+            mimeType: file.type || undefined,
+            fileSize: file.size,
+            createdAt: new Date().toISOString(),
             preview,
             status: 'loading'
           }
@@ -2310,10 +2319,18 @@ export function MemoryChat({
       const text = dt.getData('text')
       if (text && text.length > 1200) {
         e.preventDefault()
-        const id = createUiId('att')
+        const id = crypto.randomUUID()
         setAttachments((prev) => [
           ...prev,
-          { id, name: 'Pasted text', kind: 'pasted', text, status: 'ready' }
+          {
+            id,
+            name: 'Pasted text',
+            kind: 'pasted',
+            text,
+            fileSize: new TextEncoder().encode(text).byteLength,
+            createdAt: new Date().toISOString(),
+            status: 'ready'
+          }
         ])
       }
     },
