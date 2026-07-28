@@ -254,6 +254,8 @@ export function getDB(): Database.Database {
     CREATE TABLE IF NOT EXISTS rag_conversations (
       id TEXT PRIMARY KEY,
       title TEXT,
+      origin_device_id TEXT,
+      origin_device_name TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -267,6 +269,8 @@ export function getDB(): Database.Database {
       role TEXT NOT NULL,
       content TEXT NOT NULL,
       context TEXT,
+      origin_device_id TEXT,
+      origin_device_name TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(conversation_id) REFERENCES rag_conversations(id) ON DELETE CASCADE
     );
@@ -374,6 +378,13 @@ export function getDB(): Database.Database {
   } catch {
     // Column already exists, ignore
   }
+  for (const column of ['origin_device_id', 'origin_device_name']) {
+    try {
+      db.exec(`ALTER TABLE rag_conversations ADD COLUMN ${column} TEXT`)
+    } catch {
+      // Column already exists, ignore
+    }
+  }
 
   // Migration: Add a stable UUID to rag_messages so chat messages can replicate across devices.
   //
@@ -386,6 +397,13 @@ export function getDB(): Database.Database {
     db.exec(`ALTER TABLE rag_messages ADD COLUMN uuid TEXT`)
   } catch {
     // Column already exists, ignore
+  }
+  for (const column of ['origin_device_id', 'origin_device_name']) {
+    try {
+      db.exec(`ALTER TABLE rag_messages ADD COLUMN ${column} TEXT`)
+    } catch {
+      // Column already exists, ignore
+    }
   }
   // Backfill rows that predate the column. Done in JS because SQLite has no uuid() function.
   try {
@@ -1392,6 +1410,8 @@ export function getRagConversations(projectId?: string | null): RagConversation[
             rc.id,
             rc.title,
             rc.project_id,
+            rc.origin_device_id,
+            rc.origin_device_name,
             rc.created_at,
             rc.updated_at,
             (SELECT COUNT(*) FROM rag_messages rm WHERE rm.conversation_id = rc.id) as message_count
@@ -1407,7 +1427,7 @@ export function getRagConversation(id: string): RagConversation | null {
   return db
     .prepare(
       `
-        SELECT id, title, project_id, created_at, updated_at
+        SELECT id, title, project_id, origin_device_id, origin_device_name, created_at, updated_at
         FROM rag_conversations
         WHERE id = ?
     `
@@ -1578,7 +1598,8 @@ export function getRagMessages(conversationId: string): RagMessage[] {
   return db
     .prepare(
       `
-        SELECT id, conversation_id, role, content, context, created_at
+        SELECT id, conversation_id, role, content, context,
+               origin_device_id, origin_device_name, created_at
         FROM rag_messages
         WHERE conversation_id = ?
         ORDER BY created_at ASC

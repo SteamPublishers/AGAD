@@ -16,6 +16,8 @@ export interface RagConversationContract {
   id: string
   title: string | null
   project_id?: string | null
+  origin_device_id?: string | null
+  origin_device_name?: string | null
   created_at: string
   updated_at: string
   message_count?: number
@@ -27,6 +29,8 @@ export interface RagMessageContract {
   role: 'user' | 'assistant'
   content: string
   context: string | null
+  origin_device_id?: string | null
+  origin_device_name?: string | null
   created_at: string
 }
 

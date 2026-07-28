@@ -26,6 +26,8 @@ export function ensureRagStoreSchema(): void {
       system_prompt TEXT NOT NULL DEFAULT '',
       icon TEXT,
       include_memory INTEGER NOT NULL DEFAULT 1,
+      origin_device_id TEXT,
+      origin_device_name TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -50,6 +52,14 @@ export function ensureRagStoreSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks(doc_id);
     CREATE INDEX IF NOT EXISTS idx_rag_documents_project ON rag_documents(project_id);
   `)
+  const projectColumns = db.prepare("SELECT name FROM pragma_table_info('projects')").all() as {
+    name: string
+  }[]
+  for (const column of ['origin_device_id', 'origin_device_name']) {
+    if (!projectColumns.some(({ name }) => name === column)) {
+      db.exec(`ALTER TABLE projects ADD COLUMN ${column} TEXT`)
+    }
+  }
   const columns = getDB().prepare("SELECT name FROM pragma_table_info('rag_documents')").all() as {
     name: string
   }[]
