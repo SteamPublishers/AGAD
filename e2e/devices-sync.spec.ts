@@ -15,11 +15,14 @@ import { completeOnboarding } from './helpers/onboarding'
 import { navButton } from './helpers/settings'
 import {
   createKnowledgeDocumentStateFields,
+  ClipboardSyncCoordinator,
+  CLIPBOARD_CHANNEL,
   FileTransferManager,
   OpLog,
   StateSync,
   SyncEngine,
   type DeviceInfo,
+  type ClipboardHistoryRecord,
   type Materializer,
   type MembershipRevocationPersistence,
   type MembershipRevocationTombstone,
@@ -41,6 +44,8 @@ let userDataDir: string
 let syntheticPeer: SyncEngine | null = null
 let syntheticState: StateSync | null = null
 let syntheticFiles: FileTransferManager | null = null
+let syntheticClipboard: ClipboardSyncCoordinator | null = null
+const syntheticClipboardRecords = new Map<string, ClipboardHistoryRecord>()
 const syntheticActiveMemberships = new Map<string, PairedDevice>()
 const syntheticPendingRevocations = new Map<string, PendingMembershipRevocation>()
 const syntheticRevocationTombstones = new Map<string, MembershipRevocationTombstone>()
@@ -99,6 +104,8 @@ const teardown = async (): Promise<void> => {
   syntheticState = null
   await syntheticFiles?.dispose().catch(() => {})
   syntheticFiles = null
+  syntheticClipboard = null
+  syntheticClipboardRecords.clear()
   syntheticActiveMemberships.clear()
   syntheticPendingRevocations.clear()
   syntheticRevocationTombstones.clear()
@@ -274,9 +281,32 @@ test.describe('Devices surface — pro tier', () => {
       onMessage: (deviceId, message) => syntheticFiles?.handleMessage(deviceId, message),
       onAppMessage: (deviceId, channel, data) => {
         if (channel === 'state') syntheticState?.onMessage(deviceId, data)
+        if (channel === CLIPBOARD_CHANNEL) {
+          void syntheticClipboard?.onRemoteMessage(data, deviceId)
+        }
       },
       onPaired: (device) => syntheticState?.onConnect(device.id)
     })
+    syntheticClipboard = new ClipboardSyncCoordinator({
+      localDevice: () => local,
+      resolveRemoteDevice: (deviceId) =>
+        deviceId === desktop.localDevice.id ? desktop.localDevice : undefined,
+      enabled: () => true,
+      connectedDeviceIds: () =>
+        syntheticPeer?.isPaired(desktop.localDevice.id) ? [desktop.localDevice.id] : [],
+      send: (deviceId, channel, data) => syntheticPeer?.sendApp(deviceId, channel, data) ?? false,
+      writeNativeText: () => {},
+      persistence: {
+        load: () => [...syntheticClipboardRecords.values()],
+        upsert: (record) => {
+          syntheticClipboardRecords.set(record.id, structuredClone(record))
+        },
+        remove: (id) => {
+          syntheticClipboardRecords.delete(id)
+        }
+      }
+    })
+    await syntheticClipboard.initialize()
     await syntheticPeer.start(0)
     const wrongPairing = syntheticPeer
       .pair(
@@ -325,6 +355,26 @@ test.describe('Devices surface — pro tier', () => {
     await expect(page.getByText('Connected · LAN', { exact: true })).toBeVisible()
     await expect.poll(() => syntheticPeer?.isPaired(desktop.localDevice.id)).toBe(true)
 
+    await openSyncSettings()
+    const copiedText = page.getByRole('switch', { name: 'Sync Copied text' })
+    await expect(copiedText).toHaveAttribute('aria-checked', 'false')
+    await copiedText.click()
+    await expect(copiedText).toHaveAttribute('aria-checked', 'true')
+    await syntheticClipboard.onNativeText({
+      text: 'PingSupport from Android',
+      timestamp: Date.now()
+    })
+    await navButton(page, 'Clipboard').click()
+    await expect(page.getByText('PingSupport from Android', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('Synthetic Android', { exact: true }).first()).toBeVisible()
+
+    await navButton(page, 'Devices').click()
+    await openSyncSettings()
+    await page.getByRole('switch', { name: 'Sync Copied text' }).click()
+    await page
+      .getByRole('navigation', { name: 'Devices control center' })
+      .getByRole('button', { name: 'Devices', exact: true })
+      .click()
     await page.getByRole('button', { name: 'Rescan network' }).click()
     await expect(page.getByRole('button', { name: 'Rescan network' })).toBeEnabled()
     await expect(page.getByText('Synthetic Android').first()).toBeVisible()
