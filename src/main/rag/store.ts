@@ -7,6 +7,8 @@
 import { getDB } from '../database'
 import { deleteArtifactsForProject } from '../artifacts'
 import { CORE_SYNC_ENTITIES, emitSyncMutation } from '../sync-mutation'
+import { emitKnowledgeDocumentMutation } from '../sync-knowledge-document'
+import { randomUUID } from 'crypto'
 import type { VectorStore, ChunkCandidate } from '@offgrid/rag'
 import type { MediaKind, Project, RagDocument } from '@offgrid/rag'
 
@@ -29,6 +31,7 @@ export function ensureRagStoreSchema(): void {
     );
     CREATE TABLE IF NOT EXISTS rag_documents (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sync_id TEXT,
       project_id TEXT NOT NULL,
       name TEXT NOT NULL,
       path TEXT NOT NULL,
@@ -47,6 +50,22 @@ export function ensureRagStoreSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks(doc_id);
     CREATE INDEX IF NOT EXISTS idx_rag_documents_project ON rag_documents(project_id);
   `)
+  const columns = getDB().prepare("SELECT name FROM pragma_table_info('rag_documents')").all() as {
+    name: string
+  }[]
+  if (!columns.some(({ name }) => name === 'sync_id')) {
+    getDB().exec('ALTER TABLE rag_documents ADD COLUMN sync_id TEXT')
+  }
+  const legacy = getDB()
+    .prepare("SELECT id FROM rag_documents WHERE sync_id IS NULL OR sync_id = ''")
+    .all() as Array<{ id: number }>
+  const assignSyncId = getDB().prepare('UPDATE rag_documents SET sync_id = ? WHERE id = ?')
+  getDB().transaction(() => {
+    for (const { id } of legacy) assignSyncId.run(randomUUID(), id)
+  })()
+  getDB().exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_rag_documents_sync_id ON rag_documents(sync_id)'
+  )
   migrated = true
 }
 
@@ -74,9 +93,20 @@ export const desktopVectorStore: VectorStore = {
     ensureRagStoreSchema()
     const info = getDB()
       .prepare(
-        'INSERT INTO rag_documents (project_id, name, path, size, kind) VALUES (?, ?, ?, ?, ?)'
+        `INSERT INTO rag_documents
+           (sync_id, project_id, name, path, size, kind, enabled, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`
       )
-      .run(doc.projectId, doc.name, doc.path, doc.size, doc.kind)
+      .run(
+        doc.syncId ?? randomUUID(),
+        doc.projectId,
+        doc.name,
+        doc.path,
+        doc.size,
+        doc.kind,
+        doc.enabled === false ? 0 : 1,
+        doc.createdAt ?? null
+      )
     return Number(info.lastInsertRowid)
   },
 
@@ -155,10 +185,12 @@ export const desktopVectorStore: VectorStore = {
     ensureRagStoreSchema()
     const rows = getDB()
       .prepare(
-        'SELECT id, project_id, name, path, size, kind, enabled, created_at FROM rag_documents WHERE project_id = ? ORDER BY created_at DESC'
+        `SELECT id, sync_id, project_id, name, path, size, kind, enabled, created_at
+         FROM rag_documents WHERE project_id = ? ORDER BY created_at DESC`
       )
       .all(projectId) as {
       id: number
+      sync_id: string
       project_id: string
       name: string
       path: string
@@ -170,6 +202,7 @@ export const desktopVectorStore: VectorStore = {
     return rows.map(
       (r): RagDocument => ({
         id: r.id,
+        syncId: r.sync_id,
         projectId: r.project_id,
         name: r.name,
         path: r.path,
@@ -197,6 +230,63 @@ export const desktopVectorStore: VectorStore = {
     })
     tx()
   }
+}
+
+type RagDocumentRow = {
+  id: number
+  sync_id: string
+  project_id: string
+  name: string
+  path: string
+  size: number
+  kind: string
+  enabled: number
+  created_at: string
+}
+
+function mapDocument(row: RagDocumentRow): RagDocument {
+  return {
+    id: row.id,
+    syncId: row.sync_id,
+    projectId: row.project_id,
+    name: row.name,
+    path: row.path,
+    size: row.size,
+    kind: row.kind as MediaKind,
+    enabled: row.enabled === 1,
+    createdAt: row.created_at
+  }
+}
+
+const DOCUMENT_SELECT =
+  'SELECT id, sync_id, project_id, name, path, size, kind, enabled, created_at FROM rag_documents'
+
+export function getRagDocument(docId: number): RagDocument | undefined {
+  ensureRagStoreSchema()
+  const row = getDB().prepare(`${DOCUMENT_SELECT} WHERE id = ?`).get(docId) as
+    | RagDocumentRow
+    | undefined
+  return row ? mapDocument(row) : undefined
+}
+
+export function getRagDocumentBySyncId(syncId: string): RagDocument | undefined {
+  ensureRagStoreSchema()
+  const row = getDB().prepare(`${DOCUMENT_SELECT} WHERE sync_id = ?`).get(syncId) as
+    | RagDocumentRow
+    | undefined
+  return row ? mapDocument(row) : undefined
+}
+
+export function listAllRagDocuments(): RagDocument[] {
+  ensureRagStoreSchema()
+  return (
+    getDB().prepare(`${DOCUMENT_SELECT} ORDER BY created_at ASC`).all() as RagDocumentRow[]
+  ).map(mapDocument)
+}
+
+export function projectExists(projectId: string): boolean {
+  ensureRagStoreSchema()
+  return getDB().prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId) !== undefined
 }
 
 // --- Projects + threads CRUD (not part of the engine's VectorStore) ---------
@@ -292,6 +382,9 @@ export function deleteProject(id: string): void {
   const conversations = db
     .prepare('SELECT id FROM rag_conversations WHERE project_id = ?')
     .all(id) as Array<{ id: string }>
+  const documents = db
+    .prepare('SELECT sync_id FROM rag_documents WHERE project_id = ?')
+    .all(id) as Array<{ sync_id: string }>
   const tx = db.transaction(() => {
     const docs = db.prepare('SELECT id FROM rag_documents WHERE project_id = ?').all(id) as {
       id: number
@@ -320,6 +413,9 @@ export function deleteProject(id: string): void {
       entityId: conversation.id,
       kind: 'put'
     })
+  }
+  for (const document of documents) {
+    emitKnowledgeDocumentMutation({ kind: 'deleted', syncId: document.sync_id })
   }
   emitSyncMutation({ entity: CORE_SYNC_ENTITIES.project, entityId: id, kind: 'delete' })
 }

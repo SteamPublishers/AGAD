@@ -40,5 +40,10 @@ export const HOOKS = {
   /** () => Promise<SearchSource[]> — extra universal-search sources (pro). */
   searchExtraSources: 'search.extraSources',
   /** (mutation: SyncMutation) => void - record a committed core data change in Pro sync. */
-  syncRecordLocalMutation: 'sync.recordLocalMutation'
+  syncRecordLocalMutation: 'sync.recordLocalMutation',
+  /**
+   * (mutation: KnowledgeDocumentMutation) => void - a committed RAG document lifecycle change.
+   * Pro transfers/reconciles it; free builds leave the hook unregistered.
+   */
+  syncKnowledgeDocumentMutation: 'sync.knowledgeDocumentMutation'
 } as const
