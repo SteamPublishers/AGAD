@@ -20,7 +20,11 @@ import {
   StateSync,
   SyncEngine,
   type DeviceInfo,
-  type Materializer
+  type Materializer,
+  type MembershipRevocationPersistence,
+  type MembershipRevocationTombstone,
+  type PairedDevice,
+  type PendingMembershipRevocation
 } from '@offgrid/sync'
 import { NodeTcpTransport } from '@offgrid/sync/node'
 import { createKnowledgeDocumentSource } from '../pro/main/sync/knowledge-document-transfer'
@@ -37,6 +41,9 @@ let userDataDir: string
 let syntheticPeer: SyncEngine | null = null
 let syntheticState: StateSync | null = null
 let syntheticFiles: FileTransferManager | null = null
+const syntheticActiveMemberships = new Map<string, PairedDevice>()
+const syntheticPendingRevocations = new Map<string, PendingMembershipRevocation>()
+const syntheticRevocationTombstones = new Map<string, MembershipRevocationTombstone>()
 const syntheticRecords = new Map<
   string,
   { entity: string; entityId: string; fields: Record<string, unknown> }
@@ -92,6 +99,9 @@ const teardown = async (): Promise<void> => {
   syntheticState = null
   await syntheticFiles?.dispose().catch(() => {})
   syntheticFiles = null
+  syntheticActiveMemberships.clear()
+  syntheticPendingRevocations.clear()
+  syntheticRevocationTombstones.clear()
   syntheticRecords.clear()
   await app?.close().catch(() => {})
   if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true })
@@ -201,18 +211,66 @@ test.describe('Devices surface — pro tier', () => {
     })
     let releaseSecureStore: (() => void) | undefined
     let waitForSecureStore = false
+    const membershipPersistence: MembershipRevocationPersistence = {
+      getActive: (deviceId) => syntheticActiveMemberships.get(deviceId),
+      beginLocal: (active, pending) => {
+        if (syntheticActiveMemberships.get(active.id)?.membershipId !== pending.membershipId) {
+          return false
+        }
+        syntheticPendingRevocations.set(active.id, pending)
+        syntheticActiveMemberships.delete(active.id)
+        return true
+      },
+      listPending: () => [...syntheticPendingRevocations.values()],
+      getPending: (deviceId) => syntheticPendingRevocations.get(deviceId),
+      getTombstone: (deviceId, membershipId) => {
+        const tombstone = syntheticRevocationTombstones.get(deviceId)
+        return tombstone?.membershipId === membershipId ? tombstone : undefined
+      },
+      applyRemote: (expectedActive, tombstone) => {
+        if (
+          syntheticActiveMemberships.get(expectedActive.id)?.membershipId !== tombstone.membershipId
+        ) {
+          return false
+        }
+        syntheticActiveMemberships.delete(expectedActive.id)
+        syntheticRevocationTombstones.set(expectedActive.id, tombstone)
+        return true
+      },
+      completeLocal: (pending, tombstone) => {
+        if (
+          syntheticPendingRevocations.get(pending.device.id)?.revocationId !== pending.revocationId
+        ) {
+          return false
+        }
+        syntheticPendingRevocations.delete(pending.device.id)
+        syntheticRevocationTombstones.set(pending.device.id, tombstone)
+        return true
+      },
+      getRevocationSecret: (deviceId, membershipId) => {
+        const pending = syntheticPendingRevocations.get(deviceId)
+        if (pending?.membershipId === membershipId) return pending.revocationSecret
+        const tombstone = syntheticRevocationTombstones.get(deviceId)
+        return tombstone?.membershipId === membershipId ? tombstone.revocationSecret : undefined
+      }
+    }
     syntheticPeer = new SyncEngine({
       localDevice: local,
       transport: new NodeTcpTransport(),
       pairingPersistence: {
-        save: () =>
-          waitForSecureStore
-            ? new Promise<void>((resolve) => {
-                releaseSecureStore = resolve
-              })
-            : undefined,
-        remove: () => {}
+        save: async (device) => {
+          if (waitForSecureStore) {
+            await new Promise<void>((resolve) => {
+              releaseSecureStore = resolve
+            })
+          }
+          syntheticActiveMemberships.set(device.id, device)
+        },
+        remove: (deviceId) => {
+          syntheticActiveMemberships.delete(deviceId)
+        }
       },
+      membershipPersistence,
       onMessage: (deviceId, message) => syntheticFiles?.handleMessage(deviceId, message),
       onAppMessage: (deviceId, channel, data) => {
         if (channel === 'state') syntheticState?.onMessage(deviceId, data)
@@ -384,6 +442,21 @@ test.describe('Devices surface — pro tier', () => {
     await expect(page.getByText('synthetic-transfer-q4.gguf')).toBeVisible()
     await page.screenshot({ path: 'e2e/screenshots/devices-model-transfer.png' })
     await page.getByRole('button', { name: 'Close', exact: true }).first().click()
+
+    await page.getByRole('button', { name: 'Evict', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Evict Synthetic Android?' })).toBeVisible()
+    await expect(
+      page.getByText(
+        'This removes the pairing from both devices. Either device must pair again before Sync can reconnect.'
+      )
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Evict device' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Manage devices, 1 of 5 slots used' })
+    ).toBeVisible()
+    await expect.poll(() => syntheticPeer?.isPaired(desktop.localDevice.id)).toBe(false)
+    expect(syntheticActiveMemberships.has(desktop.localDevice.id)).toBe(false)
+    expect(syntheticRevocationTombstones.get(desktop.localDevice.id)?.membershipId).toBeTruthy()
   })
 
   test('turning a category off persists across a screen change', async () => {
