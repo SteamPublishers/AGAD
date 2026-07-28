@@ -337,6 +337,7 @@ interface RendererAPIOverrides {
   requestScreenRecordingPermission: () => Promise<boolean>
   openAccessibilitySettings: () => Promise<boolean>
   openScreenRecordingSettings: () => Promise<boolean>
+  relaunchForPermissions: () => Promise<boolean>
   openMicrophoneSettings: () => Promise<boolean>
   openLocalNetworkSettings: () => Promise<boolean>
 }

@@ -1138,6 +1138,12 @@ export function setupIPC() {
     return await requestScreenRecordingPermission()
   })
 
+  ipcMain.handle('permissions:relaunch', () => {
+    app.relaunch()
+    app.exit(0)
+    return true
+  })
+
   // === RAG CONVERSATION HANDLERS ===
 
   ipcMain.handle(

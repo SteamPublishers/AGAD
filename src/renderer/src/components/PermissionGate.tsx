@@ -37,6 +37,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
   const [setupDismissed, setSetupDismissed] = useState(false)
   const [visionIssue, setVisionIssue] = useState<VisionIssue | null>(null)
   const [visionDownloadPercent, setVisionDownloadPercent] = useState<number | null>(null)
+  const [screenRecordingRestartRequired, setScreenRecordingRestartRequired] = useState(false)
 
   // Capture permissions (Accessibility + Screen Recording) are only needed by the
   // Pro "sees" layer. The free build runs chat/projects/models and gates on the
@@ -137,6 +138,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
 
   // Poll for permission changes when permissions are not granted
   useEffect(() => {
+    if (screenRecordingRestartRequired) return
     if (permsOk && modelStatus?.downloaded) return
 
     const interval = setInterval(() => {
@@ -145,7 +147,14 @@ export function PermissionGate({ children }: PermissionGateProps) {
     }, 2000)
 
     return () => clearInterval(interval)
-  }, [permsOk, isPro, modelStatus?.downloaded, checkPermissions, checkModelStatus])
+  }, [
+    permsOk,
+    isPro,
+    modelStatus?.downloaded,
+    checkPermissions,
+    checkModelStatus,
+    screenRecordingRestartRequired
+  ])
 
   const handleOpenAccessibilitySettings = async () => {
     try {
@@ -155,11 +164,22 @@ export function PermissionGate({ children }: PermissionGateProps) {
     }
   }
 
-  const handleOpenScreenRecordingSettings = async () => {
+  const handleScreenRecordingAction = async (): Promise<void> => {
     try {
+      if (screenRecordingRestartRequired) {
+        await window.api.relaunchForPermissions()
+        return
+      }
+      const granted = await window.api.requestScreenRecordingPermission()
+      if (granted) {
+        setScreenRecordingRestartRequired(false)
+        await checkPermissions()
+        return
+      }
+      setScreenRecordingRestartRequired(true)
       await window.api.openScreenRecordingSettings()
     } catch (e) {
-      console.error('Failed to open screen recording settings:', e)
+      console.error('Failed to request screen recording permission:', e)
     }
   }
 
@@ -365,10 +385,29 @@ export function PermissionGate({ children }: PermissionGateProps) {
                 />
                 <PermissionCard
                   title="Screen Recording"
-                  description="Capture visual context for OCR"
+                  description={
+                    screenRecordingRestartRequired
+                      ? 'Restart to apply the access selected in System Settings'
+                      : 'Capture visual context for OCR'
+                  }
+                  instructions={
+                    screenRecordingRestartRequired
+                      ? 'If the toggle is on, relaunch once. If it is off, review System Settings first.'
+                      : undefined
+                  }
+                  actionLabel={
+                    screenRecordingRestartRequired
+                      ? 'Relaunch Off Grid AI Desktop'
+                      : 'Enable Screen Recording'
+                  }
+                  actionAriaLabel={
+                    screenRecordingRestartRequired
+                      ? 'Relaunch Off Grid AI Desktop for Screen Recording'
+                      : 'Enable Screen Recording'
+                  }
                   icon={<Shield className="w-5 h-5" />}
                   granted={permissionStatus?.screenRecording ?? false}
-                  onOpenSettings={handleOpenScreenRecordingSettings}
+                  onOpenSettings={handleScreenRecordingAction}
                   delay={0.9}
                 />
                 <PermissionCard
@@ -418,7 +457,7 @@ export function PermissionGate({ children }: PermissionGateProps) {
               >
                 <div className="w-1.5 h-1.5 rounded-full bg-neutral-700 animate-pulse" />
                 <span className="text-[10px] text-neutral-600 uppercase tracking-widest">
-                  Auto-checking
+                  {screenRecordingRestartRequired ? 'Restart required' : 'Auto-checking'}
                 </span>
               </motion.div>
             </>
