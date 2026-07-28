@@ -592,6 +592,11 @@ const offGridApi = {
     ipcRenderer.on('projects:index-progress', subscription)
     return unsubscribe('projects:index-progress', subscription)
   },
+  onProjectDocumentsChanged: (callback: (data: { projectId: string }) => void) => {
+    const subscription = (_event: unknown, data: { projectId: string }): void => callback(data)
+    ipcRenderer.on('projects:documents-changed', subscription)
+    return unsubscribe('projects:documents-changed', subscription)
+  },
 
   // --- CRM: entity records (Entity -> App -> frames) + resolution/corrections ---
   crmListEntities: () => ipcRenderer.invoke('crm:list-entities'),

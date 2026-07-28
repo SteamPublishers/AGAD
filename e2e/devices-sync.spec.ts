@@ -13,8 +13,18 @@ import { randomUUID } from 'node:crypto'
 import { launchOffGrid } from './helpers/launch'
 import { completeOnboarding } from './helpers/onboarding'
 import { navButton } from './helpers/settings'
-import { OpLog, StateSync, SyncEngine, type DeviceInfo, type Materializer } from '@offgrid/sync'
+import {
+  createKnowledgeDocumentStateFields,
+  FileTransferManager,
+  OpLog,
+  StateSync,
+  SyncEngine,
+  type DeviceInfo,
+  type Materializer
+} from '@offgrid/sync'
 import { NodeTcpTransport } from '@offgrid/sync/node'
+import { createKnowledgeDocumentSource } from '../pro/main/sync/knowledge-document-transfer'
+import type { KnowledgeDocumentSnapshot } from '../src/main/sync-knowledge-document'
 
 const PRO_PRESENT = fs.existsSync(path.resolve('pro/package.json'))
 
@@ -23,6 +33,7 @@ let page: Page
 let userDataDir: string
 let syntheticPeer: SyncEngine | null = null
 let syntheticState: StateSync | null = null
+let syntheticFiles: FileTransferManager | null = null
 const syntheticRecords = new Map<
   string,
   { entity: string; entityId: string; fields: Record<string, unknown> }
@@ -76,6 +87,8 @@ const teardown = async (): Promise<void> => {
   await syntheticPeer?.stop().catch(() => {})
   syntheticPeer = null
   syntheticState = null
+  await syntheticFiles?.dispose().catch(() => {})
+  syntheticFiles = null
   syntheticRecords.clear()
   await app?.close().catch(() => {})
   if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true })
@@ -174,9 +187,14 @@ test.describe('Devices surface — pro tier', () => {
         syntheticPeer?.sendApp(deviceId, 'state', message)
       }
     })
+    syntheticFiles = new FileTransferManager({
+      send: (deviceId, message) => syntheticPeer?.send(deviceId, message) ?? false,
+      createSink: async () => null
+    })
     syntheticPeer = new SyncEngine({
       localDevice: local,
       transport: new NodeTcpTransport(),
+      onMessage: (deviceId, message) => syntheticFiles?.handleMessage(deviceId, message),
       onAppMessage: (deviceId, channel, data) => {
         if (channel === 'state') syntheticState?.onMessage(deviceId, data)
       },
@@ -247,6 +265,48 @@ test.describe('Devices surface — pro tier', () => {
     await expect(syncedProject).toBeVisible()
     await syncedProject.click()
     await expect(page.getByRole('button', { name: /Cross-device notes/ })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Knowledge & settings', exact: true }).click()
+    await expect(page.getByText('No documents yet.')).toBeVisible()
+    const knowledgePath = path.join(userDataDir, 'launch-brief.txt')
+    const knowledgeBytes = Buffer.from(
+      'Launch brief from the phone contains enough text to create a knowledge chunk.'
+    )
+    fs.writeFileSync(knowledgePath, knowledgeBytes)
+    const knowledgeDocument: KnowledgeDocumentSnapshot = {
+      syncId: randomUUID(),
+      projectId: 'synced-project',
+      name: path.basename(knowledgePath),
+      filePath: knowledgePath,
+      fileSize: knowledgeBytes.length,
+      createdAt: timestamp,
+      enabled: true
+    }
+    await syntheticFiles.sendFile(
+      desktop.localDevice.id,
+      createKnowledgeDocumentSource(knowledgeDocument)
+    )
+    const knowledgeOp = syntheticLog.record(
+      'knowledge_document',
+      knowledgeDocument.syncId,
+      'put',
+      createKnowledgeDocumentStateFields(knowledgeDocument)
+    )
+    expect(
+      syntheticPeer.sendApp(desktop.localDevice.id, 'state', {
+        t: 'ops',
+        ops: [knowledgeOp]
+      })
+    ).toBe(true)
+    await expect(page.getByText(knowledgeDocument.name, { exact: true })).toBeVisible({
+      timeout: 15_000
+    })
+    await expect(
+      page.getByRole('button', { name: `Disable ${knowledgeDocument.name}`, exact: true })
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: `Delete ${knowledgeDocument.name}`, exact: true })
+    ).toBeVisible()
     await page.screenshot({ path: 'e2e/screenshots/devices-state-sync.png' })
 
     await page.getByTitle('New project').click()

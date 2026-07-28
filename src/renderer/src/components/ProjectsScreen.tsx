@@ -522,8 +522,16 @@ function KnowledgeBase({ projectId }: { projectId: string }) {
         } else setStatus(`${d.name}: ${d.stage}…`)
       }
     )
-    return () => off?.()
-  }, [refresh])
+    const offChanged = api.onProjectDocumentsChanged?.(
+      ({ projectId: changedProjectId }: { projectId: string }) => {
+        if (changedProjectId === projectId) refresh()
+      }
+    )
+    return () => {
+      off?.()
+      offChanged?.()
+    }
+  }, [projectId, refresh])
 
   const add = async (): Promise<void> => {
     setBusy(true)
@@ -582,6 +590,7 @@ function KnowledgeBase({ projectId }: { projectId: string }) {
                     cur.map((x) => (x.id === d.id ? { ...x, enabled: !x.enabled } : x))
                   )
                 }}
+                aria-label={`${d.enabled ? 'Disable' : 'Enable'} ${d.name}`}
                 title={d.enabled ? 'Enabled in retrieval' : 'Disabled'}
                 className={`h-4 w-7 shrink-0 rounded-full transition-colors ${d.enabled ? 'bg-green-500' : 'bg-neutral-700'}`}
               >
@@ -594,6 +603,7 @@ function KnowledgeBase({ projectId }: { projectId: string }) {
                   await api.deleteProjectDocument?.(d.id)
                   setDocs((cur) => cur.filter((x) => x.id !== d.id))
                 }}
+                aria-label={`Delete ${d.name}`}
                 className="shrink-0 text-neutral-600 transition-colors hover:text-red-500"
               >
                 <IconTrash className="h-4 w-4" />
