@@ -199,9 +199,20 @@ test.describe('Devices surface — pro tier', () => {
       send: (deviceId, message) => syntheticPeer?.send(deviceId, message) ?? false,
       createSink: async () => null
     })
+    let releaseSecureStore: (() => void) | undefined
+    let waitForSecureStore = false
     syntheticPeer = new SyncEngine({
       localDevice: local,
       transport: new NodeTcpTransport(),
+      pairingPersistence: {
+        save: () =>
+          waitForSecureStore
+            ? new Promise<void>((resolve) => {
+                releaseSecureStore = resolve
+              })
+            : undefined,
+        remove: () => {}
+      },
       onMessage: (deviceId, message) => syntheticFiles?.handleMessage(deviceId, message),
       onAppMessage: (deviceId, channel, data) => {
         if (channel === 'state') syntheticState?.onMessage(deviceId, data)
@@ -209,7 +220,31 @@ test.describe('Devices surface — pro tier', () => {
       onPaired: (device) => syntheticState?.onConnect(device.id)
     })
     await syntheticPeer.start(0)
-    await syntheticPeer.pair(
+    const wrongPairing = syntheticPeer
+      .pair(
+        {
+          ...desktop.localDevice,
+          host: '127.0.0.1',
+          port: desktop.port
+        },
+        'different-pair-code'
+      )
+      .catch((cause: unknown) => cause)
+
+    await expect(
+      page.getByRole('heading', { name: 'Synthetic Android wants to pair' })
+    ).toBeVisible()
+    await page.getByRole('textbox', { name: 'Incoming pairing code' }).fill('synthetic-pair-code')
+    await page.getByRole('button', { name: 'Accept' }).click()
+    await expect(page.getByRole('alert')).toContainText('The pairing codes did not match.')
+    expect((await wrongPairing) as { code?: string }).toMatchObject({ code: 'code_mismatch' })
+    await page.getByRole('button', { name: 'Dismiss' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Synthetic Android wants to pair' })
+    ).toHaveCount(0)
+
+    waitForSecureStore = true
+    const pairing = syntheticPeer.pair(
       {
         ...desktop.localDevice,
         host: '127.0.0.1',
@@ -223,6 +258,11 @@ test.describe('Devices surface — pro tier', () => {
     ).toBeVisible()
     await page.getByRole('textbox', { name: 'Incoming pairing code' }).fill('synthetic-pair-code')
     await page.getByRole('button', { name: 'Accept' }).click()
+    await expect(page.getByRole('status')).toHaveText(
+      'Confirm the same pairing code on both devices.'
+    )
+    releaseSecureStore?.()
+    await pairing
     await expect(page.getByText('Synthetic Android').first()).toBeVisible()
     await expect(page.getByText('Connected · LAN', { exact: true })).toBeVisible()
     await expect.poll(() => syntheticPeer?.isPaired(desktop.localDevice.id)).toBe(true)
