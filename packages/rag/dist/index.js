@@ -71,6 +71,9 @@ ${para}` : para;
     }
   }
   flush();
+  if (chunks.length === 0) {
+    return [{ content: clean, position: 0 }];
+  }
   return chunks.map((content, position) => ({ content, position }));
 }
 

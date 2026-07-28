@@ -105,6 +105,26 @@ describe('desktop knowledge-document sync owner', () => {
       }
     ])
 
+    const shortPath = path.join(TMP_DIR, 'op.txt')
+    fs.writeFileSync(shortPath, 'op\n')
+    const short = await service.indexDocument({
+      projectId: PROJECT_ID,
+      path: shortPath,
+      fileName: 'op.txt',
+      size: fs.statSync(shortPath).size
+    })
+    expect(short.chunkCount).toBe(1)
+    expect(
+      db
+        .prepare('SELECT content, position FROM rag_chunks WHERE doc_id = ?')
+        .all(short.docId)
+    ).toEqual([{ content: 'op', position: 0 }])
+    expect(await service.searchProject(PROJECT_ID, 'op')).toEqual(
+      expect.objectContaining({
+        chunks: expect.arrayContaining([expect.objectContaining({ content: 'op' })])
+      })
+    )
+
     await service.toggleDocument(indexed.docId, false)
     expect(mutations.at(-1)).toEqual({
       kind: 'enabled',
