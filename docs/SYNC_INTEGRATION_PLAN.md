@@ -1,15 +1,19 @@
 # `@offgrid/sync` → Off Grid AI Desktop — implementation plan
 
 Owner: the **desktop** lane. The **mobile** lane runs in parallel on the same engine package.
-Status: plan. Nothing below is "done" until it is **verified through the real user path** — code
-present + wired is not closure (same bar as `docs/GAPS_BACKLOG.md`).
+Status: implementation in progress. M0-M3 and opt-in text clipboard sharing are verified through
+the desktop user path. M4 has a working first implementation, but its multi-GB, interruption, and
+receiver-load gate remains open. M5 remains open. Code present + wired is not closure (same bar as
+`docs/GAPS_BACKLOG.md`).
 
 ## Scope (first cut, per product direction)
 
 1. **State sync over the LAN** — chats / workspace / projects / model settings converge across a
    user's devices.
-2. **Model transfer** — a model downloaded on one device can be moved to another (phone ↔ desktop).
-3. **Ambient file sharing** — as designed in `../sync/docs/AMBIENT_SHARING.md` (policy + queue +
+2. **Universal text clipboard** — copied text can be shared over the encrypted paired session,
+   explicitly off until the user opts in.
+3. **Model transfer** — a model downloaded on one device can be moved to another (phone ↔ desktop).
+4. **Ambient file sharing** — as designed in `../sync/docs/AMBIENT_SHARING.md` (policy + queue +
    watcher on top of the existing transport).
 
 ## Non-negotiable placement rules
@@ -56,15 +60,19 @@ The one guaranteed conflict is two sessions editing `shared/packages/sync`. Ther
   emitting chunks rather than after peer confirmation. **Our integration must resolve only on a
   correlated positive ACK following the peer's durable write + integrity check**, and must surface
   negative ACKs. "Synced" that does not mean "written and verified on the peer" silently loses data.
-- **A-3 (multi-device).** The transport is single-connection today; syncing to several devices needs
-  concurrent connections. The policy layer already models a set of device ids, so this is transport
-  work only.
+- ~~**A-3 (multi-device).**~~ **CLOSED.** `SyncEngine` owns a set of peer sessions and a
+  device-id-to-session map, so the desktop host can keep several encrypted peers connected and
+  broadcast state or clipboard messages to the paired set.
 - **A-4 (security, and this package is going PUBLIC).** G-001: bespoke iterated-SHA-512 passphrase
   derivation + hash challenge/response, and `sharedSecret` persisted in plaintext (electron-store /
   AsyncStorage). G-002: no payload-shape validation at the protocol boundary; peer-controlled
   messages are cast. Publishing "audit our crypto" while shipping a bespoke KDF and plaintext
   secrets invites the opposite conclusion. Should be fixed **before** the repo is public, and it is
   engine-level, so it belongs to whoever owns the package — not a desktop-lane side edit.
+- **A-5 (true unpair).** The desktop can delete the persisted pairing credential, but the public
+  engine does not expose a per-device session close. Until that contract exists, "unpair" cannot
+  immediately tear down an already-open encrypted session. Keep this visible rather than treating a
+  storage delete as full disconnection.
 
 ## Milestones
 
@@ -72,6 +80,7 @@ Each milestone states its **verification gate**. No milestone is done without it
 
 ### M0 — Consume the engine (do NOT vendor it)
 
+- **Status: verified.**
 - **CORRECTED.** This originally said to copy `shared/packages/sync` → `desktop/packages/sync`,
   following the existing `@offgrid/clipboard|design|models|rag` convention. That is wrong:
   `shared/docs/DESKTOP_SYNC_INTEGRATION_PLAN.md` §1 says explicitly **do not duplicate
@@ -79,27 +88,32 @@ Each milestone states its **verification gate**. No milestone is done without it
   `"@offgrid/sync": "file:../shared/packages/sync"`. The vendored copy was removed.
   (The other `desktop/packages/*` copies have silently drifted from `shared/`, which is the
   argument for the direct ref.)
-- Add `@offgrid/sync` as a `file:./packages/sync` dep, plus `bonjour-service` (pure-JS mDNS, no
+- Add `@offgrid/sync` as a `file:../shared/packages/sync` dep, plus `bonjour-service` (pure-JS mDNS, no
   native build) for `node-discovery`.
 - **Gate:** `npx tsc --noEmit` clean on both tsconfigs; the package's own 24 tests pass from the
   vendored copy; `npm run build` produces a working bundle.
 
 ### M1 — Pairing + discovery + transport, headless and real
 
-`pro/main/sync/`:
+- **Status: verified.** Real TCP loopback tests cover pairing, encrypted messages, reconnect, bad
+  passphrases, and more than five paired peers.
+  `pro/main/sync/`:
 
 - `sync-service.ts` — composes `NodeDiscovery` + `NodeTcpTransport` + the engine. Owns lifecycle and
   teardown (no leaked sockets/timers).
 - `sync-store.ts` — persistence behind a **small interface** (`getPairedDevices`, `addPairedDevice`,
   `getSettings`) so the service runs headless in tests. SQLite-backed impl satisfies it. This mirrors
   EasyShare's `ConnectionStorage` seam, which is what made its real test possible.
-- Device cap enforced via the engine's `cap` export (2 free / 3+ paid).
+- Sync does not add a second peer cap. Pro access is owned by licensing, whose five-device seat
+  policy automatically replaces the least-recently-seen prior activation when this device signs in.
 - **Gate:** two real service instances pair over **real TCP loopback** in a test, exchange an
   encrypted message, and tear down cleanly. Fakes only at the persistence boundary. Falsify it:
   break the pairing check → test goes red.
 
 ### M2 — Devices surface + inert core shell
 
+- **Status: verified.** Pro and free-tier Playwright journeys pass, and the captured desktop states
+  have been visually checked.
 - `pro/renderer/screens/Devices.tsx` — discovered devices, pair/unpair, connection state, transfer
   list. Desktop-first density per `docs/DESIGN.md` (multi-column grid, not one row per 1900px line).
 - Register the view through pro's view-router; register a Settings section via
@@ -110,6 +124,10 @@ Each milestone states its **verification gate**. No milestone is done without it
 
 ### M3 — State sync: chat / projects / model settings converge ← **the "does it actually work" gate**
 
+- **Status: verified.** A real encrypted peer drives chats and projects into the rendered desktop
+  UI, desktop-created state reaches the peer, fresh-profile schemas backfill correctly, and the
+  real SQLite bridge converges concurrent edits. Deleting a project unfiles its chats instead of
+  deleting them.
 - Use the engine's `oplog` + `state-sync` (Lamport + last-writer-wins; already pure and tested).
 - `pro/main/sync/state-bridge.ts` — maps desktop SQLite entities (chats, projects, model settings)
   to op-log records and applies inbound ops idempotently. Pure mapping isolated from I/O so it is
@@ -120,8 +138,49 @@ Each milestone states its **verification gate**. No milestone is done without it
   loopback; create a chat on A → it appears on B; edit the same record on both while "offline" →
   both converge to the same LWW winner. Asserted on the **UI**, not just the DB.
 
+### M3b — Universal text clipboard
+
+- **Status: verified in the desktop integration.**
+- The existing production clipboard owner emits copied text to a separate sync policy service.
+  There is no second OS poller.
+- Sharing is off by default, persists through the existing sync preferences owner, and stops when
+  either the master sync switch or clipboard switch is off.
+- Messages use the existing encrypted application channel, accept at most 256 KiB of UTF-8 text,
+  validate peer-controlled payloads, and suppress the write-back capture so received text does not
+  bounce to its origin.
+- **Gate:** real TCP/encryption integration proves desktop-to-peer delivery, receiver opt-out,
+  sender opt-out, malformed and oversized rejection, and anti-loop behavior. Playwright proves the
+  default-off control and persistence through the rendered Devices surface.
+- Clipboard images and files are not included. They belong on a resumable file-transfer policy, not
+  the ephemeral text channel.
+
+### M3c — Knowledge documents across iOS and macOS
+
+- **Status: implemented on both hosts; physical iOS ↔ macOS gate ready to run.**
+- Shared Sync owns the portable `knowledge_document` state contract, metadata parser,
+  `KnowledgeDocumentSync` ordering/materialization coordinator, `TransferSinkRegistry`, and
+  persisted-op rematerialization. Hosts retain only filesystem staging, project lookup, and their
+  local RAG import/enable/delete adapters.
+- Desktop receives individual source-document bytes, indexes them under the stable project and
+  document IDs, refreshes an already-open Project view, and suppresses rebroadcast. Mobile uses the
+  same shared coordinator and renders imported documents through its real Project Detail flow.
+- Both hosts stage a file until its project and winning state arrive, honor tombstones before
+  import, re-read racing control state after import, and retry staged work after restart.
+- The physical runner is `npm run test:sync:physical`. Preflight is non-mutating; `--execute`
+  builds and restarts the current apps, drives both directions over the existing pair, verifies
+  enable/delete convergence and restart recovery, captures local screenshots, and removes its
+  synthetic documents. It does not pair, forget, push, or run the pre-push gate.
+- **Gate:** with Mac and iPhone on the same Wi-Fi, run the automated journey against an existing
+  synced project and a synthetic file already available in Apple Files. Keep the pre-push gate
+  deferred until this manual-device phase is complete.
+
 ### M4 — Model transfer (NOT blocked; use the engine's streaming/HTTP path — see A-1)
 
+- **Status: partial.** The desktop service streams single-file GGUF models without whole-file
+  buffering, resumes aligned partial files, verifies the checksum, promotes without clobbering, and
+  registers the receiver only after durable completion. Integration tests and the Devices UI pass.
+  The milestone remains open until the physical multi-GB, interruption, checksum, and receiver-load
+  gate passes.
 - Move a downloaded model between devices: streaming, resumable, checksum-verified, and registered
   in the receiver's model catalog (`models/` + `active-model.json`) so it is immediately usable.
 - Must not buffer whole files (A-1). Reuse EasyShare's proven streaming + HTTP-accelerated path.
@@ -131,12 +190,13 @@ Each milestone states its **verification gate**. No milestone is done without it
 
 ### M5 — Ambient file sharing (needs the `sharing/*` layer in the engine)
 
-The policy / queue / watcher layer currently lives in the **sync repo** under `@easyshare/shared`,
-**not** in `@offgrid/sync`. Porting it is an engine change → coordinate, do not hand-edit.
-Then: compose watcher → policy → `FileSender` (over the sync transport) in `pro/main/`, plus the
-share-mode matrix in Settings. macOS watcher at the OS boundary
-(`NSMetadataQuery` on `kMDItemIsScreenCapture` + FSEvents), every event through `shouldEmit`
-(dedup + anti-loop on the app's own save dir).
+- **Status: open.**
+  The policy / queue / watcher layer currently lives in the **sync repo** under `@easyshare/shared`,
+  **not** in `@offgrid/sync`. Porting it is an engine change → coordinate, do not hand-edit.
+  Then: compose watcher → policy → `FileSender` (over the sync transport) in `pro/main/`, plus the
+  share-mode matrix in Settings. macOS watcher at the OS boundary
+  (`NSMetadataQuery` on `kMDItemIsScreenCapture` + FSEvents), every event through `shouldEmit`
+  (dedup + anti-loop on the app's own save dir).
 
 - **Gate:** an observed screenshot reaches the paired peer with no user interaction, is **not**
   re-shared on receipt, and `off` genuinely sends nothing.
@@ -153,5 +213,7 @@ share-mode matrix in Settings. macOS watcher at the OS boundary
 
 ## Immediate next action
 
-M0, then M1's loopback pairing test — that test is the cheapest honest answer to "does the sync
-actually work", and everything after it builds on the same seam.
+Run M3c's automated physical iOS ↔ macOS knowledge journey, then run M4's physical multi-GB
+interruption and receiver-load gate. In parallel, resolve A-5 before calling unpair complete. M5
+follows only after the shared policy / queue / watcher contract exists; do not put that policy into
+the desktop host.
