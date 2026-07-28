@@ -27,6 +27,9 @@ import { createKnowledgeDocumentSource } from '../pro/main/sync/knowledge-docume
 import type { KnowledgeDocumentSnapshot } from '../src/main/sync-knowledge-document'
 
 const PRO_PRESENT = fs.existsSync(path.resolve('pro/package.json'))
+const SYNCED_PROJECT_ID = '22222222-2222-4222-8222-222222222222'
+const SYNCED_CONVERSATION_ID = '33333333-3333-4333-8333-333333333333'
+const SYNCED_MESSAGE_ID = '44444444-4444-4444-8444-444444444444'
 
 let app: ElectronApplication
 let page: Page
@@ -78,9 +81,9 @@ const launch = async (pro: '0' | '1'): Promise<void> => {
  * shared across tests in this file, so a blind click can CLOSE a panel a previous test left open.
  */
 const openSyncSettings = async (): Promise<void> => {
-  const toggle = page.getByRole('button', { name: 'Sync settings' })
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  const tab = page.getByRole('button', { name: 'Sync sharing' })
+  if ((await tab.getAttribute('aria-current')) !== 'page') await tab.click()
+  await expect(tab).toHaveAttribute('aria-current', 'page')
 }
 
 const teardown = async (): Promise<void> => {
@@ -118,9 +121,8 @@ test.describe('Devices surface — pro tier', () => {
   test('renders the real Devices screen with live sync status', async () => {
     await navButton(page, 'Devices').click()
     await expect(page.getByRole('heading', { name: 'Devices', exact: true })).toBeVisible()
-    // Status comes from the running SyncService over IPC — a bound port proves it actually started.
-    await expect(page.getByText(/port \d+/)).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByRole('heading', { name: 'Paired devices' })).toBeVisible()
+    await expect(page.getByText('LAN + nearby ready')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('heading', { name: 'Personal mesh' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Available on this network' })).toBeVisible()
     await page.screenshot({ path: 'e2e/screenshots/devices-pro.png' })
   })
@@ -132,10 +134,15 @@ test.describe('Devices surface — pro tier', () => {
     await expect(page.getByRole('heading', { name: 'Data sent from this device' })).toBeVisible()
     // One switch per user-facing category, plus the master switch.
     await expect(page.getByRole('switch', { name: 'Sync enabled' })).toBeVisible()
-    for (const label of ['Sync Chats', 'Sync Projects', 'Sync Model settings', 'Sync Clipboard']) {
+    for (const label of [
+      'Sync Chats',
+      'Sync Projects',
+      'Sync Model settings',
+      'Sync Copied text'
+    ]) {
       await expect(page.getByRole('switch', { name: label })).toBeVisible()
     }
-    await expect(page.getByRole('switch', { name: 'Sync Clipboard' })).toHaveAttribute(
+    await expect(page.getByRole('switch', { name: 'Sync Copied text' })).toHaveAttribute(
       'aria-checked',
       'false'
     )
@@ -144,10 +151,10 @@ test.describe('Devices surface — pro tier', () => {
 
   test('pairs a real peer and converges projects and chats through the rendered app', async () => {
     await navButton(page, 'Devices').click()
-    const listening = page.getByText(/Listening on port \d+/)
-    const text = await listening.textContent()
-    const port = Number(text?.match(/port (\d+)/)?.[1])
-    expect(port).toBeGreaterThan(0)
+    await page
+      .getByRole('navigation', { name: 'Devices control center' })
+      .getByRole('button', { name: 'Devices', exact: true })
+      .click()
     const desktop = await page.evaluate(async () =>
       (
         window as unknown as {
@@ -157,6 +164,7 @@ test.describe('Devices surface — pro tier', () => {
         }
       ).api.proInvoke('pro:sync:status')
     )
+    expect(desktop.port).toBeGreaterThan(0)
 
     const local: DeviceInfo = {
       id: 'synthetic-android',
@@ -205,7 +213,7 @@ test.describe('Devices surface — pro tier', () => {
       {
         ...desktop.localDevice,
         host: '127.0.0.1',
-        port
+        port: desktop.port
       },
       'synthetic-pair-code'
     )
@@ -213,15 +221,21 @@ test.describe('Devices surface — pro tier', () => {
     await expect(
       page.getByRole('heading', { name: 'Synthetic Android wants to pair' })
     ).toBeVisible()
-    await page.getByLabel('Incoming pairing code').fill('synthetic-pair-code')
+    await page.getByRole('textbox', { name: 'Incoming pairing code' }).fill('synthetic-pair-code')
     await page.getByRole('button', { name: 'Accept' }).click()
     await expect(page.getByText('Synthetic Android').first()).toBeVisible()
-    await expect(page.getByText('Connected', { exact: true })).toBeVisible()
+    await expect(page.getByText('Connected · LAN', { exact: true })).toBeVisible()
     await expect.poll(() => syntheticPeer?.isPaired(desktop.localDevice.id)).toBe(true)
+
+    await page.getByRole('button', { name: 'Rescan network' }).click()
+    await expect(page.getByRole('button', { name: 'Rescan network' })).toBeEnabled()
+    await expect(page.getByText('Synthetic Android').first()).toBeVisible()
+    await expect(page.getByText('Scanning LAN and Nearby routes.')).toHaveCount(0)
+    await expect(page.getByRole('alert')).toHaveCount(0)
 
     const timestamp = new Date().toISOString()
     const inboundOps = [
-      syntheticLog.record('project', 'synced-project', 'put', {
+      syntheticLog.record('project', SYNCED_PROJECT_ID, 'put', {
         name: 'Synced from phone',
         description: 'A project delivered over encrypted device sync.',
         system_prompt: '',
@@ -230,14 +244,14 @@ test.describe('Devices surface — pro tier', () => {
         created_at: timestamp,
         updated_at: timestamp
       }),
-      syntheticLog.record('conversation', 'synced-conversation', 'put', {
+      syntheticLog.record('conversation', SYNCED_CONVERSATION_ID, 'put', {
         title: 'Cross-device notes',
-        project_id: 'synced-project',
+        project_id: SYNCED_PROJECT_ID,
         created_at: timestamp,
         updated_at: timestamp
       }),
-      syntheticLog.record('message', 'synced-message', 'put', {
-        conversation_id: 'synced-conversation',
+      syntheticLog.record('message', SYNCED_MESSAGE_ID, 'put', {
+        conversation_id: SYNCED_CONVERSATION_ID,
         role: 'user',
         content: 'This arrived over encrypted sync.',
         context: null,
@@ -275,7 +289,7 @@ test.describe('Devices surface — pro tier', () => {
     fs.writeFileSync(knowledgePath, knowledgeBytes)
     const knowledgeDocument: KnowledgeDocumentSnapshot = {
       syncId: randomUUID(),
-      projectId: 'synced-project',
+      projectId: SYNCED_PROJECT_ID,
       name: path.basename(knowledgePath),
       filePath: knowledgePath,
       fileSize: knowledgeBytes.length,
@@ -336,7 +350,7 @@ test.describe('Devices surface — pro tier', () => {
     await navButton(page, 'Devices').click()
     await openSyncSettings()
     const chats = page.getByRole('switch', { name: 'Sync Chats' })
-    const clipboard = page.getByRole('switch', { name: 'Sync Clipboard' })
+    const clipboard = page.getByRole('switch', { name: 'Sync Copied text' })
     await expect(chats).toHaveAttribute('aria-checked', 'true')
     await expect(clipboard).toHaveAttribute('aria-checked', 'false')
     await chats.click()
@@ -352,7 +366,7 @@ test.describe('Devices surface — pro tier', () => {
       'aria-checked',
       'false'
     )
-    await expect(page.getByRole('switch', { name: 'Sync Clipboard' })).toHaveAttribute(
+    await expect(page.getByRole('switch', { name: 'Sync Copied text' })).toHaveAttribute(
       'aria-checked',
       'true'
     )
