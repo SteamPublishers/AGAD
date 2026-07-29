@@ -12,6 +12,7 @@ import {
 import { PRO_PAY_URL, PRO_FEATURES, type ProFeature } from './proCatalog'
 import { OFF_GRID_MOBILE_URL, OFF_GRID_WEBSITE_URL, openExternal } from '../../constants/links'
 import { deviceNoun, isMac } from '@renderer/lib/device'
+import { projectPersonalMeshActivationFailure } from '@offgrid/sync'
 
 // License-key activation. Only meaningful in a pro-capable build (__OFFGRID_PRO__);
 // a core build has no pro code bundled, so entering a key would unlock nothing.
@@ -32,13 +33,10 @@ function LicenseActivation(): React.ReactElement {
       if (r.ok) {
         setMsg({ kind: 'ok', text: 'Activated. Restart to finish unlocking Pro.' })
       } else {
-        const text =
-          r.reason === 'limit'
-            ? 'This license is already on the maximum number of devices. Deactivate one and try again.'
-            : r.reason === 'network'
-              ? 'Could not reach the licensing server. Check your connection and try again.'
-              : 'That license key is invalid, expired, or revoked.'
-        setMsg({ kind: 'err', text })
+        setMsg({
+          kind: 'err',
+          text: projectPersonalMeshActivationFailure(r.reason).description
+        })
       }
     } catch {
       setMsg({ kind: 'err', text: 'Activation failed. Please try again.' })

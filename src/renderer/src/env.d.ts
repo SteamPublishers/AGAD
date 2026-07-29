@@ -127,9 +127,7 @@ interface RendererAPIOverrides {
   // Keygen licensing (activation + status for the upgrade/settings UI)
   license?: {
     status: () => Promise<ProLicenseInfo>
-    activate: (
-      key: string
-    ) => Promise<{ ok: true } | { ok: false; reason: 'invalid' | 'limit' | 'network' }>
+    activate: (key: string) => Promise<import('@offgrid/sync').PersonalMeshActivationResult>
     listDevices: () => Promise<
       Array<{
         id: string

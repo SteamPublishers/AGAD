@@ -1,8 +1,9 @@
 import { PRO_PURCHASE_URL } from '../../shared/product-links'
+import type { PersonalMeshActivationResult } from '@offgrid/sync'
 
 export const PRO_PAY_PAGE_URL = PRO_PURCHASE_URL
 
-export type ActivateResult = { ok: true } | { ok: false; reason: 'invalid' | 'limit' | 'network' }
+export type ActivateResult = PersonalMeshActivationResult
 
 export type ProTier = 'lifetime' | 'monthly'
 
@@ -69,7 +70,10 @@ export function getProLicenseInfo(): ProLicenseInfo {
 }
 
 export function activateProByKey(rawCredential: string): Promise<ActivateResult> {
-  return provider?.activate(rawCredential) ?? Promise.resolve({ ok: false, reason: 'invalid' })
+  return (
+    provider?.activate(rawCredential) ??
+    Promise.resolve({ ok: false, reason: 'invalid_credential' })
+  )
 }
 
 export function listProDevices(): Promise<ProLicensedDevice[]> {
