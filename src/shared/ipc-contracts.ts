@@ -25,8 +25,9 @@ export interface RagConversationContract {
 
 export interface RagMessageContract {
   id: number
+  uuid?: string
   conversation_id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   context: string | null
   origin_device_id?: string | null

@@ -10,6 +10,13 @@ import { isAgenticTurn } from '@renderer/lib/agentic-active'
 import { applyStreamEvent } from '@renderer/lib/stream-reducer'
 import { useActiveModelSummary } from '@renderer/hooks/useActiveModelSummary'
 import { shouldFollowBottom } from '@renderer/lib/scroll-follow'
+import {
+  projectSyncedMessageTurn,
+  type ProjectedSyncedTool,
+  type RecordProvenance,
+  type SyncedMessageRole,
+  type SyncedTurnStatus
+} from '@offgrid/sync'
 import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
@@ -90,6 +97,7 @@ type RagContext = {
   image?: string
   imageMetadata?: ImageGenerationMetadata
   sources?: { name: string; position: number; score: number }[]
+  attachments?: { name: string; kind: string; text?: string; path?: string }[]
 }
 
 type ImageGenerationMetadata = {
@@ -103,13 +111,18 @@ type ImageGenerationMetadata = {
 
 type ChatMessage = {
   id: string
-  role: 'user' | 'assistant'
+  role: SyncedMessageRole
   content: string
   context?: RagContext
   image?: string
   imagePath?: string
   imageMetadata?: ImageGenerationMetadata
-  toolCalls?: { name: string; result: string }[]
+  toolCalls?: ProjectedSyncedTool[]
+  toolName?: string
+  toolCallId?: string
+  turnStatus?: SyncedTurnStatus
+  generationTimeMs?: number
+  provenance?: RecordProvenance
   reasoning?: string
   cutoff?: ResponseCutoffContract
   imageMemoryRetry?: {
@@ -226,32 +239,57 @@ interface MemoryChatProps {
 
 function mapRagMessages(raw: any[]): ChatMessage[] {
   return raw.flatMap((m: any) => {
-    const ctx = m.context
-      ? typeof m.context === 'string'
-        ? JSON.parse(m.context)
-        : m.context
-      : undefined
-    const reasoning = readReasoning(ctx)
+    let ctx: RagContext | undefined
+    if (m.context && typeof m.context === 'string') {
+      try {
+        ctx = JSON.parse(m.context) as RagContext
+      } catch {
+        ctx = undefined
+      }
+    } else if (m.context && typeof m.context === 'object') {
+      ctx = m.context as RagContext
+    }
+    const provenance =
+      typeof m.origin_device_id === 'string' && typeof m.origin_device_name === 'string'
+        ? {
+            originDeviceId: m.origin_device_id,
+            originDeviceName: m.origin_device_name
+          }
+        : undefined
+    const turn = projectSyncedMessageTurn({
+      id: String(m.uuid ?? m.id),
+      role: m.role,
+      content: m.content,
+      context: m.context,
+      createdAt: m.created_at,
+      provenance
+    })
+    if (!turn) return []
     // Mobile tool turns can persist a delimiter-only intermediate assistant row before the
     // tool result and final answer. It carries no thought content and must not become a visible
     // "<think> </think>" bubble on Desktop.
     if (
-      m.role === 'assistant' &&
-      /^<think>\s*<\/think>$/i.test(String(m.content).trim()) &&
-      reasoning === undefined
+      turn.role === 'assistant' &&
+      /^<think>\s*<\/think>$/i.test(turn.content.trim()) &&
+      turn.reasoning === undefined
     ) {
       return []
     }
     return [
       {
-        id: String(m.uuid ?? m.id),
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
+        id: turn.id,
+        role: turn.role,
+        content: turn.content,
         context: ctx,
         // Reasoning rides in the context blob so the "Thinking" block survives reload.
-        reasoning,
+        reasoning: turn.reasoning ?? readReasoning(ctx),
         cutoff: readResponseCutoff(ctx),
-        toolCalls: Array.isArray(ctx?.toolCalls) ? ctx.toolCalls : undefined,
+        toolCalls: turn.role === 'assistant' && turn.tools.length > 0 ? turn.tools : undefined,
+        toolName: turn.role === 'tool' ? turn.tools[0]?.name : undefined,
+        toolCallId: turn.role === 'tool' ? turn.tools[0]?.id : undefined,
+        turnStatus: turn.status,
+        generationTimeMs: turn.role === 'tool' ? turn.tools[0]?.durationMs : turn.durationMs,
+        provenance: turn.provenance,
         image: ctx?.image ? `ogcapture://${ctx.image}` : undefined,
         imagePath: ctx?.image,
         imageMetadata: ctx?.imageMetadata,
@@ -2789,7 +2827,7 @@ export function MemoryChat({
             ) : (
               <div className="w-full px-6 py-5">
                 {messages.map((message) =>
-                  voiceMode ? (
+                  voiceMode && message.role !== 'tool' ? (
                     <div
                       key={message.id}
                       className={`mb-4 flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
@@ -2976,6 +3014,20 @@ export function MemoryChat({
                               }`
                         }
                       >
+                        {message.role === 'tool' ? (
+                          <div className="mb-2 flex items-center gap-2 border-b border-neutral-800 pb-2 text-[11px]">
+                            <Wrench className="h-3.5 w-3.5 text-green-500" />
+                            <span className="font-medium text-neutral-300">
+                              {message.toolName || 'Tool result'}
+                            </span>
+                            <span className="text-neutral-600">
+                              {message.turnStatus === 'failed' ? 'Failed' : 'Completed'}
+                              {message.generationTimeMs !== undefined
+                                ? ` in ${Math.round(message.generationTimeMs)} ms`
+                                : ''}
+                            </span>
+                          </div>
+                        ) : null}
                         {message.attachments && message.attachments.length > 0 ? (
                           <div className="mb-2 flex flex-wrap gap-1.5">
                             {message.attachments.map((att, i) => {
