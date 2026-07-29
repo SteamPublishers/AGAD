@@ -254,7 +254,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.6, duration: 0.6 }}
-                className="relative flex h-[400px] w-full max-w-[500px] items-center justify-center overflow-hidden"
+                className="relative flex h-[424px] w-full max-w-[500px] items-center justify-center overflow-hidden"
               >
                 <div className="absolute z-10 flex h-24 w-24 items-center justify-center rounded-2xl border border-green-500/30 bg-neutral-900">
                   <img src={logo} alt="Off Grid" className="h-12 w-12 rounded-lg" />

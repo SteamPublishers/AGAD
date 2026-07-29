@@ -91,18 +91,18 @@
       transform: translate(-50%, -40%) scale(1);
     }
   }
+}
 
-  /* Namespaced because onboarding.css also carries a legacy `orbit` keyframe.
-     Global keyframe names collide even when the rules live in separate files. */
-  @keyframes offgrid-orbit-circles {
-    0% {
-      transform: rotate(var(--angle, 0deg)) translateY(calc(-1 * var(--radius, 160px)))
-        rotate(calc(-1 * var(--angle, 0deg)));
-    }
-    100% {
-      transform: rotate(calc(var(--angle, 0deg) + 360deg))
-        translateY(calc(-1 * var(--radius, 160px))) rotate(calc(-1 * var(--angle, 0deg) - 360deg));
-    }
+/* This component applies its animation inline, so its keyframes must remain global.
+   Keeping them inside @theme lets Tailwind remove them as an unused theme utility. */
+@keyframes offgrid-orbit-circles {
+  0% {
+    transform: rotate(var(--angle, 0deg)) translateY(calc(-1 * var(--radius, 160px)))
+      rotate(calc(-1 * var(--angle, 0deg)));
+  }
+  100% {
+    transform: rotate(calc(var(--angle, 0deg) + 360deg)) translateY(calc(-1 * var(--radius, 160px)))
+      rotate(calc(-1 * var(--angle, 0deg) - 360deg));
   }
 }
 
