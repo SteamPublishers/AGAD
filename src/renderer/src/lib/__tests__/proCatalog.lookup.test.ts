@@ -125,6 +125,17 @@ describe('proFeatureComingSoon', () => {
     expect(proFeatureComingSoon(route, 'win32', false)).toBe(false)
   })
 
+  // win32 is not the only non-Mac platform: the gate reads a feature's `platforms`
+  // list, so ANY platform absent from it is coming-soon. Without a third platform
+  // asserted here, a regression that special-cased win32 (rather than reading the
+  // list) would still pass. Entitlement is orthogonal — free users are never gated.
+  it('gates a Pro route on linux too, and still never gates free users there', () => {
+    const route = PRO_FEATURES.at(0)?.route
+    if (!route) throw new Error('Pro catalog must not be empty')
+    expect(proFeatureComingSoon(route, 'linux', true)).toBe(true)
+    expect(proFeatureComingSoon(route, 'linux', false)).toBe(false)
+  })
+
   it('does not gate core or unknown routes', () => {
     expect(proFeatureComingSoon('models', 'win32', true)).toBe(false)
     expect(proFeatureComingSoon('does-not-exist', 'win32', true)).toBe(false)
