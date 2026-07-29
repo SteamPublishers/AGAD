@@ -55,6 +55,8 @@ import {
   NOTIFICATION_METADATA_HOOK,
   NOTIFICATION_OPEN_TARGET_CHANNEL,
   NOTIFICATION_RESOLVE_TARGET_HOOK,
+  NOTIFICATION_SUBSCRIBE_EXTERNAL_UNREAD_HOOK,
+  type NotificationExternalUnreadSubscriber,
   type NotificationRoutingMetadata,
   type NotificationSourceRecord
 } from './lib/notification-hooks'
@@ -211,13 +213,14 @@ function ModelStatusDot({
 }
 
 function AppContent() {
-  const { addNotification } = useNotifications()
+  const { addNotification, unreadCount } = useNotifications()
 
   // Pro entitlement (preload reads OFFGRID_PRO; absent submodule => false at runtime).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isPro = !!(window as any).api?.isPro
   // Re-render once pro renderer features have activated (registers the view-router).
   const [proReady, setProReady] = useState(false)
+  const [externalUnreadCount, setExternalUnreadCount] = useState(0)
   useEffect(() => {
     let mounted = true
     void loadProFeaturesRenderer().finally(() => {
@@ -227,6 +230,17 @@ function AppContent() {
       mounted = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!proReady || !isPro) {
+      setExternalUnreadCount(0)
+      return
+    }
+    return callHook<ReturnType<NotificationExternalUnreadSubscriber>>(
+      NOTIFICATION_SUBSCRIBE_EXTERNAL_UNREAD_HOOK,
+      setExternalUnreadCount
+    )
+  }, [isPro, proReady])
 
   // Free users land on Models (download a model first, with the sidebar to
   // explore); Mac Pro users land on Day. Never land on a locked or unavailable tab.
@@ -435,24 +449,6 @@ function AppContent() {
           title: data.entityName ? `Approval — ${data.entityName}` : 'Approval needed',
           message: data.detail ? `${data.title} — ${data.detail}` : data.title,
           approvalId: data.approvalId,
-          ...routing
-        })
-      })
-    )
-
-    // New to-do extracted from your activity
-    unsubscribers.push(
-      window.api.onNewAction((data) => {
-        const routing = callHook<NotificationRoutingMetadata>(NOTIFICATION_METADATA_HOOK, {
-          source: 'action',
-          recordId: data.actionId
-        } satisfies NotificationSourceRecord)
-        const where = [data.entityName, data.sourceApp].filter(Boolean).join(' · ')
-        addNotification({
-          type: 'todo',
-          title: data.due ? `New to-do — due ${data.due}` : 'New to-do',
-          message: where ? `${data.text} (${where})` : data.text,
-          actionId: data.actionId,
           ...routing
         })
       })
@@ -732,6 +728,8 @@ function AppContent() {
     locked?: boolean
   }): React.ReactElement => {
     const active = viewMode === item.view
+    const notificationCount = item.view === 'notifications' ? unreadCount + externalUnreadCount : 0
+    const notificationCountLabel = notificationCount > 9 ? '9+' : String(notificationCount)
     return (
       <button
         key={item.view}
@@ -756,6 +754,17 @@ function AppContent() {
         )}
         {item.icon}
         {sidebarOpen && <span className="flex-1 text-left whitespace-pre">{item.label}</span>}
+        {notificationCount > 0 && (
+          <span
+            aria-label={`${notificationCount} unread notifications`}
+            className={cn(
+              'flex h-4 min-w-4 items-center justify-center border border-green-500 bg-green-500 px-1 font-mono text-[9px] leading-none text-black',
+              !sidebarOpen && 'absolute right-0 top-0'
+            )}
+          >
+            {notificationCountLabel}
+          </span>
+        )}
         {sidebarOpen && item.locked && (
           <IconLock className="h-3.5 w-3.5 shrink-0 text-neutral-400/60" title="Pro" />
         )}
