@@ -21,7 +21,12 @@ import {
   MagnifyingGlass,
   Graph,
   ShieldCheck,
-  Waveform
+  Waveform,
+  ChatsCircle,
+  ClipboardText,
+  Devices,
+  Files,
+  Package
 } from '@phosphor-icons/react'
 
 // Word-by-word blur-in, matching the brand's terminal feel.
@@ -83,7 +88,13 @@ interface OnboardingProps {
   onComplete: () => void
 }
 
-const steps = [{ id: 'welcome' }, { id: 'capabilities' }, { id: 'pro' }, { id: 'private' }]
+const steps = [
+  { id: 'welcome' },
+  { id: 'capabilities' },
+  { id: 'pro' },
+  { id: 'sync' },
+  { id: 'private' }
+]
 const ONBOARDING_STEP_KEY = 'onboarding_step'
 
 function restoredStep(): number {
@@ -141,6 +152,29 @@ const PRO_GRID = [
     icon: Waveform,
     label: 'Voice',
     line: 'Hold Option+Space and talk - transcribed locally and pasted at your cursor, so you type with your voice anywhere.'
+  }
+]
+
+const SYNC_GRID = [
+  {
+    icon: ChatsCircle,
+    label: 'Workspace',
+    line: 'Chats, projects, messages, tool results, and knowledge stay current.'
+  },
+  {
+    icon: ClipboardText,
+    label: 'Copied text',
+    line: 'Copy on one device. Paste from another.'
+  },
+  {
+    icon: Files,
+    label: 'Files',
+    line: 'Screenshots, downloads, generated media, and attachments move directly.'
+  },
+  {
+    icon: Package,
+    label: 'Models',
+    line: 'Send installed models and keep model settings together.'
   }
 ]
 
@@ -330,10 +364,73 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
           </motion.div>
         )}
 
-        {/* Step 3 — Private close */}
+        {/* Step 3 - Sync */}
         {currentStep === 3 && (
           <motion.div
             key="step-3"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="relative flex h-full w-full flex-col items-center justify-center bg-neutral-950 px-6"
+          >
+            <GridBackdrop className="opacity-70" />
+            <div className="relative z-10 mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(420px,0.95fr)] lg:items-center">
+              <div>
+                <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-green-400">
+                  <Devices className="h-4 w-4" weight="regular" />
+                  Five-device mesh
+                </div>
+                <TextGenerate
+                  words="Your devices work as one."
+                  className="text-3xl font-semibold tracking-tight text-white md:text-5xl"
+                  delay={0}
+                />
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.5 }}
+                  className="mt-5 max-w-2xl text-sm leading-6 text-neutral-400"
+                >
+                  Sync your workspace directly between up to five total devices, including this one.
+                  Off Grid uses LAN first and Nearby when needed. Traffic is encrypted between
+                  paired devices. No Off Grid server receives it.
+                </motion.p>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.7 }}
+                  className="mt-4 max-w-2xl border-l border-green-500/40 pl-3 text-xs leading-5 text-neutral-500"
+                >
+                  One Pro license covers the mesh. Pair a licensed device, or enter your license key
+                  on this one.
+                </motion.p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {SYNC_GRID.map(({ icon: Icon, label, line }, index) => (
+                  <motion.div
+                    key={label}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.35 + index * 0.08, duration: 0.35 }}
+                    className="min-h-36 border border-neutral-800 bg-neutral-900/60 p-4 transition-colors duration-150 hover:border-green-500/30"
+                  >
+                    <Icon className="mb-5 h-5 w-5 text-green-400" weight="regular" />
+                    <h3 className="text-xs font-medium uppercase tracking-wide text-white">
+                      {label}
+                    </h3>
+                    <p className="mt-2 text-xs leading-5 text-neutral-500">{line}</p>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Step 4 - Private close */}
+        {currentStep === 4 && (
+          <motion.div
+            key="step-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
