@@ -55,7 +55,9 @@ import {
   NOTIFICATION_METADATA_HOOK,
   NOTIFICATION_OPEN_TARGET_CHANNEL,
   NOTIFICATION_RESOLVE_TARGET_HOOK,
+  NOTIFICATION_SUBSCRIBE_EXTERNAL_ITEMS_HOOK,
   NOTIFICATION_SUBSCRIBE_EXTERNAL_UNREAD_HOOK,
+  type NotificationExternalItemSubscriber,
   type NotificationExternalUnreadSubscriber,
   type NotificationRoutingMetadata,
   type NotificationSourceRecord
@@ -241,6 +243,14 @@ function AppContent() {
       setExternalUnreadCount
     )
   }, [isPro, proReady])
+
+  useEffect(() => {
+    if (!proReady || !isPro) return
+    return callHook<ReturnType<NotificationExternalItemSubscriber>>(
+      NOTIFICATION_SUBSCRIBE_EXTERNAL_ITEMS_HOOK,
+      addNotification
+    )
+  }, [addNotification, isPro, proReady])
 
   // Free users land on Models (download a model first, with the sidebar to
   // explore); Mac Pro users land on Day. Never land on a locked or unavailable tab.
