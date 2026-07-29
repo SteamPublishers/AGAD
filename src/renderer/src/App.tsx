@@ -85,6 +85,7 @@ type ViewMode =
 // Navigation state type for history tracking
 interface NavigationState {
   viewMode: ViewMode
+  subroute: string | null
   selectedSessionId: string | null
   selectedMemoryId: number | null
   selectedEntityId: number | null
@@ -230,6 +231,7 @@ function AppContent() {
   // Free users land on Models (download a model first, with the sidebar to
   // explore); Mac Pro users land on Day. Never land on a locked or unavailable tab.
   const [viewMode, setViewMode] = useState<ViewMode>(isPro && isMac() ? 'day' : 'models')
+  const [navigationSubroute, setNavigationSubroute] = useState<string | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [selectedMemoryId, setSelectedMemoryId] = useState<number | null>(null)
   // Version of a downloaded-and-staged update (null = none). Surfaced as a banner
@@ -379,6 +381,7 @@ function AppContent() {
     // Avoid duplicating the same state
     const currentState: NavigationState = {
       viewMode,
+      subroute: viewMode === 'devices' ? navigationSubroute : null,
       selectedSessionId,
       selectedMemoryId,
       selectedEntityId,
@@ -389,6 +392,7 @@ function AppContent() {
     const isSameState =
       lastState &&
       lastState.viewMode === currentState.viewMode &&
+      lastState.subroute === currentState.subroute &&
       lastState.selectedSessionId === currentState.selectedSessionId &&
       lastState.selectedMemoryId === currentState.selectedMemoryId &&
       lastState.selectedEntityId === currentState.selectedEntityId &&
@@ -406,6 +410,7 @@ function AppContent() {
     syncNavFlags()
   }, [
     viewMode,
+    navigationSubroute,
     selectedSessionId,
     selectedMemoryId,
     selectedEntityId,
@@ -487,6 +492,7 @@ function AppContent() {
       const previousState = navigationHistory.current[navigationHistory.current.length - 1]
       if (previousState) {
         setViewMode(previousState.viewMode)
+        setNavigationSubroute(previousState.subroute)
         setSelectedSessionId(previousState.selectedSessionId)
         setSelectedMemoryId(previousState.selectedMemoryId)
         setSelectedEntityId(previousState.selectedEntityId)
@@ -507,6 +513,7 @@ function AppContent() {
         navigationHistory.current.push(nextState)
         // Apply the state
         setViewMode(nextState.viewMode)
+        setNavigationSubroute(nextState.subroute)
         setSelectedSessionId(nextState.selectedSessionId)
         setSelectedMemoryId(nextState.selectedMemoryId)
         setSelectedEntityId(nextState.selectedEntityId)
@@ -1017,6 +1024,9 @@ function AppContent() {
                     (renderProView(viewMode, {
                       setView: (v) => setViewMode(v as ViewMode),
                       onNavigate: handleProNavigate,
+                      navigationSubroute,
+                      setNavigationSubroute,
+                      navigateBack,
                       replayTarget,
                       meetingTarget,
                       actionTarget,

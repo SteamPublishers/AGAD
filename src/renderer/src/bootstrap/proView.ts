@@ -11,6 +11,9 @@ import type { ProNavigationIntent } from '../lib/pro-navigation'
 export interface ProViewContext {
   setView: (view: string) => void
   onNavigate: (intent: ProNavigationIntent) => void
+  navigationSubroute: string | null
+  setNavigationSubroute: (subroute: string | null) => void
+  navigateBack: () => void
   replayTarget: number | null
   meetingTarget: number | null
   actionTarget: number | null
