@@ -47,6 +47,7 @@ let syntheticFiles: FileTransferManager | null = null
 let syntheticClipboard: ClipboardSyncCoordinator | null = null
 const syntheticClipboardRecords = new Map<string, ClipboardHistoryRecord>()
 const syntheticActiveMemberships = new Map<string, PairedDevice>()
+const syntheticProvisionalMemberships = new Map<string, PairedDevice>()
 const syntheticPendingRevocations = new Map<string, PendingMembershipRevocation>()
 const syntheticRevocationTombstones = new Map<string, MembershipRevocationTombstone>()
 const syntheticRecords = new Map<
@@ -107,6 +108,7 @@ const teardown = async (): Promise<void> => {
   syntheticClipboard = null
   syntheticClipboardRecords.clear()
   syntheticActiveMemberships.clear()
+  syntheticProvisionalMemberships.clear()
   syntheticPendingRevocations.clear()
   syntheticRevocationTombstones.clear()
   syntheticRecords.clear()
@@ -254,6 +256,16 @@ test.describe('Devices surface — pro tier', () => {
         syntheticRevocationTombstones.set(pending.device.id, tombstone)
         return true
       },
+      setPendingDismissed: (deviceId, revocationId, dismissedAt) => {
+        const pending = syntheticPendingRevocations.get(deviceId)
+        if (pending?.revocationId !== revocationId) return false
+        if (dismissedAt === undefined) {
+          delete pending.dismissedAt
+        } else {
+          pending.dismissedAt = dismissedAt
+        }
+        return true
+      },
       getRevocationSecret: (deviceId, membershipId) => {
         const pending = syntheticPendingRevocations.get(deviceId)
         if (pending?.membershipId === membershipId) return pending.revocationSecret
@@ -265,16 +277,25 @@ test.describe('Devices surface — pro tier', () => {
       localDevice: local,
       transport: new NodeTcpTransport(),
       pairingPersistence: {
-        save: async (device) => {
+        begin: async (device) => {
           if (waitForSecureStore) {
             await new Promise<void>((resolve) => {
               releaseSecureStore = resolve
             })
           }
-          syntheticActiveMemberships.set(device.id, device)
+          syntheticProvisionalMemberships.set(device.id, device)
         },
-        remove: (deviceId) => {
-          syntheticActiveMemberships.delete(deviceId)
+        commit: (device) => {
+          if (!syntheticProvisionalMemberships.has(device.id)) {
+            throw new Error('The pairing credential was not staged.')
+          }
+          syntheticActiveMemberships.set(device.id, device)
+          syntheticPendingRevocations.delete(device.id)
+          syntheticRevocationTombstones.delete(device.id)
+          syntheticProvisionalMemberships.delete(device.id)
+        },
+        rollback: (deviceId) => {
+          syntheticProvisionalMemberships.delete(deviceId)
         }
       },
       membershipPersistence,
@@ -493,6 +514,9 @@ test.describe('Devices surface — pro tier', () => {
     await page.screenshot({ path: 'e2e/screenshots/devices-model-transfer.png' })
     await page.getByRole('button', { name: 'Close', exact: true }).first().click()
 
+    await syntheticPeer.stop()
+    syntheticPeer = null
+    await expect(page.getByText('Offline', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Evict', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Evict Synthetic Android?' })).toBeVisible()
     await expect(
@@ -504,9 +528,14 @@ test.describe('Devices surface — pro tier', () => {
     await expect(
       page.getByRole('button', { name: 'Manage devices, 1 of 5 slots used' })
     ).toBeVisible()
-    await expect.poll(() => syntheticPeer?.isPaired(desktop.localDevice.id)).toBe(false)
-    expect(syntheticActiveMemberships.has(desktop.localDevice.id)).toBe(false)
-    expect(syntheticRevocationTombstones.get(desktop.localDevice.id)?.membershipId).toBeTruthy()
+    await expect(page.getByText('Could not reach Synthetic Android')).toBeVisible({
+      timeout: 15_000
+    })
+    await expect(page.getByRole('button', { name: 'Retry eviction' })).toBeVisible()
+    const dismissEviction = page.getByRole('button', { name: 'Dismiss' })
+    await expect(dismissEviction).toBeVisible()
+    await dismissEviction.click()
+    await expect(page.getByText('Could not reach Synthetic Android')).toHaveCount(0)
   })
 
   test('turning a category off persists across a screen change', async () => {
