@@ -9,7 +9,10 @@
  *    can prompt a relaunch (main-process pro features only attach at boot).
  */
 import { ipcMain, BrowserWindow, app, shell } from 'electron'
-import { proEnabled } from './bootstrap/loadProFeaturesMain'
+import {
+  proEnabled,
+  proEntitlementBootstrapEnabled
+} from './bootstrap/loadProFeaturesMain'
 import { requestApplicationRelaunch } from './shutdown'
 import {
   activateProByKey,
@@ -34,6 +37,9 @@ export function setupLicenseIpc(): void {
   // before the first window loads (it is — setupLicenseIpc runs before createWindow).
   ipcMain.on('pro:is-enabled', (e) => {
     e.returnValue = proEnabled()
+  })
+  ipcMain.on('pro:entitlement-bootstrap-enabled', (e) => {
+    e.returnValue = proEntitlementBootstrapEnabled()
   })
 
   ipcMain.handle('license:status', () => getProLicenseInfo())

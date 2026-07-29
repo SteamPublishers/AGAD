@@ -116,6 +116,7 @@ type ArtifactKind = import('../../shared/ipc-contracts').ArtifactKindContract
 interface RendererAPIOverrides {
   // Open-core bridge
   isPro?: boolean
+  proEntitlementBootstrapEnabled?: boolean
   // Host OS (process.platform), bridged at preload time. Used by lib/device.ts
   // to name the machine ('Mac' on darwin, else 'device').
   platform?: string

@@ -14,7 +14,10 @@ import { PermissionGate } from './components/PermissionGate'
 import type { SearchHit } from './types'
 // Open-core: pro screens live in the private pro package and render through the
 // pro view-router; the free build shows the UpgradeScreen for those tabs.
-import { loadProFeaturesRenderer } from './bootstrap/loadProFeaturesRenderer'
+import {
+  loadProFeaturesRenderer,
+  type ProRendererActivation
+} from './bootstrap/loadProFeaturesRenderer'
 import { renderProView, type ProViewContext } from './bootstrap/proView'
 import { UpgradeScreen } from './components/pro/UpgradeScreen'
 import { getProFeature, proFeatureComingSoon } from './components/pro/proCatalog'
@@ -222,11 +225,15 @@ function AppContent() {
   const isPro = !!(window as any).api?.isPro
   // Re-render once pro renderer features have activated (registers the view-router).
   const [proReady, setProReady] = useState(false)
+  const [proActivation, setProActivation] = useState<ProRendererActivation>('none')
   const [externalUnreadCount, setExternalUnreadCount] = useState(0)
   useEffect(() => {
     let mounted = true
-    void loadProFeaturesRenderer().finally(() => {
-      if (mounted) setProReady(true)
+    void loadProFeaturesRenderer().then((activation) => {
+      if (mounted) {
+        setProActivation(activation)
+        setProReady(true)
+      }
     })
     return () => {
       mounted = false
@@ -678,7 +685,7 @@ function AppContent() {
       label: f.label,
       icon: <f.icon className="h-5 w-5 shrink-0 text-neutral-400" weight="regular" />,
       view: f.route as ViewMode,
-      locked: !isPro
+      locked: !isPro && !(route === 'devices' && proActivation === 'entitlement-bootstrap')
     }
   }
   // Icons take no color — the nav button drives it (emerald when active).

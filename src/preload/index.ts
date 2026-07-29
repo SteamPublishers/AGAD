@@ -31,6 +31,8 @@ const offGridApi = {
   // pro tabs without an async round-trip. See main/license-ipc.ts (`pro:is-enabled`).
   // Falls back to false if the handler isn't registered (should never happen).
   isPro: ipcRenderer.sendSync('pro:is-enabled') === true,
+  proEntitlementBootstrapEnabled:
+    ipcRenderer.sendSync('pro:entitlement-bootstrap-enabled') === true,
   // Host OS, bridged once so renderer copy and availability rules use the same value.
   platform: process.platform,
   // License (Keygen) activation + status for the upgrade/settings UI.
