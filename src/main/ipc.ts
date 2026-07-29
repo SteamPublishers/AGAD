@@ -1166,6 +1166,9 @@ export function setupIPC() {
     async (_, id: string, projectId: string | null) => {
       const { setRagConversationProject } = await import('./database')
       setRagConversationProject(id, projectId)
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send('rag:conversations-changed', { conversationId: id, projectId })
+      }
       return true
     }
   )

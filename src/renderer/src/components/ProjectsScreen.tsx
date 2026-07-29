@@ -311,14 +311,21 @@ function ProjectChats({
 
   useEffect(() => {
     let alive = true
-    api
-      .getRagConversations?.(project.id)
-      .then((c: RagConvo[]) => {
-        if (alive) setChats(c)
-      })
-      .catch(() => {})
+    const refresh = (): void => {
+      void api
+        .getRagConversations?.(project.id)
+        .then((c: RagConvo[]) => {
+          if (alive) setChats(c)
+        })
+        .catch(() => {})
+    }
+    refresh()
+    const offChanged = api.onRagConversationsChanged?.(() => {
+      refresh()
+    })
     return () => {
       alive = false
+      offChanged?.()
     }
   }, [project.id])
 

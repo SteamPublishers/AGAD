@@ -142,6 +142,16 @@ const offGridApi = {
     ipcRenderer.invoke('rag:create-conversation', id, title, projectId),
   getRagConversations: (projectId?: string | null) =>
     ipcRenderer.invoke('rag:get-conversations', projectId),
+  onRagConversationsChanged: (
+    callback: (data: { conversationId: string; projectId: string | null }) => void
+  ) => {
+    const subscription = (
+      _event: unknown,
+      data: { conversationId: string; projectId: string | null }
+    ): void => callback(data)
+    ipcRenderer.on('rag:conversations-changed', subscription)
+    return unsubscribe('rag:conversations-changed', subscription)
+  },
   searchRagConversationIds: (query: string) =>
     ipcRenderer.invoke('rag:search-conversation-ids', query),
   setRagConversationProject: (id: string, projectId: string | null) =>
