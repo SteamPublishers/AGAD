@@ -22,6 +22,21 @@ export interface ProMainApi {
   registerShutdownOwner(name: string, shutdown: () => void | Promise<void>): () => void
 }
 
+export async function loadProEntitlementProvider(): Promise<void> {
+  let pro: unknown
+  try {
+    pro = await import('@offgrid/pro/main')
+  } catch {
+    return
+  }
+  const register = (
+    pro as {
+      registerEntitlementProvider?: () => void | Promise<void>
+    }
+  ).registerEntitlementProvider
+  if (typeof register === 'function') await register()
+}
+
 /** Whether pro features should activate. The pro submodule must be present AND
  *  the user entitled by a valid Keygen license. Local env override (dev/contributor):
  *    OFFGRID_PRO=0 → force free even with pro code bundled,

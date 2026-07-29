@@ -27,7 +27,7 @@ import { startMediaServer, stopMediaServer, mediaUrlFor } from './media-server'
 import { serveCaptureFile } from './ogcapture-serve'
 import { serveArtifactPreview } from './artifact-preview'
 import { ipcMain } from 'electron'
-import { loadProFeaturesMain } from './bootstrap/loadProFeaturesMain'
+import { loadProEntitlementProvider, loadProFeaturesMain } from './bootstrap/loadProFeaturesMain'
 import { initLicensing } from './licensing/license-service'
 import { setupLicenseIpc } from './license-ipc'
 import { nativeImage } from 'electron'
@@ -181,7 +181,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   restoreCanonicalProductName()
 
   // Server-only (headless) mode: boot just the multimodal gateway + LLM runtime,
@@ -324,6 +324,7 @@ app.whenReady().then(() => {
     // Licensing first: load the cached Keygen entitlement into memory and register
     // the SYNC `pro:is-enabled` handler BEFORE createWindow() (line below) so the
     // preload's sendSync resolves and window.api.isPro reflects the real license.
+    await loadProEntitlementProvider()
     initLicensing()
     setupLicenseIpc()
     setupIPC()
