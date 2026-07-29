@@ -17,6 +17,29 @@ export interface ApplicationQuitSource {
   removeListener(event: 'before-quit', listener: () => void): unknown
 }
 
+export interface ApplicationRelaunchSource {
+  quit(): void
+  relaunch(): void
+}
+
+let relaunchRequested = false
+
+/**
+ * Defer spawning the replacement process until the current process has finished its asynchronous
+ * shutdown. Starting the replacement first can route it back into the still-alive single instance,
+ * leaving a new window backed by services that have already been torn down.
+ */
+export function requestApplicationRelaunch(source: ApplicationRelaunchSource): void {
+  relaunchRequested = true
+  source.quit()
+}
+
+export function commitApplicationRelaunch(source: ApplicationRelaunchSource): void {
+  if (!relaunchRequested) return
+  relaunchRequested = false
+  source.relaunch()
+}
+
 export interface ShutdownFailure {
   owner: string
   error: unknown

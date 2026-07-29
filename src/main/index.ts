@@ -47,6 +47,7 @@ import {
 } from './diagnostics-log'
 import {
   applicationShutdown,
+  commitApplicationRelaunch,
   installApplicationShutdown,
   registerCoreShutdownOwners
 } from './shutdown'
@@ -415,6 +416,7 @@ app.on('before-quit', (event) => {
       /* best-effort — quit regardless so the app never hangs on exit */
     }
     engineUnloaded = true
+    commitApplicationRelaunch(app)
     app.quit()
   })()
 })

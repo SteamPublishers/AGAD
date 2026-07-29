@@ -63,6 +63,7 @@ import {
   isTrivialMessage,
   appNameLikeClause
 } from './ipc-query-logic'
+import { requestApplicationRelaunch } from './shutdown'
 // import { llm } from './llm'; // Moved to dynamic import to support ESM
 
 // Incrementally update master memory with a new conversation summary
@@ -1139,8 +1140,7 @@ export function setupIPC() {
   })
 
   ipcMain.handle('permissions:relaunch', () => {
-    app.relaunch()
-    app.exit(0)
+    requestApplicationRelaunch(app)
     return true
   })
 

@@ -10,6 +10,7 @@
  */
 import { ipcMain, BrowserWindow, app, shell } from 'electron'
 import { proEnabled } from './bootstrap/loadProFeaturesMain'
+import { requestApplicationRelaunch } from './shutdown'
 import {
   activateProByKey,
   deactivateProDevice,
@@ -47,7 +48,6 @@ export function setupLicenseIpc(): void {
   // Pro main-process features (tray, capture, CRM loops) only attach at boot, so
   // a fresh activation needs a relaunch to fully light up.
   ipcMain.handle('license:relaunch', () => {
-    app.relaunch()
-    app.exit(0)
+    requestApplicationRelaunch(app)
   })
 }
