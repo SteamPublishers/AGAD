@@ -19,10 +19,40 @@ export interface ApplicationQuitSource {
 
 export interface ApplicationRelaunchSource {
   quit(): void
-  relaunch(): void
+  relaunch(options?: ApplicationRelaunchOptions): void
 }
 
-let relaunchRequested = false
+export interface ApplicationRelaunchOptions {
+  execPath?: string
+  args?: string[]
+}
+
+interface PendingApplicationRelaunch {
+  options?: ApplicationRelaunchOptions
+}
+
+let pendingRelaunch: PendingApplicationRelaunch | null = null
+
+function developmentRelaunchOptions(): ApplicationRelaunchOptions | undefined {
+  if (process.env.NODE_ENV_ELECTRON_VITE !== 'development') return undefined
+
+  const nodeExecutable = process.env.npm_node_execpath
+  const npmExecutable = process.env.npm_execpath
+  if (!nodeExecutable || !npmExecutable) {
+    console.error(
+      '[relaunch] development runtime is missing npm launch metadata; restarting Electron only'
+    )
+    return undefined
+  }
+
+  // electron-vite exits its renderer server when the Electron child quits. Relaunching only
+  // Electron therefore leaves the replacement window pointing at a dead localhost URL. Restart
+  // the complete npm dev command so main, preload, and renderer return as one runtime.
+  return {
+    execPath: nodeExecutable,
+    args: [npmExecutable, 'run', 'dev']
+  }
+}
 
 /**
  * Defer spawning the replacement process until the current process has finished its asynchronous
@@ -30,14 +60,15 @@ let relaunchRequested = false
  * leaving a new window backed by services that have already been torn down.
  */
 export function requestApplicationRelaunch(source: ApplicationRelaunchSource): void {
-  relaunchRequested = true
+  pendingRelaunch = { options: developmentRelaunchOptions() }
   source.quit()
 }
 
 export function commitApplicationRelaunch(source: ApplicationRelaunchSource): void {
-  if (!relaunchRequested) return
-  relaunchRequested = false
-  source.relaunch()
+  if (!pendingRelaunch) return
+  const { options } = pendingRelaunch
+  pendingRelaunch = null
+  source.relaunch(options)
 }
 
 export interface ShutdownFailure {
