@@ -1,5 +1,5 @@
 import { PRO_PURCHASE_URL } from '../../shared/product-links'
-import type { PersonalMeshActivationResult } from '@offgrid/sync'
+import type { PersonalMeshActivationResult, PersonalMeshReconciliationReason } from '@offgrid/sync'
 
 export const PRO_PAY_PAGE_URL = PRO_PURCHASE_URL
 
@@ -30,6 +30,7 @@ export interface ProLicensedDevice {
  */
 export interface ProEntitlementProvider {
   initialize(): void
+  revalidate(reason: PersonalMeshReconciliationReason): Promise<void>
   isEntitled(): boolean
   getInfo(): ProLicenseInfo
   activate(rawCredential: string): Promise<ActivateResult>
@@ -59,6 +60,10 @@ export function registerProEntitlementProvider(next: ProEntitlementProvider): ()
 
 export function initLicensing(): void {
   provider?.initialize()
+}
+
+export function revalidateProEntitlement(reason: PersonalMeshReconciliationReason): Promise<void> {
+  return provider?.revalidate(reason) ?? Promise.resolve()
 }
 
 export function isProEntitled(): boolean {

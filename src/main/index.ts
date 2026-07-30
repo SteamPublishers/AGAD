@@ -28,7 +28,7 @@ import { serveCaptureFile } from './ogcapture-serve'
 import { serveArtifactPreview } from './artifact-preview'
 import { ipcMain } from 'electron'
 import { loadProEntitlementProvider, loadProFeaturesMain } from './bootstrap/loadProFeaturesMain'
-import { initLicensing } from './licensing/license-service'
+import { initLicensing, revalidateProEntitlement } from './licensing/license-service'
 import { setupLicenseIpc } from './license-ipc'
 import { nativeImage } from 'electron'
 import { purgeLegacyChatImports, getSetting } from './database'
@@ -326,6 +326,7 @@ app.whenReady().then(async () => {
     // preload's sendSync resolves and window.api.isPro reflects the real license.
     await loadProEntitlementProvider()
     initLicensing()
+    await revalidateProEntitlement('launch')
     setupLicenseIpc()
     setupIPC()
     setupRagIPC()
@@ -391,6 +392,9 @@ app.whenReady().then(async () => {
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+  app.on('browser-window-focus', () => {
+    void revalidateProEntitlement('foreground')
   })
 })
 
