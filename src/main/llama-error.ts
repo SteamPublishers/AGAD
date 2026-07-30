@@ -12,6 +12,7 @@ export interface LlamaFailure {
     | 'engine_outdated'
     | 'os_too_old'
     | 'out_of_memory'
+    | 'gpu_unsupported'
     | 'missing_library'
     | 'model_corrupt'
     | 'port_in_use'
@@ -79,6 +80,33 @@ export function classifyLlamaError(
     return {
       code: 'out_of_memory',
       reason: `Out of memory - this model is too large for this ${deviceNoun(platform)}. Try a smaller model or Conservative mode.`
+    }
+  }
+
+  // The GPU backend could not create a logical device because the driver does not
+  // expose an extension the engine asked for. MUST stay above `model_corrupt`: the
+  // same stderr carries llama.cpp's generic "failed to load model" line, so a lower
+  // placement reports a working GPU-less machine as a corrupt download.
+  //
+  // Real capture from a hybrid-graphics Windows laptop (AMD iGPU + NVIDIA dGPU):
+  //   loader_validate_device_extensions: Device extension VK_KHR_shader_bfloat16
+  //     not supported by selected physical device or enabled layers
+  //   vkCreateDevice: Failed to validate extensions in list
+  //   llama_model_load: error loading model:
+  //     vk::PhysicalDevice::createDevice: ErrorExtensionNotPresent
+  if (
+    /errorextensionnotpresent|loader_validate_device_extensions|failed to validate extensions in list/.test(
+      s
+    )
+  ) {
+    // Name the extension when the loader trace includes it - "your driver is missing
+    // VK_KHR_shader_bfloat16" is actionable; "GPU setup failed" is not.
+    const ext = stderr.match(/device extension\s+(VK_[A-Za-z0-9_]+)/i)?.[1]
+    return {
+      code: 'gpu_unsupported',
+      reason: ext
+        ? `GPU acceleration is unavailable - this graphics driver does not support ${ext}. Chat is running on the CPU engine, which is slower.`
+        : 'GPU acceleration is unavailable - this graphics driver is missing a feature the GPU engine needs. Chat is running on the CPU engine, which is slower.'
     }
   }
 

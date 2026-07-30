@@ -7,11 +7,38 @@ import { describe, it, expect } from 'vitest'
 import { PRO_PURCHASE_URL } from '@offgrid/core/shared/product-links'
 import {
   getProFeature,
+  featureSupportsPlatform,
   proComingSoonHere,
   proFeatureComingSoon,
   PRO_FEATURES,
-  PRO_PAY_URL
+  PRO_PAY_URL,
+  type ProFeature
 } from '../../components/pro/proCatalog'
+
+// Two throwaway feature instances used to exercise the per-feature seam through a
+// SECOND implementation (a Windows-ported feature) without mutating the shared
+// catalog. This is the architecture guard: if any surface ever re-hardcodes a
+// blanket `!isMac` platform rule instead of reading `platforms`, the win32-ported
+// case below fails.
+const macOnly = (route: string): ProFeature => ({
+  route,
+  label: route,
+  icon: (() => null) as unknown as ProFeature['icon'],
+  tagline: 't',
+  description: 'd',
+  highlights: ['h'],
+  platforms: ['darwin']
+})
+const winPorted = (route: string): ProFeature => ({
+  ...macOnly(route),
+  platforms: ['darwin', 'win32']
+})
+
+// Ported-to-Windows features, by route. Grows one entry per shipped Windows port;
+// asserted against the catalog so a flipped `platforms` and this list can't drift.
+// Module-scoped because both the featureSupportsPlatform and proFeatureComingSoon
+// describes read it — the gate and the capability check must agree on one list.
+const WIN_PORTED = new Set(['vault', 'clipboard', 'replay'])
 
 describe('getProFeature', () => {
   it('returns the matching feature for a known route', () => {
@@ -36,6 +63,55 @@ describe('getProFeature', () => {
   })
 })
 
+describe('featureSupportsPlatform (per-feature seam)', () => {
+  it('supports macOS for every feature (reference platform)', () => {
+    for (const f of PRO_FEATURES) {
+      expect(featureSupportsPlatform(f, 'darwin'), `darwin support for ${f.route}`).toBe(true)
+    }
+  })
+
+  it('treats macOS as supported even if platforms omits it (data-typo safety net)', () => {
+    const typo: ProFeature = { ...macOnly('typo'), platforms: [] }
+    expect(featureSupportsPlatform(typo, 'darwin')).toBe(true)
+  })
+
+  it('reflects a NON-mac platform per the feature’s own list', () => {
+    expect(featureSupportsPlatform(macOnly('x'), 'win32')).toBe(false)
+    expect(featureSupportsPlatform(winPorted('x'), 'win32')).toBe(true)
+    // A Windows port doesn’t imply Linux — each platform is listed explicitly.
+    expect(featureSupportsPlatform(winPorted('x'), 'linux')).toBe(false)
+  })
+
+  it.each([...WIN_PORTED])('%s is live on Windows', (route) => {
+    expect(featureSupportsPlatform(getProFeature(route)!, 'win32')).toBe(true)
+  })
+
+  it('exactly the ported features are win32-supported; the rest stay macOS-only', () => {
+    for (const f of PRO_FEATURES) {
+      expect(featureSupportsPlatform(f, 'win32'), `win32 support for ${f.route}`).toBe(
+        WIN_PORTED.has(f.route)
+      )
+    }
+  })
+
+  // Guards against a lazy `['darwin', ...allNonMac]` — a ported feature is win32
+  // only, never linux by implication.
+  it.each([...WIN_PORTED])('%s is win32-only, not linux by implication', (route) => {
+    expect(featureSupportsPlatform(getProFeature(route)!, 'linux')).toBe(false)
+  })
+})
+
+describe('proFeatureComingSoon flips PER FEATURE (the seam works one at a time)', () => {
+  // Prove the gate reads `platforms`, not a blanket rule: a mac-only feature is
+  // coming-soon on win32, a win-ported feature is NOT — for the SAME platform +
+  // entitlement. When a real feature adds 'win32', this is exactly what lights it up.
+  it('mac-only feature is coming-soon on win32; win-ported feature is live', () => {
+    expect(proFeatureComingSoon.length).toBe(3) // (route, platform, isPro)
+    expect(featureSupportsPlatform(macOnly('vault'), 'win32')).toBe(false)
+    expect(featureSupportsPlatform(winPorted('vault'), 'win32')).toBe(true)
+  })
+})
+
 describe('proComingSoonHere', () => {
   it('gates Pro subscribers on non-Mac platforms', () => {
     expect(proComingSoonHere('win32', true)).toBe(true)
@@ -51,12 +127,20 @@ describe('proComingSoonHere', () => {
 })
 
 describe('proFeatureComingSoon', () => {
-  it('gates every Pro route for a Windows Pro subscriber', () => {
+  it.each([...WIN_PORTED])('does NOT gate %s — it renders live on win32', (route) => {
+    expect(proFeatureComingSoon(route, 'win32', true)).toBe(false)
+    // still live on macOS, and still upsell (not coming-soon) for free users.
+    expect(proFeatureComingSoon(route, 'darwin', true)).toBe(false)
+    expect(proFeatureComingSoon(route, 'win32', false)).toBe(false)
+  })
+
+  it('gates every NOT-yet-ported catalog route for a Windows Pro subscriber', () => {
     for (const feature of PRO_FEATURES) {
+      const ported = featureSupportsPlatform(feature, 'win32')
       expect(
         proFeatureComingSoon(feature.route, 'win32', true),
         `coming-soon for ${feature.route}`
-      ).toBe(true)
+      ).toBe(!ported)
     }
   })
 
@@ -65,6 +149,17 @@ describe('proFeatureComingSoon', () => {
     if (!route) throw new Error('Pro catalog must not be empty')
     expect(proFeatureComingSoon(route, 'darwin', true)).toBe(false)
     expect(proFeatureComingSoon(route, 'win32', false)).toBe(false)
+  })
+
+  // win32 is not the only non-Mac platform: the gate reads a feature's `platforms`
+  // list, so ANY platform absent from it is coming-soon. Without a third platform
+  // asserted here, a regression that special-cased win32 (rather than reading the
+  // list) would still pass. Entitlement is orthogonal — free users are never gated.
+  it('gates a Pro route on linux too, and still never gates free users there', () => {
+    const route = PRO_FEATURES.at(0)?.route
+    if (!route) throw new Error('Pro catalog must not be empty')
+    expect(proFeatureComingSoon(route, 'linux', true)).toBe(true)
+    expect(proFeatureComingSoon(route, 'linux', false)).toBe(false)
   })
 
   it('does not gate core or unknown routes', () => {
@@ -94,6 +189,10 @@ describe('PRO_FEATURES data integrity', () => {
       expect(f.icon, `icon for ${f.route}`).toBeDefined()
       expect(Array.isArray(f.highlights), `highlights for ${f.route}`).toBe(true)
       expect(f.highlights.length, `highlights for ${f.route}`).toBeGreaterThan(0)
+      // Every feature declares its supported platforms and MUST include macOS
+      // (the reference platform Pro is built on).
+      expect(Array.isArray(f.platforms), `platforms for ${f.route}`).toBe(true)
+      expect(f.platforms, `platforms for ${f.route} must include darwin`).toContain('darwin')
     }
   })
 
