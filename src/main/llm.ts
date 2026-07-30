@@ -31,6 +31,7 @@ import { isValidGgufFile } from './models/gguf'
 import { readGgufContextLength } from './models/gguf-metadata'
 import { pickFreePort, isPortFree } from './free-port'
 import { postCompletionOnce } from './llm/http-post'
+import { engineSpawnEnv } from './llm/spawn-env'
 import { streamCompletion, type StreamResult } from './llm/stream'
 import {
   terminateEngine,
@@ -682,13 +683,14 @@ export class LLMService {
       proc = spawn(serverPath, args, {
         env: {
           ...process.env,
-          // macOS: rpath for the co-located dylibs. Windows: the loader already
-          // searches the exe's own dir for DLLs, but prepend binDir to PATH so the
-          // ggml/llama DLLs resolve even if that behaviour is restricted.
-          DYLD_LIBRARY_PATH: binDir,
-          ...(process.platform === 'win32'
-            ? { PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}` }
-            : {})
+          // Platform env (dylib rpath, Windows DLL PATH, the Vulkan bf16 opt-out)
+          // is composed in one pure place so each OS's variables are asserted by
+          // test rather than inferred from the host running them.
+          ...engineSpawnEnv({
+            platform: process.platform,
+            binDir,
+            currentEnv: process.env
+          })
         }
       })
     } catch (e) {
