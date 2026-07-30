@@ -295,7 +295,7 @@ function AppContent() {
     projectId?: string
     openGallery?: boolean
   } | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const rec = useMeetingRecorder()
 
   // The meeting recording lifecycle (detect → record → warn → stop → finalize) is
