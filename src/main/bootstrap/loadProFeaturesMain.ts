@@ -19,6 +19,7 @@ export interface ProMainApi {
   llm: typeof llm
   registerHook: typeof registerHook
   registerToolExtension: typeof registerToolExtension
+  requestRelaunch(): void
   registerShutdownOwner(name: string, shutdown: () => void | Promise<void>): () => void
 }
 
@@ -65,13 +66,14 @@ export async function loadProFeaturesMain(): Promise<void> {
     console.log('[pro] disabled via OFFGRID_PRO=0')
     return
   }
-  const { applicationShutdown } = await import('../shutdown')
+  const { applicationShutdown, requestApplicationRelaunch } = await import('../shutdown')
   const api: ProMainApi = {
     getDB,
     runMigration,
     llm,
     registerHook,
     registerToolExtension,
+    requestRelaunch: () => requestApplicationRelaunch(app),
     registerShutdownOwner: (name, shutdown) => applicationShutdown.register({ name, shutdown })
   }
   if (!proEnabled()) {
