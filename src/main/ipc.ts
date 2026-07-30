@@ -93,6 +93,12 @@ async function regenerateMasterMemory(): Promise<string | null> {
 // arrive (inline chain-of-thought); otherwise fall back to a single blocking call.
 // Active streaming turns, keyed by streamId, so a renderer 'rag:cancel' can abort
 // an in-flight generation and keep whatever was produced so far.
+import {
+  bindChatStream,
+  endChatStream,
+  noteChatStreamDelta
+} from './chat-stream-state'
+
 const streamControllers = new Map<string, AbortController>()
 
 async function streamAnswer(
@@ -133,6 +139,7 @@ async function streamAnswer(
         prompt,
         images,
         (text, kind) => {
+          noteChatStreamDelta(streamId, text, kind)
           try {
             sender.send('rag:stream', { streamId, type: kind, text })
           } catch {
@@ -145,6 +152,7 @@ async function streamAnswer(
     })
   } finally {
     streamControllers.delete(streamId)
+    endChatStream(streamId)
   }
 }
 
@@ -609,6 +617,9 @@ export function setupIPC() {
       images?: string[]
     ) => {
       const imgs = images || []
+      // Before the classifier, so the whole turn - including its thinking - is attributable to the
+      // conversation it belongs to.
+      bindChatStream(streamId, conversationId)
       // Intelligence layer: a grammar-constrained classifier picks the output
       // format (build / image / chat) and extracts URLs to read — replacing the
       // brittle keyword gate. Skip it in project mode (that path is its own thing).
@@ -1852,6 +1863,7 @@ export function setupIPC() {
       // thinking -> tool-call activity -> answer, and the stop button (rag:cancel) aborts it.
       const controller = new AbortController()
       streamControllers.set(streamId, controller)
+      bindChatStream(streamId, opts?.conversationId)
       try {
         return await modalityQueue.run(CHAT_JOB, () =>
           toolChat(query, history || [], {
@@ -1859,6 +1871,7 @@ export function setupIPC() {
             thinking: opts.thinking,
             signal: controller.signal,
             onDelta: (text, kind) => {
+              noteChatStreamDelta(streamId, text, kind)
               try {
                 sender.send('rag:stream', { streamId, type: kind, text })
               } catch {
@@ -1887,6 +1900,7 @@ export function setupIPC() {
         )
       } finally {
         streamControllers.delete(streamId)
+        endChatStream(streamId)
       }
     }
   )

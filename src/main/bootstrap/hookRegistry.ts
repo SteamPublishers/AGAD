@@ -50,5 +50,11 @@ export const HOOKS = {
    * (mutation: LocalSharedFileMutation) => void - committed generated media or attachment bytes.
    * Pro owns transfer and consent; free builds leave this inert.
    */
-  syncSharedFileMutation: 'sync.sharedFileMutation'
+  syncSharedFileMutation: 'sync.sharedFileMutation',
+  /**
+   * (snapshot: { conversationId, content, reasoning } | null) => void - the reply this device is
+   * generating, or null when it is generating nothing. Pro streams it live to paired devices; free
+   * builds leave it inert. A SNAPSHOT rather than a delta, so a consumer cannot miss the end.
+   */
+  syncStreamingState: 'sync.streamingState'
 } as const
