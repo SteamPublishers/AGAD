@@ -13,6 +13,16 @@ on:
         type: choice
         options: [beta, stable]
         default: beta
+      pro_ref:
+        # The pro checkout used to default to desktop-pro's DEFAULT branch with no ref,
+        # which silently pairs a core feature/integration branch with pro `main`. The
+        # build stays green and every pro-side change is simply absent — the failure mode
+        # this input exists to prevent. Leave empty for main; set it to the matching pro
+        # branch when releasing from a core integration branch.
+        description: 'desktop-pro branch/tag/sha to bundle (empty = its default branch)'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -165,6 +175,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: off-grid-ai/desktop-pro
+          # Empty = desktop-pro's default branch (checkout treats '' as unset), so the
+          # normal main-line release is unchanged. Set pro_ref when the core ref is an
+          # integration branch, or the build bundles pro `main` and every pro-side change
+          # goes missing with a green build.
+          ref: ${{ inputs.pro_ref }}
           token: ${{ secrets.PRO_REPO_TOKEN }}
           path: pro
           fetch-depth: 1
@@ -356,6 +371,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: off-grid-ai/desktop-pro
+          ref: ${{ inputs.pro_ref }} # same pro ref as build-mac — one version, one pro tree
           token: ${{ secrets.PRO_REPO_TOKEN }}
           path: pro
           fetch-depth: 1
