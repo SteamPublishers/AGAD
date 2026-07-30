@@ -41,6 +41,7 @@ const offGridApi = {
     activate: (key: string) => ipcRenderer.invoke('license:activate', key),
     listDevices: () => ipcRenderer.invoke('license:list-devices'),
     deactivate: (machineId: string) => ipcRenderer.invoke('license:deactivate', machineId),
+    resetCurrentDevice: () => ipcRenderer.invoke('license:reset-current-device'),
     clear: () => ipcRenderer.invoke('license:clear'),
     payUrl: () => ipcRenderer.invoke('license:pay-url'),
     openPay: () => ipcRenderer.invoke('license:open-pay'),

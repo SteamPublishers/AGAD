@@ -9,16 +9,14 @@
  *    can prompt a relaunch (main-process pro features only attach at boot).
  */
 import { ipcMain, BrowserWindow, app, shell } from 'electron'
-import {
-  proEnabled,
-  proEntitlementBootstrapEnabled
-} from './bootstrap/loadProFeaturesMain'
+import { proEnabled, proEntitlementBootstrapEnabled } from './bootstrap/loadProFeaturesMain'
 import { requestApplicationRelaunch } from './shutdown'
 import {
   activateProByKey,
   deactivateProDevice,
   getProLicenseInfo,
   listProDevices,
+  resetProCurrentDevice,
   clearPro,
   setLicenseChangeNotifier,
   PRO_PAY_PAGE_URL,
@@ -46,6 +44,7 @@ export function setupLicenseIpc(): void {
   ipcMain.handle('license:activate', (_e, key: string) => activateProByKey(key))
   ipcMain.handle('license:list-devices', () => listProDevices())
   ipcMain.handle('license:deactivate', (_e, machineId: string) => deactivateProDevice(machineId))
+  ipcMain.handle('license:reset-current-device', () => resetProCurrentDevice())
   ipcMain.handle('license:clear', () => {
     clearPro()
   })

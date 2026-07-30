@@ -138,6 +138,7 @@ interface RendererAPIOverrides {
       }>
     >
     deactivate: (machineId: string) => Promise<boolean>
+    resetCurrentDevice: () => Promise<boolean>
     clear: () => Promise<void>
     payUrl: () => Promise<string>
     openPay: () => Promise<void>

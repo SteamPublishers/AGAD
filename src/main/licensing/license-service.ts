@@ -36,6 +36,7 @@ export interface ProEntitlementProvider {
   activate(rawCredential: string): Promise<ActivateResult>
   listDevices(): Promise<ProLicensedDevice[]>
   deactivateDevice(deviceId: string): Promise<boolean>
+  resetCurrentDevice(): Promise<boolean>
   clear(): void
   setChangeNotifier(notifier: (info: ProLicenseInfo) => void): void
 }
@@ -87,6 +88,10 @@ export function listProDevices(): Promise<ProLicensedDevice[]> {
 
 export function deactivateProDevice(deviceId: string): Promise<boolean> {
   return provider?.deactivateDevice(deviceId) ?? Promise.resolve(false)
+}
+
+export function resetProCurrentDevice(): Promise<boolean> {
+  return provider?.resetCurrentDevice() ?? Promise.resolve(false)
 }
 
 export function clearPro(): void {
