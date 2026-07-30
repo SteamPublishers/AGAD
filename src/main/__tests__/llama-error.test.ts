@@ -63,6 +63,57 @@ main: exiting due to model loading error`
     })
   })
 
+  describe('GPU driver missing a required extension', () => {
+    // Verbatim capture from a hybrid-graphics Windows laptop (AMD Radeon 740M iGPU +
+    // NVIDIA RTX 4050 dGPU, both 2025 drivers). Every launch failed here and fell
+    // through to the CPU engine, while Health showed a blank "server is not running".
+    const REAL_STDERR = `ggml_vulkan: Found 2 Vulkan devices:
+ERROR: loader_validate_device_extensions: Device extension VK_KHR_shader_bfloat16 not supported by selected physical device or enabled layers.
+ERROR: vkCreateDevice: Failed to validate extensions in list
+llama_model_load: error loading model: vk::PhysicalDevice::createDevice: ErrorExtensionNotPresent
+common_init_from_params: failed to load model 'gemma-4-E4B-it-Q4_K_M.gguf'
+main: exiting due to model loading error`
+
+    it('classifies it as a GPU driver gap', () => {
+      expect(classifyLlamaError(REAL_STDERR)?.code).toBe('gpu_unsupported')
+    })
+
+    it('names the missing extension so the reason is actionable', () => {
+      expect(classifyLlamaError(REAL_STDERR)?.reason).toContain('VK_KHR_shader_bfloat16')
+    })
+
+    it('says GPU work fell back to the CPU engine', () => {
+      expect(classifyLlamaError(REAL_STDERR)?.reason).toMatch(/cpu engine/i)
+    })
+
+    // THE ORDERING GUARD. This stderr also contains "failed to load model", which the
+    // model_corrupt branch matches. If gpu_unsupported is ever moved below it, a
+    // perfectly good download gets reported as corrupt and the user re-downloads
+    // several GB for nothing. This test fails the moment that ordering breaks.
+    it('is not misreported as a corrupt model despite the "failed to load model" line', () => {
+      expect(REAL_STDERR).toContain('failed to load model') // the decoy is really present
+      expect(classifyLlamaError(REAL_STDERR)?.code).not.toBe('model_corrupt')
+    })
+
+    it('still classifies when the loader trace is absent, without naming an extension', () => {
+      const f = classifyLlamaError(
+        'llama_model_load: error loading model: vk::PhysicalDevice::createDevice: ErrorExtensionNotPresent'
+      )
+      expect(f?.code).toBe('gpu_unsupported')
+      expect(f?.reason).not.toMatch(/VK_/)
+    })
+
+    // A Vulkan OOM is a DIFFERENT failure with a different remedy (smaller model),
+    // and it must keep its own classification rather than being swallowed here.
+    it('leaves a Vulkan out-of-device-memory failure classified as OOM', () => {
+      expect(
+        classifyLlamaError(
+          'ggml_vulkan: Device memory allocation failed: VK_ERROR_OUT_OF_DEVICE_MEMORY'
+        )?.code
+      ).toBe('out_of_memory')
+    })
+  })
+
   it('returns null for healthy / unrecognized output (caller falls back)', () => {
     expect(classifyLlamaError('srv  load_model: loading model ... server is listening')).toBeNull()
     expect(classifyLlamaError('')).toBeNull()
