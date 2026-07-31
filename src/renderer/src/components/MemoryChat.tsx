@@ -1202,6 +1202,35 @@ export function MemoryChat({
     [activeConversationId, switchConversation]
   )
 
+  // A conversation changed underneath us - most often a message synced from another device. Reload
+  // that thread when it is the one on screen, and refresh the list either way so ordering follows.
+  //
+  // Skipped while THIS device is generating in that conversation: the in-flight reply lives in local
+  // state and re-reading the table mid-stream would drop it.
+  useEffect(() => {
+    const off = window.api.onRagConversationsChanged?.(({ conversationId }) => {
+      void (async () => {
+        try {
+          if (
+            conversationId &&
+            conversationId === activeConversationId &&
+            !generatingConvs.has(conversationId)
+          ) {
+            setConvMessages(
+              conversationId,
+              mapRagMessages(await window.api.getRagMessages(conversationId))
+            )
+          }
+          await loadConversations()
+        } catch (error) {
+          console.error('Failed to refresh a synced conversation:', error)
+        }
+      })()
+    })
+    return () => off?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, generatingConvs])
+
   // Open a target passed from the Projects tab (an existing chat, or a new chat
   // scoped to a project). Resolves project from the DB to avoid stale state.
   useEffect(() => {
