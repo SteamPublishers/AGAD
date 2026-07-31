@@ -52,7 +52,7 @@ Two process rules, learned from the same incident — they matter as much as the
 
 ## Conventions
 
-- Verify changes with `npx tsc --noEmit` (main: `tsconfig.node.json`, web: `tsconfig.web.json`) before declaring done.
+- Verify changes with `npx tsc --noEmit` (main: `tsconfig.node.json`, web: `tsconfig.web.json`) before declaring done. **If you touched `pro/`, also run `cd pro && npx tsc --noEmit -p tsconfig.json`** — that is a separate CI gate, and core's two configs do NOT compile pro's tests.
 - Main-process changes need an app restart; renderer changes hot-reload.
 - Don't over-restart — it interrupts capture.
 - **Local packaged builds:** commands for building the `.app` on a dev Mac (signing, unsigned, fresh-profile) live in `local-build.local.md` (gitignored, machine-specific). Check it before running `build:unpack`/`build:mac` locally — keychain cert setup varies per machine. Real release signing is CI-only (`release.yml`).
@@ -104,7 +104,7 @@ When iterating (a request, a fix, a tweak the user just confirmed), add a test t
 - **Regression guards for prompts/contracts** — when a fix lives in a prompt or string contract, assert it by reading the source (see `extract-prompt.test.ts`, which guards the observation-confabulation fix).
 - **Tests guard the architecture too (SOLID + DRY).** Prove the seam: exercise the abstraction through a second/fake implementation so a test fails the moment a caller starts branching on a concrete type (`kind === 'x'`, `instanceof`) instead of the interface — that is how we test for DSP, not just assert it in review. Guard DRY: import the single source of truth into the test and assert against it; never re-hardcode the value the code defines, or the duplication just moves into the test. A mapping/rule/constant is defined once and tested once.
 - **E2E** — Playwright Electron tour in `e2e/` (`npm run test:e2e`), DOM-driven, fresh temp profile, `OFFGRID_PRO=0`. Assert new surfaces render. Screenshot key states via `page.screenshot({ path: 'e2e/screenshots/<name>.png' })`; include those screenshots in the PR body.
-- Before declaring a change done: `npx tsc --noEmit -p tsconfig.node.json && npx tsc --noEmit -p tsconfig.web.json && npm test` — fix failures first. When you touched logic, run `npm run test:coverage` and keep every metric at or above the 85% floor.
+- Before declaring a change done: `npx tsc --noEmit -p tsconfig.node.json && npx tsc --noEmit -p tsconfig.web.json && (cd pro && npx tsc --noEmit -p tsconfig.json) && npm test` — fix failures first. The `pro` leg is not optional when you touched `pro/`: CI runs it as its own `Typecheck (pro)` step, the release does not run it at all, and core's two configs never compile `pro/**/__tests__`. A pro-only type error therefore passes every local check and every release build, then fails CI on main (this is exactly how an undeclared `js-yaml` import reached main). When you touched logic, run `npm run test:coverage` and keep every metric at or above the 85% floor.
 
 ## E2E capture — SYNTHETIC data only, seeded via the demo script
 
