@@ -20,6 +20,7 @@ import {
 import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
+import { getSlot, SLOTS } from '@/bootstrap/slotRegistry'
 import { ArtifactCanvas, parseArtifact, type Artifact } from './ArtifactCanvas'
 import { VoiceBubble, stopAllVoicePlayback } from './VoiceBubble'
 import { SkillsPanel } from './SkillsPanel'
@@ -716,6 +717,8 @@ export function MemoryChat({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [lightbox, setLightbox] = useState<{ url: string; path?: string } | null>(null)
+  // Rows pro appends after the message list, e.g. a peer's live reply. Empty in the free build.
+  const ChatMessagesFooter = getSlot(SLOTS.chatMessagesFooter)
   // Esc closes the open overlay (attachment viewer / image lightbox).
   useEffect(() => {
     if (!viewer && !lightbox) return
@@ -3804,6 +3807,11 @@ export function MemoryChat({
                     </div>
                   )
                 )}
+                {/* A reply generating on another one of your devices, streaming here live. Pro
+                    registers the renderer; the free build has no slot and this is nothing. */}
+                {ChatMessagesFooter && activeConversationId ? (
+                  <ChatMessagesFooter conversationId={activeConversationId} />
+                ) : null}
                 {!!activeConversationId &&
                 generatingConvs.has(activeConversationId) &&
                 !messages.some((m) => m.streaming) ? (
