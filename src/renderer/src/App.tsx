@@ -738,6 +738,15 @@ function AppContent() {
       view: 'settings' as ViewMode
     }
   ]
+  // One way in to a screen, used by the sidebar and by the command palette: switching screens also
+  // drops whatever row was selected in the old one, so a stale detail pane never rides along.
+  const goToView = (view: ViewMode): void => {
+    setViewMode(view)
+    setSelectedSessionId(null)
+    setSelectedMemoryId(null)
+    setSelectedEntityId(null)
+    setReplayTarget(null)
+  }
   const renderNavItem = (item: {
     label: string
     icon: React.ReactNode
@@ -750,13 +759,7 @@ function AppContent() {
     return (
       <button
         key={item.view}
-        onClick={() => {
-          setViewMode(item.view)
-          setSelectedSessionId(null)
-          setSelectedMemoryId(null)
-          setSelectedEntityId(null)
-          setReplayTarget(null)
-        }}
+        onClick={() => goToView(item.view)}
         title={!sidebarOpen ? item.label : undefined}
         className={cn(
           'group/nav relative flex items-center gap-3 rounded-lg py-2 text-sm transition-colors',
@@ -791,7 +794,17 @@ function AppContent() {
 
   return (
     <div className="h-screen w-full overflow-hidden bg-neutral-950 relative">
-      <CommandPalette onOpenHit={handleOpenHit} onSeeAll={openSearch} />
+      <CommandPalette
+        onOpenHit={handleOpenHit}
+        onSeeAll={openSearch}
+        /* The sidebar IS the list of screens - the palette searches that, never a second copy. */
+        screens={[...mainNav, ...bottomNav].map(({ label, view, locked }) => ({
+          label,
+          view,
+          locked
+        }))}
+        onGoTo={(view) => goToView(view as ViewMode)}
+      />
       {/* Recording indicator — auto-records detected meetings; always visible. */}
       {(rec.recording || rec.busy) && (
         <button
