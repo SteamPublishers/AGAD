@@ -21,6 +21,9 @@ export interface RagConversationContract {
   created_at: string
   updated_at: string
   message_count?: number
+  /** The last turn, for the chat list's one-line preview (see chatListPreviewLine). */
+  last_role?: string | null
+  last_content?: string | null
 }
 
 export interface RagMessageContract {

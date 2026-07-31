@@ -1414,7 +1414,13 @@ export function getRagConversations(projectId?: string | null): RagConversation[
             rc.origin_device_name,
             rc.created_at,
             rc.updated_at,
-            (SELECT COUNT(*) FROM rag_messages rm WHERE rm.conversation_id = rc.id) as message_count
+            (SELECT COUNT(*) FROM rag_messages rm WHERE rm.conversation_id = rc.id) as message_count,
+            -- The last turn, for the list's one-line preview. A conversation synced from a phone
+            -- otherwise listed as a title with nothing under it.
+            (SELECT rm.role FROM rag_messages rm WHERE rm.conversation_id = rc.id
+               ORDER BY rm.created_at DESC, rm.id DESC LIMIT 1) as last_role,
+            (SELECT rm.content FROM rag_messages rm WHERE rm.conversation_id = rc.id
+               ORDER BY rm.created_at DESC, rm.id DESC LIMIT 1) as last_content
         FROM rag_conversations rc
         ${where}
         ORDER BY rc.updated_at DESC

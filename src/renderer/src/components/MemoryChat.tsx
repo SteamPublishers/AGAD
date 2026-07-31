@@ -11,6 +11,7 @@ import { applyStreamEvent } from '@renderer/lib/stream-reducer'
 import { useActiveModelSummary } from '@renderer/hooks/useActiveModelSummary'
 import { shouldFollowBottom } from '@renderer/lib/scroll-follow'
 import {
+  chatListPreviewLine,
   projectSyncedMessageTurn,
   type ProjectedSyncedTool,
   type RecordProvenance,
@@ -2681,6 +2682,13 @@ export function MemoryChat({
                               onRenamed={conversationRenamed}
                               onDelete={() => deleteConversation(conv.id)}
                             />
+                            {/* The last thing said, from the shared rule the phone's list uses. A
+                                title alone told you nothing about a conversation you had elsewhere. */}
+                            {chatListPreviewLine(conv.last_role, conv.last_content) ? (
+                              <p className="mt-0.5 truncate text-[11px] text-neutral-500">
+                                {chatListPreviewLine(conv.last_role, conv.last_content)}
+                              </p>
+                            ) : null}
                             <div className="mt-0.5 flex items-center gap-2">
                               <span className="text-[10px] text-neutral-600">
                                 {timeAgo(conv.updated_at)}
