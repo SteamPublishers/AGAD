@@ -226,3 +226,23 @@ the device is connected. That sentence is only earned if the eviction actually r
 an authenticated session, which is the strongest reachability fact available - but the promise is made
 before delivery is confirmed, and a failed eviction leaves the user believing something that did not
 happen. Flagged for a copy decision, not changed.
+
+### Needs a decision: the Entity Graph screen is gone from the pro renderer, its IPC is not
+
+`entity-graph-renderer.integration.dbtest.ts` asks for `proView('graph', ...)` and gets nothing back:
+the route does not exist. The router now knows day, replay, reflect, devices, actions, meetings,
+entities, memories, search, notifications, clipboard, voice and vault - no graph. Nothing under
+`pro/renderer/` imports `react-force-graph-3d` or calls `getEntityGraph` any more.
+
+Core still carries the whole surface, though: `getEntityGraph` and `rebuildEntityGraph` are in
+`src/main/ipc.ts`, `src/main/database.ts` and the preload contract. A feature that was retired on
+purpose would normally have taken its IPC with it, which is why this is written down rather than
+resolved by deleting the test.
+
+Two readings, and they want opposite actions:
+- The graph was deliberately retired and folded into Entities. Then the test should go, and so should
+  the three IPC handlers and the preload entries, or they are dead surface area a renderer can still call.
+- The screen was lost in a refactor. Then the test is correctly failing and the screen needs restoring.
+
+The test is left red on purpose. Deleting it would remove the only thing still asserting that the graph
+services work end to end, and would make the second reading invisible.
