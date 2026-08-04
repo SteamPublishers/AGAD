@@ -63,7 +63,11 @@ async function finishOnboarding(): Promise<void> {
 
 async function enterChat(): Promise<void> {
   await finishOnboarding()
-  await page.getByTitle('Chat').click()
+  // By role and name, not by title: the sidebar opens EXPANDED, and App.tsx sets
+  // title={!sidebarOpen ? item.label : undefined} - the title attribute belongs to the collapsed rail
+  // only. An expanded nav carries its label as visible text, so getByTitle waits 30s for an attribute
+  // the app is right not to render.
+  await page.getByRole('button', { name: 'Chat', exact: true }).click()
 
   const setupBanner = page
     .locator('div')
@@ -191,11 +195,15 @@ test('renames through the UI, navigates back, and restores the title after relau
 test('copies an assistant reply through production IPC to the real OS clipboard (#46)', async () => {
   await seedCopyJourney()
   await enterChat()
-  await expect(page.getByText(COPY_ASSISTANT_MESSAGE, { exact: true })).toBeVisible()
+  // .last() throughout: the chat list shows each conversation's last message as a preview, so this reply
+  // is on screen twice - truncated in the history rail and in full in its bubble - and an unscoped
+  // locator is strict-mode ambiguous for a UI that is behaving correctly. The rail comes first in the
+  // DOM, so the last match is the bubble, which is the one with a Copy button on it.
+  const replyInTranscript = page.getByText(COPY_ASSISTANT_MESSAGE, { exact: true }).last()
+  await expect(replyInTranscript).toBeVisible()
 
   await app!.evaluate(({ clipboard }) => clipboard.writeText('synthetic clipboard sentinel'))
-  const assistantTurn = page
-    .getByText(COPY_ASSISTANT_MESSAGE, { exact: true })
+  const assistantTurn = replyInTranscript
     .locator(
       'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " mb-5 ")][1]'
     )
