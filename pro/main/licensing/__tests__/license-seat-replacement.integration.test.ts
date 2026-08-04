@@ -4,7 +4,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   userData: `/tmp/offgrid-license-seat-${process.pid}-${process.env.VITEST_POOL_ID ?? '0'}`,
@@ -23,7 +23,12 @@ vi.mock('electron', () => ({
   }
 }))
 
-import { activateProByKey, getProLicenseInfo } from '../license-service'
+import {
+  activateProByKey,
+  getProLicenseInfo,
+  setDirectEntitlementActivationOwner
+} from '../license-service'
+import { installEntitlementActivationFake } from '../../__tests__/helpers/entitlementActivationFake'
 
 const machine = (id: string, fingerprint: string, lastSeen: string): Record<string, unknown> => ({
   type: 'machines',
@@ -41,7 +46,16 @@ beforeAll(() => {
   fs.writeFileSync(path.join(h.userData, 'device-fingerprint'), h.fingerprint)
 })
 
+// Activation goes through the personal-mesh registry owner the sync layer registers in production.
+// Without it every activation waits for an owner that never arrives and reports network_unavailable.
+let activation: ReturnType<typeof installEntitlementActivationFake>
+
+beforeEach(() => {
+  activation = installEntitlementActivationFake(setDirectEntitlementActivationOwner)
+})
+
 afterEach(() => {
+  activation.stop()
   vi.unstubAllGlobals()
 })
 
@@ -49,8 +63,8 @@ afterAll(() => {
   fs.rmSync(h.userData, { recursive: true, force: true })
 })
 
-describe('Pro activation at the five-device limit', () => {
-  it('evicts the least-recently-seen other device and activates this device', async () => {
+describe('Pro activation at the device limit', () => {
+  it('activates through the registry owner when the licence reports its machine cap', async () => {
     const requests: Array<{ method: string; path: string }> = []
     const fetchBoundary = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(input instanceof Request ? input.url : input.toString())
@@ -89,17 +103,26 @@ describe('Pro activation at the five-device limit', () => {
     vi.stubGlobal('fetch', fetchBoundary)
 
     await expect(activateProByKey('license-key')).resolves.toEqual({ ok: true })
+
+    // A licence at its cap still activates - and which device gives up its seat is the personal-mesh
+    // registry's decision, not a DELETE this service issues. So the licence service asks Keygen one
+    // question, then hands the activation to the owner as a transaction.
     expect(
       requests.map(({ method, path: requestPath }) => ({
         method,
         path: requestPath.replace(/^\/v1\/accounts\/[^/]+/, '')
       }))
-    ).toEqual([
-      { method: 'POST', path: '/licenses/actions/validate-key' },
-      { method: 'GET', path: '/licenses/license-1/machines' },
-      { method: 'DELETE', path: '/machines/machine-oldest' },
-      { method: 'POST', path: '/machines' }
+    ).toEqual([{ method: 'POST', path: '/licenses/actions/validate-key' }])
+    expect(activation.prepared).toEqual([
+      {
+        key: 'license-key',
+        licenseId: 'license-1',
+        expiresAt: null,
+        fingerprint: h.fingerprint,
+        platform: expect.any(String)
+      }
     ])
+    expect(activation.committed).toHaveLength(1)
     expect(getProLicenseInfo()).toMatchObject({ isPro: true, tier: 'lifetime' })
   })
 })

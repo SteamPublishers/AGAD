@@ -168,3 +168,52 @@ Accessibility/automation timing). With `retries: 2` in CI the practical failure 
 this spec should not be trusted as a hard gate until the hotkey is driven deterministically —
 options: assert the global-shortcut registration before pressing, or expose a test-only IPC that
 triggers the same handler and keep the native-key path as a separate, quarantined check.
+
+### Open bug: a licensed installation this device never paired with becomes a repair row that cannot repair
+
+Reported by a projection test in `shared/packages/sync/test/control-center.test.mjs`; held open on
+purpose pending manual reproduction. Not fixed.
+
+`projectSyncControlCenter` builds its `saved` list by walking the licence registry's installations and
+treating a local pairing as enrichment. That is correct for the roster - the licence IS the authority on
+which devices belong to the mesh - but it means an installation with NO matching local pairing still
+produces a row, and that row lands in `needs_repair` (`control-center.ts`: `!paired || repairIds.has(...)`).
+
+Two consequences, one of them user-visible and already seen on device:
+
+1. **A repair that cannot succeed.** The row offers `membershipRepair.kind === 'reconnect'` -
+   "Trying the saved pairing again may be enough" - when there is no saved pairing to try. This is the
+   ghost row seen after reinstalling a phone: the phone re-registers under a new sync device id, its old
+   installation stays on the licence, and the stale one renders as a device asking to be reconnected.
+   The wording is `reconnect` rather than `pair` only because `hasCredential` is absent and absent is
+   deliberately read as present (see the comment at the `credentialLost` line) so that a host which does
+   not report the field is not accused of having lost every pairing.
+
+2. **It can steal the discovered record from another row.** The `saved` pass calls
+   `discoveredById.delete(deviceId)`, so a stale installation consumes the discovery entry before the
+   membership-revocation pass looks for it. `revocationPeerDiscovered` is then false and
+   `actions.pairAgain` is hidden - meaning a failed eviction cannot be recovered from even while the
+   other device is sitting on the network. Demonstrated: with the licence listing the device and a
+   `stage: 'failed'` revocation present, `pairAgain` projects as `{visible: false, enabled: false}`.
+
+Note this does NOT arise from a normal eviction. `PersonalMeshDeviceEvictionCoordinator.evict()`
+deregisters the installation before it ever contacts the peer, so the seat is released immediately and
+the evicted device correctly appears once, in `available`. The trigger is a genuinely stale installation.
+
+Candidate fixes, both deliberately not taken yet:
+- Do not emit a `saved` row for an installation with no local pairing (narrow; may hide a real device
+  whose pairing this side genuinely lost).
+- Have the desktop and mobile hosts report `hasCredential` so the repair correctly says "Pair" and asks
+  for the code (touches both hosts, and is the more honest fix).
+
+The test asserts only the revocation row's own retry semantics and states in a comment that the
+`saved` count is deliberately unasserted, so this defect is recorded rather than blessed.
+
+### Worth a look: the eviction confirmation promises the peer's licence is cleared
+
+`projectMembershipEvictionConfirmation` adds "Off Grid AI will also remove its saved licence" whenever
+the device is connected. That sentence is only earned if the eviction actually reaches the peer, and the
+`stage: 'failed'` path exists precisely because it may not. Not a defect in itself - the copy is gated on
+an authenticated session, which is the strongest reachability fact available - but the promise is made
+before delivery is confirmed, and a failed eviction leaves the user believing something that did not
+happen. Flagged for a copy decision, not changed.
