@@ -119,12 +119,15 @@ describe('<App/> desktop navigation integration', () => {
     act(() => finishActivation?.())
 
     await waitFor(() => expect(onNewApproval).toHaveBeenCalledTimes(1))
-    // LEFT RED DELIBERATELY - this assertion is right and the app is wrong. pro/main/crm/actions.ts
-    // sends 'notification:new-action' to every window and the preload exposes onNewAction, but no
-    // renderer code subscribes to it, so a CRM action candidate is emitted and dropped: the user is
-    // never told. App.tsx subscribes to onNewApproval only. Deleting this line would hide a live gap,
-    // and the fix belongs in src, which needs Mac's decision - logged in docs/GAPS_BACKLOG.md.
-    expect(onNewAction).toHaveBeenCalledTimes(1)
+    // Approvals reach the bell; action candidates deliberately do NOT. 57a3e7d removed this
+    // subscription and excluded type 'todo' from notification state in the same change, so the unread
+    // count means "something is waiting on your decision" rather than counting suggestions the app
+    // made for itself. A to-do already has a home - DayView lists it, and opening one routes to
+    // { view: 'actions', mode: 'todo' } - so mirroring it into the bell would say the same thing twice.
+    //
+    // Asserted as an absence, because that is the behaviour worth protecting: re-adding the
+    // subscription would quietly restore the double-notification that commit set out to remove.
+    expect(onNewAction).not.toHaveBeenCalled()
     expect(proOn).toHaveBeenCalledWith('notification:open-target', expect.any(Function))
   })
 })

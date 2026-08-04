@@ -3,7 +3,10 @@
  * observer lifecycle are production code; only the native image runtime is a
  * controlled boundary so navigation, cancellation, and failure remain deterministic.
  */
-import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
 import {
   ImageGenerationJobService,
   type ImageGenerationJobRequest,
@@ -11,6 +14,24 @@ import {
 } from '../imagegen/job-service'
 import type { ImageGenerationProgressContract } from '../../shared/image-generation-contract'
 import type { ImageGenOutput } from '../imagegen'
+
+/**
+ * A real file on disk for the runtime to claim it produced.
+ *
+ * On success the service stats the output and publishes it as a shared file, so that other devices can
+ * receive the generated image - it needs the real byte size, and it reads it from the file. A fictional
+ * path makes that stat throw ENOENT and the whole generation rejects, which reads as "generating an
+ * image is broken" when the only thing missing was the file.
+ *
+ * Disk is a boundary this test can afford to keep real, so it does.
+ */
+const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'offgrid-image-job-'))
+const generatedFile = (name: string): string => {
+  const filePath = path.join(workspace, name)
+  fs.writeFileSync(filePath, Buffer.from('89504e470d0a1a0a', 'hex')) // PNG signature; size is what is read
+  return filePath
+}
+afterAll(() => fs.rmSync(workspace, { recursive: true, force: true }))
 
 interface ControlledGeneration {
   progress(progress: ImageGenerationProgressContract): void
@@ -89,7 +110,7 @@ describe('main-owned image generation job journeys', () => {
     const detachReturned = jobs.onChange((job) => returnedScreen.push(job.phase))
     const output: ImageGenOutput = {
       dataUrl: 'data:image/png;base64,aW1hZ2U=',
-      path: '/generated/image.png',
+      path: generatedFile('image.png'),
       seed: 91,
       model: 'Local image model'
     }
@@ -169,7 +190,7 @@ describe('main-owned image generation job journeys', () => {
     const generation = jobs.start(request)
     const output: ImageGenOutput = {
       dataUrl: 'data:image/png;base64,aW1hZ2U=',
-      path: '/generated/image-without-scope.png',
+      path: generatedFile('image-without-scope.png'),
       seed: 91,
       model: 'Local image model'
     }

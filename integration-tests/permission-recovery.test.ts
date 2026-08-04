@@ -181,12 +181,16 @@ describe('capture permission recovery', () => {
     expect(
       within(accessibilityCard).getByRole('button', { name: 'Open Accessibility settings' })
     ).not.toBeNull()
+    // 'Enable Screen Recording', not 'Open ... settings': this card overrides the generic label because
+    // its action is not always the same action. Once macOS reports the toggle changed, the very same
+    // button becomes 'Relaunch Off Grid AI Desktop' - screen recording access only takes effect on a
+    // fresh launch. Accessibility keeps the generic label because opening settings is all it ever does.
     expect(
-      within(screenRecordingCard).getByRole('button', { name: 'Open Screen Recording settings' })
+      within(screenRecordingCard).getByRole('button', { name: 'Enable Screen Recording' })
     ).not.toBeNull()
 
     await user.click(
-      within(screenRecordingCard).getByRole('button', { name: 'Open Screen Recording settings' })
+      within(screenRecordingCard).getByRole('button', { name: 'Enable Screen Recording' })
     )
     expect(boundary.openedSettings).toEqual([
       'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
