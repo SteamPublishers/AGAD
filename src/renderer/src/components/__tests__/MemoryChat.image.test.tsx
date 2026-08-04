@@ -161,7 +161,16 @@ function installApi(opts: InstallApiOptions): InstalledApi {
   >(async () => ({ answer: 'done', toolCalls: [], unified: [] }))
   const cancelImageGen = vi.fn<() => void>()
   const exportGeneratedImage = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
-  const getRagMessages = vi.fn(async (id: string) => messages.get(id) ?? [])
+  // Timestamps are filled in where a seed omitted one. The renderer projects each row through
+  // projectSyncedMessageTurn, which returns null for a message it cannot order, so an untimestamped
+  // row is silently dropped and the conversation renders empty. The table this stands for always has
+  // one - SQLite's CURRENT_TIMESTAMP default, in this shape.
+  const getRagMessages = vi.fn(async (id: string) =>
+    (messages.get(id) ?? []).map((row, index) => ({
+      created_at: `2026-01-01 09:00:0${index}`,
+      ...(row as Record<string, unknown>)
+    }))
+  )
   const chatVisionAvailable = vi.fn(async () => opts.chatVision ?? true)
   const processFile =
     opts.processFile ??
