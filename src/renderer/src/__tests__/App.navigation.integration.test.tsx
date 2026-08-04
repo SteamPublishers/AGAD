@@ -77,7 +77,10 @@ describe('<App/> desktop navigation integration', () => {
     })
     observer.observe(document.body, { childList: true, subtree: true })
     try {
-      await user.click(screen.getByTitle('Integrations'))
+      // By role and name, not by title: the sidebar starts expanded, and the title attribute is the
+      // COLLAPSED-rail affordance only (App.tsx sets title={!sidebarOpen ? item.label : undefined}), so
+      // the expanded nav carries its label as visible text instead.
+      await user.click(screen.getByRole('button', { name: 'Integrations' }))
       await waitFor(() => expect(shortcutDispatched).toBe(true))
     } finally {
       observer.disconnect()
@@ -116,6 +119,11 @@ describe('<App/> desktop navigation integration', () => {
     act(() => finishActivation?.())
 
     await waitFor(() => expect(onNewApproval).toHaveBeenCalledTimes(1))
+    // LEFT RED DELIBERATELY - this assertion is right and the app is wrong. pro/main/crm/actions.ts
+    // sends 'notification:new-action' to every window and the preload exposes onNewAction, but no
+    // renderer code subscribes to it, so a CRM action candidate is emitted and dropped: the user is
+    // never told. App.tsx subscribes to onNewApproval only. Deleting this line would hide a live gap,
+    // and the fix belongs in src, which needs Mac's decision - logged in docs/GAPS_BACKLOG.md.
     expect(onNewAction).toHaveBeenCalledTimes(1)
     expect(proOn).toHaveBeenCalledWith('notification:open-target', expect.any(Function))
   })
