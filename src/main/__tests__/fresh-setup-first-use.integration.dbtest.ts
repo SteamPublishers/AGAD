@@ -245,7 +245,7 @@ describe('fresh setup to first use', () => {
     expect(fs.existsSync(dataDir)).toBe(false)
     installRuntimeBoundaries()
 
-    const [{ llm }, setup, manager, { CATALOG }] = await Promise.all([
+    const [{ llm }, setup, manager, { CATALOG, MODEL_KINDS }] = await Promise.all([
       import('../llm'),
       import('../setup'),
       import('../models-manager'),
@@ -271,13 +271,17 @@ describe('fresh setup to first use', () => {
         files: catalogEntry.files.map((file) => ({ name: file.name, url: file.url }))
       }
     })
-    const requiredKinds: JourneyModel['kind'][] = [
-      'text',
-      'vision',
-      'image',
-      'transcription',
-      'voice'
-    ]
+    // Derived from the catalog rather than hardcoded, because a kind the app SUPPORTS is not the same as
+    // a kind it SHIPS. 'text' is still a ModelKind - a user can add a text-only GGUF - but no catalog
+    // entry is one any more: every shipped chat model is multimodal, so it is kind 'vision' and carries an
+    // mmproj beside its weights. Naming 'text' here asked first-use to download a model that does not
+    // exist, which is a stale fixture rather than a gap in setup.
+    const requiredKinds: JourneyModel['kind'][] = MODEL_KINDS.filter((kind) =>
+      CATALOG.some((entry) => entry.kind === kind)
+    )
+    expect(requiredKinds).toEqual(
+      expect.arrayContaining(['vision', 'image', 'transcription', 'voice'])
+    )
     const baselineKinds = new Set(baselineModels.map((model) => model.kind))
     const additionalModels: JourneyModel[] = requiredKinds
       .filter((kind) => !baselineKinds.has(kind))
@@ -349,7 +353,32 @@ describe('fresh setup to first use', () => {
       expect(fs.existsSync(path.join(dataDir, 'models', `${firstFile.name}.part`))).toBe(false)
     }
 
-    const textModel = models.find((model) => model.kind === 'text')!
+    // A SECOND chat model, not the one being activated. What the assertion below protects is that
+    // activating one chat model as the text modality does not leave another marked active too - so this
+    // has to be a different entry from visionModel. It used to be kind 'text'; since every shipped chat
+    // model is multimodal now, the second one is simply another 'vision' entry.
+    // A text-ONLY model, imported the way a user adds one.
+    //
+    // The journey needs one to prove that a multimodal model claims the text modality and DISPLACES a
+    // text-only model: this one is activated, and by the end 'text' is served by the vision model while
+    // this id is no longer active. Nothing in the catalog can play that part any more - every model it
+    // ships for chat is multimodal, so it is kind 'vision' with an mmproj beside its weights - and a
+    // made-up catalog id cannot either, because downloadModel only knows catalog entries ('unknown
+    // model'). importLocalModel is the real path for a text-only GGUF, and it registers exactly kind
+    // 'text', so the property is exercised through the API a user actually reaches.
+    //
+    // A valid GGUF here is its four-byte magic and at least GGUF_MIN_BYTES - see models/gguf.ts, which is
+    // all the import checks before copying. Nothing loads these weights; the llama socket is faked.
+    const localGgufPath = path.join(dataDir, 'text-only-chat-Q4_K_M.gguf')
+    fs.writeFileSync(localGgufPath, Buffer.concat([Buffer.from('GGUF'), Buffer.alloc(4096)]))
+    const imported = await manager.importLocalModel(localGgufPath)
+    expect(imported).toMatchObject({ success: true })
+    const textModel = { id: imported.id!, kind: 'text' as const }
+    expect(manager.getLocalModels().map(({ id, kind }) => ({ id, kind }))).toContainEqual({
+      id: textModel.id,
+      kind: 'text'
+    })
+
     const visionModel = models.find((model) => model.kind === 'vision')!
     const imageModel = models.find((model) => model.kind === 'image')!
     const transcriptionModel = models.find((model) => model.kind === 'transcription')!
