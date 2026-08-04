@@ -169,10 +169,19 @@ this spec should not be trusted as a hard gate until the hotkey is driven determ
 options: assert the global-shortcut registration before pressing, or expose a test-only IPC that
 triggers the same handler and keep the native-key path as a separate, quarantined check.
 
-### Open bug: a licensed installation this device never paired with becomes a repair row that cannot repair
+### RESOLVED: a licensed installation this device never paired with became a repair row that could not repair
 
-Reported by a projection test in `shared/packages/sync/test/control-center.test.mjs`; held open on
-purpose pending manual reproduction. Not fixed.
+Fixed in `@offgrid/sync`. Three parts: a row with no local pairing now reports `hasCredential: false`
+rather than leaving it absent, so the repair asks for the code instead of promising a reconnection with
+nothing to reconnect with; a device with an eviction in flight no longer also gets a saved row; and the
+saved pass no longer deletes devices from the discovered map, which is what hid `Pair again` after a
+failed eviction. Covered by two new tests in `shared/packages/sync/test/control-center.test.mjs`.
+
+Desktop needed no change of its own: its eviction store already tolerates an empty local side
+(`prepareEviction` uses `active?.membershipId ?? ''`) and `runEviction` already surfaces failures. The
+mobile host had neither and was fixed there.
+
+Original report follows.
 
 `projectSyncControlCenter` builds its `saved` list by walking the licence registry's installations and
 treating a local pairing as enrichment. That is correct for the roster - the licence IS the authority on
