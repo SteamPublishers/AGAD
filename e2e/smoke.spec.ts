@@ -60,6 +60,29 @@ test('boots fresh without a white screen and exposes the preload bridge', async 
   expect(hasApi).toBe(true)
 })
 
+test('opens filling the screen, not in a small window', async () => {
+  // A dense desktop app has to open at desktop size. At the old 900x670 default the Models grid
+  // collapsed to one card per row and the chat history rail ate a third of the width - every screen
+  // read as a phone layout stretched wide.
+  //
+  // Asserted against the work area rather than a fixed size, so this holds on any display: filling
+  // what the user can actually use, below the menu bar and beside the Dock. isMaximized() as well as
+  // the size, because that is what keeps the window filled when the display changes rather than
+  // leaving it merely large.
+  const layout = await app.evaluate(async ({ BrowserWindow, screen }) => {
+    const window = BrowserWindow.getAllWindows()[0]!
+    return {
+      maximized: window.isMaximized(),
+      bounds: window.getBounds(),
+      workArea: screen.getPrimaryDisplay().workAreaSize
+    }
+  })
+
+  expect(layout.maximized).toBe(true)
+  expect(layout.bounds.width).toBe(layout.workArea.width)
+  expect(layout.bounds.height).toBe(layout.workArea.height)
+})
+
 test('shows onboarding on a fresh install', async () => {
   await expect(page.getByText(/Off Grid/i).first()).toBeVisible()
   await expect(page.getByRole('button', { name: /Continue|Start using Off Grid/i })).toBeVisible()
