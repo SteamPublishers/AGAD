@@ -21,6 +21,9 @@ export default defineConfig({
       'pro/main/__tests__/*.dbtest.ts'
     ],
     exclude: ['node_modules/**', 'out/**', 'e2e/**'],
+    // Every file leaves the model port free for the next one - see the harness for why that has to be
+    // suite-wide rather than each file's own business.
+    setupFiles: ['src/main/__tests__/harness/db-teardown.ts'],
     // These 266 journey tests were measuring nothing, and the default config counts on them: it
     // EXCLUDES src/main/database.ts, src/main/rag/store.ts, prompt-store and runtime-residency with the
     // note "covered by the tests in *.dbtest.ts via npm run test:db". That claim was never checked,
