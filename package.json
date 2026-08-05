@@ -2,7 +2,7 @@
   "name": "off-grid-ai",
   "productName": "Off Grid AI Desktop",
   "version": "0.0.42",
-  "description": "Off Grid AI — a private, local-first AI that runs open models (text, vision, image, voice) entirely on your device. No cloud, no accounts.",
+  "description": "Off Grid AI \u2014 a private, local-first AI that runs open models (text, vision, image, voice) entirely on your device. No cloud, no accounts.",
   "license": "AGPL-3.0-only",
   "main": "./out/main/index.js",
   "author": "Off Grid AI <hello@getoffgridai.co>",
@@ -39,7 +39,8 @@
     "test:swift": "cd swift-tests/TextExtractorKit && swift test",
     "test:db": "bash scripts/test-db.sh",
     "depcruise": "depcruise --config .dependency-cruiser.cjs \"src/**/*.ts\" \"src/**/*.tsx\"",
-    "knip": "knip --no-gitignore"
+    "knip": "knip --no-gitignore",
+    "coverage:all": "bash scripts/coverage-all.sh"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -153,12 +153,43 @@ jobs:
       # Graduate to BLOCKING (delete continue-on-error) once a few consecutive runs are green —
       # do NOT flip it while the runner still drops instances, or the gate gets reverted and we
       # lose the signal again. Tracked in docs/GAPS_BACKLOG.md.
+      # OFFGRID_E2E_COVERAGE makes this run COUNT. 25 specs drive the real app - devices-sync alone stands up
+      # a synthetic peer with a real SyncEngine - and none of it reached a coverage report before, because
+      # Playwright launches Electron as its own process. With the variable set, Node writes V8 coverage for the
+      # main process and the vite build emits the sourcemaps that map it back to src/**.ts; both are gated on
+      # this variable, so a normal run and every shipped artifact are byte-identical to before.
+      #
+      # Free to run here: this repo is public, so the runner minutes cost nothing.
       - name: E2E (Playwright, xvfb)
         timeout-minutes: 28
         continue-on-error: true
         env:
           ELECTRON_DISABLE_SANDBOX: '1'
+          OFFGRID_E2E_COVERAGE: ${{ github.workspace }}/coverage-e2e-raw
         run: xvfb-run -a npm run test:e2e
+      # c8 turns the raw V8 output into an Istanbul report. It lives in the shared monorepo's node_modules and
+      # needs no new dependency here.
+      #
+      # The report is a build ARTIFACT rather than a gate: its statement map comes from the bundle, so its
+      # denominators are whole-file and must not set a threshold - see shared/scripts/merge-line-coverage.mjs,
+      # which accepts it as --coarse and lets it contribute covered lines only.
+      - name: Convert e2e coverage
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -d coverage-e2e-raw ] && [ -n "$(ls -A coverage-e2e-raw 2>/dev/null)" ]; then
+            npx c8 report --temp-directory=coverage-e2e-raw --reporter=json --reporter=text-summary \
+              --report-dir=coverage-e2e --all=false
+          else
+            echo "no e2e coverage captured (the suite may not have launched)"
+          fi
+      - name: Upload e2e coverage
+        if: always()
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4
+        with:
+          name: e2e-coverage
+          path: coverage-e2e/
+          if-no-files-found: ignore
       - name: Upload e2e screenshots
         if: always()
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4
