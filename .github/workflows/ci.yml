@@ -94,9 +94,9 @@ jobs:
           # declares neither. Installing inside the member failed `npm ci` (no lockfile there), fell
           # through to `npm install`, pulled the member's five runtime deps, and left the build to
           # die on `sh: 1: tsup: not found` (exit 127), taking both jobs with it.
-          # Fallback at the ROOT, never inside a member: a drifted lock file should not take CI down, and a
-          # root install provides tsup either way.
-          npm --prefix ../shared ci || npm --prefix ../shared install
+          # A LOCKED install, and no fallback: an unlocked install would resolve a different graph and let the
+          # later gates run against dependencies nobody committed. A drifted lock should stop the build.
+          npm --prefix ../shared ci
           npm --prefix ../shared/packages/sync run build
       - run: npm ci
       # Hard gates: types + the full test suite.
@@ -217,9 +217,9 @@ jobs:
           # declares neither. Installing inside the member failed `npm ci` (no lockfile there), fell
           # through to `npm install`, pulled the member's five runtime deps, and left the build to
           # die on `sh: 1: tsup: not found` (exit 127), taking both jobs with it.
-          # Fallback at the ROOT, never inside a member: a drifted lock file should not take CI down, and a
-          # root install provides tsup either way.
-          npm --prefix ../shared ci || npm --prefix ../shared install
+          # A LOCKED install, and no fallback: an unlocked install would resolve a different graph and let the
+          # later gates run against dependencies nobody committed. A drifted lock should stop the build.
+          npm --prefix ../shared ci
           npm --prefix ../shared/packages/sync run build
       - run: npm ci
       # Electron needs an X server on Linux; xvfb-run provides a virtual one. --no-sandbox via env
