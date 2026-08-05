@@ -83,21 +83,23 @@ const SCHEMA = `
 function realDatabase(): Database.Database {
   const db = new DatabaseSync(':memory:')
   db.exec(SCHEMA)
-  const asPort = db as unknown as Database.Database & {
-    transaction: (body: (...args: unknown[]) => unknown) => (...args: unknown[]) => unknown
-  }
-  asPort.transaction = (body) => (...args) => {
-    db.exec('BEGIN')
-    try {
-      const result = body(...args)
-      db.exec('COMMIT')
-      return result
-    } catch (error) {
-      db.exec('ROLLBACK')
-      throw error
+  const transaction =
+    (body: (...args: unknown[]) => unknown) =>
+    (...args: unknown[]): unknown => {
+      db.exec('BEGIN')
+      try {
+        const result = body(...args)
+        db.exec('COMMIT')
+        return result
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
     }
-  }
-  return asPort
+  // Assigned through a record cast: better-sqlite3's transaction() is a generic overload set that a plain
+  // function cannot satisfy structurally, and the port only ever calls it the one way implemented above.
+  ;(db as unknown as Record<string, unknown>).transaction = transaction
+  return db as unknown as Database.Database
 }
 
 // The port announces every restored row so pro sync can pick it up. Asserting on the announcements is how

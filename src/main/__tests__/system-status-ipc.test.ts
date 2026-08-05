@@ -31,7 +31,8 @@ describe('the system health record the renderer is handed', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setup.getSystemHealth.mockResolvedValue({
-      overall: 'ready',
+      ramGb: 32,
+      activeModel: 'gemma-4-E4B-it-Q4_K_M.gguf',
       components: [{ id: 'chat-engine', label: 'Chat engine', status: 'granted', detail: 'Running' }]
     })
   })
@@ -42,9 +43,10 @@ describe('the system health record the renderer is handed', () => {
 
     const health = await getRenderedSystemHealth()
 
-    // The runtime's own components survive untouched and come first - permissions are added to the
-    // picture, not substituted for it.
-    expect(health.overall).toBe('ready')
+    // The runtime's own facts survive untouched and its components come first - permissions are added to
+    // the picture, not substituted for it.
+    expect(health.ramGb).toBe(32)
+    expect(health.activeModel).toBe('gemma-4-E4B-it-Q4_K_M.gguf')
     expect(health.components.map(({ id }) => id)).toEqual([
       'chat-engine',
       'permission-accessibility',
@@ -159,7 +161,7 @@ describe('the system health record the renderer is handed', () => {
 describe('registering the status channels', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    setup.getSystemHealth.mockResolvedValue({ overall: 'ready', components: [] })
+    setup.getSystemHealth.mockResolvedValue({ ramGb: 32, activeModel: null, components: [] })
     permissions.getPermissionStatus.mockResolvedValue(GRANTED)
   })
 
