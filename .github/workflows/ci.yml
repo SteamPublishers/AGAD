@@ -89,7 +89,12 @@ jobs:
           fi
           rm -rf ../shared
           mv _shared ../shared
-          npm --prefix ../shared/packages/sync ci || npm --prefix ../shared/packages/sync install
+          # Install at the WORKSPACE ROOT, not inside packages/sync. shared is an npm-workspaces
+          # monorepo: the lockfile and the build tool (tsup) live at the root, and packages/sync
+          # declares neither. Installing inside the member failed `npm ci` (no lockfile there), fell
+          # through to `npm install`, pulled the member's five runtime deps, and left the build to
+          # die on `sh: 1: tsup: not found` (exit 127), taking both jobs with it.
+          npm --prefix ../shared ci
           npm --prefix ../shared/packages/sync run build
       - run: npm ci
       # Hard gates: types + the full test suite.
@@ -205,7 +210,12 @@ jobs:
           fi
           rm -rf ../shared
           mv _shared ../shared
-          npm --prefix ../shared/packages/sync ci || npm --prefix ../shared/packages/sync install
+          # Install at the WORKSPACE ROOT, not inside packages/sync. shared is an npm-workspaces
+          # monorepo: the lockfile and the build tool (tsup) live at the root, and packages/sync
+          # declares neither. Installing inside the member failed `npm ci` (no lockfile there), fell
+          # through to `npm install`, pulled the member's five runtime deps, and left the build to
+          # die on `sh: 1: tsup: not found` (exit 127), taking both jobs with it.
+          npm --prefix ../shared ci
           npm --prefix ../shared/packages/sync run build
       - run: npm ci
       # Electron needs an X server on Linux; xvfb-run provides a virtual one. --no-sandbox via env
