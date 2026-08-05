@@ -31,6 +31,8 @@ import { isValidGgufFile } from './models/gguf'
 import { readGgufContextLength } from './models/gguf-metadata'
 import { pickFreePort, isPortFree } from './free-port'
 import { postCompletionOnce } from './llm/http-post'
+import { engineSpawnEnv } from './llm/spawn-env'
+import { shouldAutoRecover } from './llm/crash-policy'
 import { streamCompletion, type StreamResult } from './llm/stream'
 import {
   terminateEngine,
@@ -695,13 +697,14 @@ export class LLMService {
       proc = spawn(serverPath, args, {
         env: {
           ...process.env,
-          // macOS: rpath for the co-located dylibs. Windows: the loader already
-          // searches the exe's own dir for DLLs, but prepend binDir to PATH so the
-          // ggml/llama DLLs resolve even if that behaviour is restricted.
-          DYLD_LIBRARY_PATH: binDir,
-          ...(process.platform === 'win32'
-            ? { PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}` }
-            : {})
+          // Platform env (dylib rpath, Windows DLL PATH, the Vulkan bf16 opt-out)
+          // is composed in one pure place so each OS's variables are asserted by
+          // test rather than inferred from the host running them.
+          ...engineSpawnEnv({
+            platform: process.platform,
+            binDir,
+            currentEnv: process.env
+          })
         }
       })
     } catch (e) {
@@ -715,6 +718,11 @@ export class LLMService {
     this.server = proc
     this.stderrTail = []
     let abandoned = false // set when we give up on this proc so its close handler is inert
+    // True until waitForReady() confirms THIS engine. A close while probing is a failed
+    // LAUNCH, which launchWithFallback is already walking past - see crash-policy.ts.
+    // `abandoned` alone cannot cover it: a fast-failing engine closes before
+    // waitForReady's catch can set that flag, so the close ran the crash path.
+    let probing = true
 
     // A spawn/load error (e.g. a missing Vulkan loader on Windows) surfaces here;
     // swallow it (waitForReady will fail and we fall back) so it isn't unhandled.
@@ -751,16 +759,18 @@ export class LLMService {
           )
         }
       }
-      // Do NOT auto-restart a DELIBERATE kill — a user/OS `kill` (SIGKILL/SIGTERM)
-      // or our own teardown. Otherwise killing llama-server just respawns it,
-      // making it impossible to stop without killing the whole app. Only recover
-      // from a genuine crash (non-zero code / SIGABRT) we didn't initiate.
-      const deliberate = signal === 'SIGKILL' || signal === 'SIGTERM'
-      if (!wasIntentional && !this.paused && !deliberate) this.handleCrash(code ?? -1)
+      // Only recover from a genuine crash of an engine that WAS healthy. A deliberate
+      // kill stays dead (otherwise llama-server cannot be stopped without killing the
+      // app), and a launch-time failure belongs to launchWithFallback's ladder.
+      if (shouldAutoRecover({ probing, wasIntentional, paused: this.paused, signal })) {
+        this.handleCrash(code ?? -1)
+      }
     })
 
     try {
       await this.waitForReady()
+      // Confirmed healthy: from here a close IS a crash worth recovering from.
+      probing = false
       console.log('[LLMService] Vision server ready!')
       this.initialized = true
       this.lastErrorMsg = null // healthy again — clear any prior failure reason

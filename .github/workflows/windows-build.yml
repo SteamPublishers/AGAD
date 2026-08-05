@@ -11,6 +11,15 @@ on:
     branches:
       - feat/windows-support
   workflow_dispatch: # lets you trigger a build manually from the Actions tab
+    inputs:
+      pro_ref:
+        # Without this the pro checkout below takes desktop-pro's DEFAULT branch, so
+        # dispatching from a core integration branch quietly builds against pro `main`
+        # and every pro-side change is absent from a green build.
+        description: 'desktop-pro branch/tag/sha to bundle (empty = its default branch)'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -44,6 +53,9 @@ jobs:
         if: env.HAS_PRO_TOKEN == 'true'
         with:
           repository: off-grid-ai/desktop-pro
+          # Empty = default branch (checkout treats '' as unset), so the push-triggered
+          # build is unchanged; set it on dispatch to pair with a core integration branch.
+          ref: ${{ inputs.pro_ref }}
           token: ${{ secrets.PRO_REPO_TOKEN }}
           path: pro
           fetch-depth: 1
