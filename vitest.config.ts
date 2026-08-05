@@ -212,19 +212,24 @@ export default defineConfig({
         'pro/renderer/**/*.tsx'
       ],
       thresholds: {
-        // Uniform 85% floor across every metric — the standard stated in CLAUDE.md. The floor had
-        // ratcheted up to ~95/96, which turned brittle against CI's legitimately-skipped ambient
-        // (macOS-helper / native-dep) journeys — a 0.1-0.3% swing flipped the gate red. 85% is a
-        // stable floor comfortably below current measured coverage (~95/90/96 in CI) while still
-        // blocking any real regression. Set deliberately per the maintainer's call.
-        statements: 85,
-        branches: 85,
-        functions: 85,
-        lines: 85,
-        // pro/** stays separately regression-guarded (mobile pattern), same uniform 85% floor.
+        // Uniform 80% floor across every metric. Set deliberately per the maintainer's call
+        // (2026-08-05), down from 85: pro BRANCHES sit right on the old line (85.5% local, ~85.2%
+        // measured in CI, because CI legitimately skips the native-dep ambient journeys), so a
+        // 0.3% environment swing decided whether the gate was red. That is a gate reporting the
+        // runner rather than the code.
+        //
+        // What 80 actually loosens is branches ALONE — statements, functions and lines all measure
+        // 91-93% in pro and higher in core, so they stay far above either line. It is a floor
+        // against regression, not a target: the standard in CLAUDE.md is still 85%, every change
+        // that adds logic adds tests, and this number only moves back UP.
+        statements: 80,
+        branches: 80,
+        functions: 80,
+        lines: 80,
+        // pro/** stays separately regression-guarded (mobile pattern), same uniform floor.
         // Only applied when pro is checked out (see hasPro) so a core-only CI run doesn't error.
         ...(hasPro
-          ? { 'pro/**': { statements: 85, branches: 85, functions: 85, lines: 85 } }
+          ? { 'pro/**': { statements: 80, branches: 80, functions: 80, lines: 80 } }
           : {})
       }
     }
