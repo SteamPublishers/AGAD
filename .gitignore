@@ -68,3 +68,6 @@ swift-tests/**/.build/
 
 # Off Grid AI Pro early-bird campaign (customer PII + send tooling - do not commit)
 marketing/emails/pro-earlybird/
+
+# Coverage report from the DB journey suite (npm run test:db --coverage)
+coverage-db/
