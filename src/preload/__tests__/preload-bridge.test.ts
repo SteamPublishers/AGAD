@@ -175,7 +175,10 @@ describe('the preload bridge', () => {
 
     it('forwards the arguments it was given, rather than dropping them', async () => {
       const bridge = await loadBridge()
-      const license = bridge.license as Record<string, (...args: unknown[]) => unknown>
+      const license = bridge.license as Record<
+        'activate' | 'deactivate',
+        (...args: unknown[]) => unknown
+      >
 
       license.activate('OFFGRID-A-KEY')
       expect(electron.invoke).toHaveBeenCalledWith('license:activate', 'OFFGRID-A-KEY')
