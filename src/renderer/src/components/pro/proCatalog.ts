@@ -222,10 +222,12 @@ export const PRO_FEATURES: ProFeature[] = [
       'Known devices reconnect when they return to the network',
       'Direct encrypted transfer on your local network'
     ],
-    // macOS only for now. The engine is portable, but pairing rides mDNS discovery plus a
-    // macOS proximity route, and neither the Windows transport nor its discovery has been
-    // verified against a real second device - which is the bar this list encodes.
-    platforms: ['darwin']
+    // Both platforms: sync is cross-platform by construction. The transport is node:net and
+    // discovery is bonjour-service (pure JS mDNS), so a Windows install gets the LAN route with
+    // no native code. The single `process.platform === 'darwin'` branch in the activation path
+    // only ADDS the Apple proximity route on top - macOS ends up with LAN plus proximity,
+    // Windows with LAN. Gating this to darwin would dark-out a feature that works.
+    platforms: ['darwin', 'win32']
   }
 ]
 
