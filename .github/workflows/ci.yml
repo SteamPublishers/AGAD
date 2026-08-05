@@ -55,6 +55,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24' # node:sqlite (used by integration tests) is available unflagged
+      # @offgrid/sync is a file: dependency on the SIBLING shared monorepo ("file:../shared/packages/sync").
+      # It arrived with the sync work and CI never provisioned it, so every job that installs would fail on the
+      # same missing module. actions/checkout refuses a path outside the workspace, so it lands inside and is
+      # moved up one level - exactly where the file: specifier points.
+      #
+      # Matching branch first, main as the fallback, the same shape as the pro checkout above: a PR that changes
+      # the app and the shared package together must be tested against the package it expects.
+      - name: Check out the shared monorepo
+        id: shared_branch
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: off-grid-ai/shared
+          token: ${{ secrets.CI_CROSS_REPO_TOKEN }}
+          path: _shared
+          ref: ${{ github.head_ref || github.ref_name }}
+          persist-credentials: false
+      - name: Fall back to shared main
+        if: ${{ steps.shared_branch.outcome != 'success' }}
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: off-grid-ai/shared
+          token: ${{ secrets.CI_CROSS_REPO_TOKEN }}
+          path: _shared
+          persist-credentials: false
+      - name: Put shared beside this checkout
+        run: |
+          if [ ! -d _shared ]; then
+            echo "::error::off-grid-ai/shared was not checked out - @offgrid/sync cannot resolve. Check CI_CROSS_REPO_TOKEN."
+            exit 1
+          fi
+          rm -rf ../shared
+          mv _shared ../shared
+          npm --prefix ../shared/packages/sync ci || npm --prefix ../shared/packages/sync install
+          npm --prefix ../shared/packages/sync run build
       - run: npm ci
       # Hard gates: types + the full test suite.
       - name: Typecheck (core)
@@ -135,6 +171,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      # @offgrid/sync is a file: dependency on the SIBLING shared monorepo ("file:../shared/packages/sync").
+      # It arrived with the sync work and CI never provisioned it, so every job that installs would fail on the
+      # same missing module. actions/checkout refuses a path outside the workspace, so it lands inside and is
+      # moved up one level - exactly where the file: specifier points.
+      #
+      # Matching branch first, main as the fallback, the same shape as the pro checkout above: a PR that changes
+      # the app and the shared package together must be tested against the package it expects.
+      - name: Check out the shared monorepo
+        id: shared_branch
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: off-grid-ai/shared
+          token: ${{ secrets.CI_CROSS_REPO_TOKEN }}
+          path: _shared
+          ref: ${{ github.head_ref || github.ref_name }}
+          persist-credentials: false
+      - name: Fall back to shared main
+        if: ${{ steps.shared_branch.outcome != 'success' }}
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: off-grid-ai/shared
+          token: ${{ secrets.CI_CROSS_REPO_TOKEN }}
+          path: _shared
+          persist-credentials: false
+      - name: Put shared beside this checkout
+        run: |
+          if [ ! -d _shared ]; then
+            echo "::error::off-grid-ai/shared was not checked out - @offgrid/sync cannot resolve. Check CI_CROSS_REPO_TOKEN."
+            exit 1
+          fi
+          rm -rf ../shared
+          mv _shared ../shared
+          npm --prefix ../shared/packages/sync ci || npm --prefix ../shared/packages/sync install
+          npm --prefix ../shared/packages/sync run build
       - run: npm ci
       # Electron needs an X server on Linux; xvfb-run provides a virtual one. --no-sandbox via env
       # (Electron's sandbox can't run under the CI user without SUID setup).
