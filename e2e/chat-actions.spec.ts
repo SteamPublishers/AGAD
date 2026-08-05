@@ -161,9 +161,12 @@ test('renames through the UI, navigates back, and restores the title after relau
   await expect(page.getByText(RENAME_BEFORE, { exact: true })).toHaveCount(0)
 
   await conversationRow(NAVIGATION_TITLE).click()
-  await expect(page.getByText(NAVIGATION_MESSAGE, { exact: true })).toBeVisible()
+  // .last() for the same reason the copy journey below documents: the chat list previews each
+  // conversation's last message, so this text is on screen twice and the rail comes first in the DOM.
+  // The transcript copy is the one that proves the conversation actually switched.
+  await expect(page.getByText(NAVIGATION_MESSAGE, { exact: true }).last()).toBeVisible()
   await conversationRow(RENAME_AFTER).click()
-  await expect(page.getByText(RENAME_MESSAGE, { exact: true })).toBeVisible()
+  await expect(page.getByText(RENAME_MESSAGE, { exact: true }).last()).toBeVisible()
 
   const storedBeforeRelaunch = await page.evaluate(async (id) => {
     const conversation = await window.api.getRagConversation(id)
@@ -180,7 +183,8 @@ test('renames through the UI, navigates back, and restores the title after relau
     page.getByRole('button', { name: `Conversation actions for ${RENAME_AFTER}` })
   ).toBeVisible()
   await conversationRow(RENAME_AFTER).click()
-  await expect(page.getByText(RENAME_MESSAGE, { exact: true })).toBeVisible()
+  await expect(page.getByText(RENAME_MESSAGE, { exact: true }).last()).toBeVisible()
+  // Absence stays unscoped on purpose: the old title must be gone from the rail AND the transcript.
   await expect(page.getByText(RENAME_BEFORE, { exact: true })).toHaveCount(0)
   await expect
     .poll(() =>
