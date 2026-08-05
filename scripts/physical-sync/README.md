@@ -16,11 +16,10 @@ Requirements:
 Start WebDriverAgent from the Mobile repository:
 
 ```bash
-PROVIT_UDID=00008150-000225103CD8C01C \
-  node ../provit/src/ios/launchWda.ts
+cd ../mobile && WDA_UDID=<hardware-udid> node scripts/ios/launch-wda.mjs
 ```
 
-Keep that process open and use the printed `PROVIT_WDA_URL`:
+Keep that process open and use the printed `WDA_URL`:
 
 ```bash
 export IOS_DEVICE_ID=00008150-000225103CD8C01C

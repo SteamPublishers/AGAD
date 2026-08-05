@@ -33,7 +33,7 @@ if (process.argv.includes('--help')) {
 Required environment:
   SYNC_PROJECT_NAME          Existing project visible on both devices
   IOS_SYNC_FIXTURE_PATH      Synthetic Mac file also staged in Apple Files
-  IOS_SYNC_WDA_URL           Current URL printed by Provit's launchWda.ts
+  IOS_SYNC_WDA_URL           Current URL printed by mobile's scripts/ios/launch-wda.mjs
   IOS_DEVICE_ID              Physical iPhone hardware UDID
 
 Optional:
