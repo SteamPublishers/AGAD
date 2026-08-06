@@ -65,7 +65,13 @@ fi
 # and false-fail. So skip the e2e gate when the ports are occupied and let CI (clean env) be the
 # authority; run it locally only when nothing else holds them. Bypass entirely with OFFGRID_SKIP_E2E=1.
 port_busy() { lsof -ti tcp:"$1" >/dev/null 2>&1; }
-if [ "${OFFGRID_SKIP_E2E:-0}" = "1" ]; then
+# OFF BY DEFAULT. The e2e is a 6-minute suite and CI runs it on every PR anyway; running it on every
+# local push made the gate something to be worked around rather than trusted, and it is the single
+# biggest reason pushes here felt hostile. Ask for it explicitly when you want it:
+#   OFFGRID_E2E_ON_PUSH=1 git push        # this push runs the suite (on the box if it answers)
+if [ "${OFFGRID_E2E_ON_PUSH:-0}" != "1" ]; then
+  echo "[pre-push] e2e gate — not run (set OFFGRID_E2E_ON_PUSH=1 to run it here); CI runs it on the PR."
+elif [ "${OFFGRID_SKIP_E2E:-0}" = "1" ]; then
   echo "[pre-push] e2e gate — skipped (OFFGRID_SKIP_E2E=1); CI still runs it."
 elif port_busy 8439 || port_busy 7878; then
   echo "[pre-push] e2e gate — SKIPPED: an Off Grid AI Desktop app holds :8439/:7878, so a clean e2e can't run"
