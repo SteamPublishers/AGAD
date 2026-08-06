@@ -81,10 +81,25 @@ else
   # deterministic.
   # OFFGRID_E2E_COVERAGE makes this tour COUNT towards the gate below. Without it, everything only the built
   # app reaches - Electron bootstrap, IPC registration, rendered screens - reads as uncovered.
-  echo "[pre-push] coverage 3/3 + e2e (advisory) — npm run test:e2e"
+  echo "[pre-push] coverage 3/3 + e2e (advisory)"
   export OFFGRID_E2E_COVERAGE="$PWD/coverage-e2e-raw"
   rm -rf "$OFFGRID_E2E_COVERAGE" coverage-e2e
-  if ! npm run --silent test:e2e; then
+  # The TEST BOX first, whenever it answers. It is a clean machine with nothing else holding the engine
+  # ports, and it keeps ~25 app launches off the developer's screen entirely. Exit 20 means the box was
+  # unavailable rather than the suite failing, so that alone falls back to a local headless run - the
+  # gate must never silently skip because a machine was off.
+  e2e_status=0
+  if bash scripts/e2e-on-box.sh; then
+    e2e_status=0
+  else
+    e2e_status=$?
+    if [ "$e2e_status" -eq 20 ]; then
+      echo "[pre-push] the test box is unavailable — running the suite here (headless)"
+      npm run --silent test:e2e
+      e2e_status=$?
+    fi
+  fi
+  if [ "$e2e_status" -ne 0 ]; then
     echo ""
     echo "[pre-push] WARNING: e2e reported failures (see e2e/screenshots + output above). NOT blocking"
     echo "[pre-push] the push. Do NOT assume it's environmental — check the actual failure. Re-run a"

@@ -190,7 +190,7 @@ export function UpgradeScreen({
                 You have Pro
               </div>
               <p className="text-sm leading-relaxed text-neutral-300">
-                Your license covers Mac, Windows and the Off Grid AI phone app - up to 5 devices.
+                Your license covers desktop and mobile - up to 5 devices.
                 Windows is live and Pro features are arriving one at a time; this one is not on your{' '}
                 {deviceNoun()} yet, and the ones that are work here today.
               </p>
@@ -233,8 +233,7 @@ export function UpgradeScreen({
                       Coming soon to your {deviceNoun()}.
                     </span>{' '}
                     Windows is live and Pro features are arriving one at a time - this one runs on
-                    Mac today. Your license covers Mac, Windows and the Off Grid AI phone app - up
-                    to 5 devices.
+                    Mac today. Your license covers desktop and mobile - up to 5 devices.
                   </span>
                 </div>
               )}

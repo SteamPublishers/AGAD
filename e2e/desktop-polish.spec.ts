@@ -192,7 +192,11 @@ test('keyboard focus follows navigation, form, dialog, and primary-action order 
   await page.keyboard.press('Meta+K')
   const dialog = page.getByRole('dialog', { name: 'Search Off Grid' })
   await expect(dialog).toBeVisible()
-  const dialogSearch = dialog.getByPlaceholder('Search everything…')
+  // The REAL placeholder. This said 'Search everything…', which is not a substring of what the palette
+  // renders ('Search everything, or jump to a screen…'), so the locator matched nothing and the focus
+  // assertion failed against an element that was never there - the palette focuses its input correctly.
+  // Anchored on the stable half of the string so a copy tweak to the tail does not break it again.
+  const dialogSearch = dialog.getByPlaceholder(/^Search everything/)
   await expectVisibleKeyboardFocus(dialogSearch, 'dialog search field')
   await page.keyboard.press('Tab')
   await expectVisibleKeyboardFocus(dialogSearch, 'dialog focus trap')
