@@ -128,5 +128,11 @@ export const launchOffGrid = async (options: LaunchOptions = {}): Promise<Electr
     // A packaged app loads its own app.asar — passing '.' would point it at the repo instead.
     return electron.launch({ executablePath: packagedExecutable(), args: extraArgs, env })
   }
+  // The DEV target needs it too, and for a different reason than pro activation: OFFGRID_PRO=1 unlocks
+  // the pro SURFACES, but joining a mesh consumes a licensed seat, so pairing asks the entitlement layer
+  // for a credential and refuses with "Pro license pairing is unavailable on this device" when there is
+  // none. Seeding is a no-op when the spec asked for a free build or the fixture is absent, so specs that
+  // assert free-tier UI stay unlicensed and deterministic.
+  seedLicense(env)
   return electron.launch({ args: ['.', ...extraArgs], env })
 }
