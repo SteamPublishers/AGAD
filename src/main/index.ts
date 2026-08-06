@@ -28,6 +28,7 @@ import { serveCaptureFile } from './ogcapture-serve'
 import { serveArtifactPreview } from './artifact-preview'
 import { ipcMain } from 'electron'
 import { loadProEntitlementProvider, loadProFeaturesMain } from './bootstrap/loadProFeaturesMain'
+import { resolveWindowPresentation } from './bootstrap/window-presentation'
 import { initLicensing, revalidateProEntitlement } from './licensing/license-service'
 import { setupLicenseIpc } from './license-ipc'
 import { nativeImage } from 'electron'
@@ -158,8 +159,12 @@ function createWindow(): void {
   // can already have loaded, so the size depended on which happened first.
   mainWindow.maximize()
 
+  // Nothing is shown in a headless (e2e) run - see window-presentation for why the suite needs that on
+  // macOS, where Playwright cannot make an Electron app headless and there is no xvfb to hide it behind.
+  // The renderer has already loaded and painted by now either way, which is all Playwright drives.
+  const presentation = resolveWindowPresentation(process.env)
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    if (presentation.showWindow) mainWindow.show()
   })
 
   // Pin zoom to 100% (clear any persisted accidental Cmd+= zoom) and disable
@@ -242,8 +247,14 @@ app.whenReady().then(async () => {
   // default Electron icon; the packaged build uses build/icon from electron-builder).
   if (process.platform === 'darwin' && app.dock) {
     try {
-      const dockImg = nativeImage.createFromPath(icon)
-      if (!dockImg.isEmpty()) app.dock.setIcon(dockImg)
+      // Out of the Dock entirely in a headless run: an app with a Dock tile still becomes the frontmost
+      // application, which is the half of the interruption that is not the window itself.
+      if (!resolveWindowPresentation(process.env).showInDock) {
+        app.dock.hide()
+      } else {
+        const dockImg = nativeImage.createFromPath(icon)
+        if (!dockImg.isEmpty()) app.dock.setIcon(dockImg)
+      }
     } catch (e) {
       console.warn('[dock] setIcon failed', e)
     }
