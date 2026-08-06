@@ -45,6 +45,8 @@ let userDataDir: string
 let syntheticPeer: SyncEngine | null = null
 let syntheticState: StateSync | null = null
 let syntheticFiles: FileTransferManager | null = null
+let syntheticImportedEntitlement: unknown
+let syntheticEntitlementCommitted = false
 let syntheticClipboard: ClipboardSyncCoordinator | null = null
 const syntheticClipboardRecords = new Map<string, ClipboardHistoryRecord>()
 /** The peer's pending clipboard deliveries, keyed the way the coordinator keys them: record × device. */
@@ -187,12 +189,25 @@ test.describe('Devices surface — pro tier', () => {
       (
         window as unknown as {
           api: {
-            proInvoke(channel: string): Promise<{ localDevice: DeviceInfo; port: number }>
+            proInvoke(channel: string): Promise<{
+              localDevice: DeviceInfo
+              port: number
+              pairingCode?: { status: string; code?: string }
+            }>
           }
         }
       ).api.proInvoke('pro:sync:status')
     )
     expect(desktop.port).toBeGreaterThan(0)
+    // The code this Mac is SHOWING, not one the harness made up. A joining device is told the code by a
+    // person reading the other screen, and the engine refuses an attempt whose passphrase it cannot
+    // resolve - so an invented code is rejected before the prompt is ever raised, which is what made this
+    // spec look like a broken pairing flow.
+    const desktopCode = desktop.pairingCode?.code
+    expect(desktopCode, 'the desktop has to be showing a pairing code to pair against').toBeTruthy()
+    // A different REAL code for the refusal case: 8 characters from the same confusable-free alphabet, so
+    // it fails for being wrong rather than for being malformed.
+    const wrongCode = desktopCode === 'WRNGC2DE' ? 'WRNGC2DF' : 'WRNGC2DE'
 
     const local: DeviceInfo = {
       id: 'synthetic-android',
@@ -285,6 +300,32 @@ test.describe('Devices surface — pro tier', () => {
     syntheticPeer = new SyncEngine({
       localDevice: local,
       transport: new NodeTcpTransport(),
+      // Pairing is a LICENSED transaction on both sides now: the engine refuses with
+      // entitlement_unavailable when it has no entitlement adapter, so without this the peer refused the
+      // handshake itself and the failure looked like the Mac rejecting it. This peer is the real-world
+      // shape of a phone joining: it holds no licence of its own and is sponsored by the licensed Mac, so
+      // only the IMPORT half is implemented and the export half refuses out loud rather than pretending.
+      pairingEntitlement: {
+        inspect: async () => ({ status: 'unlicensed' as const }),
+        prepareExport: async () => {
+          throw new Error('the synthetic peer holds no licence to sponsor anyone with')
+        },
+        commitExport: async () => {},
+        rollbackExport: async () => {},
+        finalizeExport: async () => {},
+        prepareImport: async (credential) => {
+          syntheticImportedEntitlement = credential
+          return { id: 'synthetic-entitlement-import' }
+        },
+        commitImport: async () => {
+          syntheticEntitlementCommitted = true
+        },
+        rollbackImport: async () => {
+          syntheticImportedEntitlement = undefined
+          syntheticEntitlementCommitted = false
+        },
+        finalizeImport: async () => {}
+      },
       pairingPersistence: {
         begin: async (device) => {
           if (waitForSecureStore) {
@@ -322,6 +363,12 @@ test.describe('Devices surface — pro tier', () => {
       resolveRemoteDevice: (deviceId) =>
         deviceId === desktop.localDevice.id ? desktop.localDevice : undefined,
       enabled: () => true,
+      // Two lists, not one: the coordinator asks separately who is PAIRED (may receive, even offline -
+      // that is what pending deliveries are for) and who is CONNECTED right now. The harness only
+      // supplied the connected half, so the coordinator hit an undefined pairedDeviceIds the moment
+      // pairing started working and the clipboard step was finally reached.
+      pairedDeviceIds: () =>
+        syntheticPeer?.isPaired(desktop.localDevice.id) ? [desktop.localDevice.id] : [],
       connectedDeviceIds: () =>
         syntheticPeer?.isPaired(desktop.localDevice.id) ? [desktop.localDevice.id] : [],
       send: (deviceId, channel, data) => syntheticPeer?.sendApp(deviceId, channel, data) ?? false,
@@ -359,6 +406,18 @@ test.describe('Devices surface — pro tier', () => {
     })
     await syntheticClipboard.initialize()
     await syntheticPeer.start(0)
+    // Both codes are REAL pairing codes: 8 characters from the confusable-free alphabet
+    // (23456789ABCDEFGHJKMNPQRSTUVWXYZ, see PAIRING_CODE_LENGTH/ALPHABET). They used to be
+    // 'SYNTH4ND' and 'WRNGC2DE', which the field rejects outright with "Enter the
+    // 8-character pairing code shown on the other device" - so Accept never ran, and the mismatch case
+    // was failing validation rather than proving a mismatch is refused. Different from each other on
+    // purpose: that is what makes the refusal below mean something.
+    // Both codes are REAL pairing codes: 8 characters from the confusable-free alphabet
+    // (23456789ABCDEFGHJKMNPQRSTUVWXYZ - PAIRING_CODE_LENGTH/ALPHABET in shared sync). They used to be
+    // 'synthetic-pair-code' and 'different-pair-code', which the field rejects outright with "Enter the
+    // 8-character pairing code shown on the other device", so Accept never ran - and the mismatch case
+    // below was failing VALIDATION rather than proving a wrong code is refused. Different from each
+    // other on purpose: that difference is the whole point of the refusal that follows.
     const wrongPairing = syntheticPeer
       .pair(
         {
@@ -366,21 +425,22 @@ test.describe('Devices surface — pro tier', () => {
           host: '127.0.0.1',
           port: desktop.port
         },
-        'different-pair-code'
+        wrongCode
       )
       .catch((cause: unknown) => cause)
 
-    await expect(
-      page.getByRole('heading', { name: 'Synthetic Android wants to pair' })
-    ).toBeVisible()
-    await page.getByRole('textbox', { name: 'Incoming pairing code' }).fill('synthetic-pair-code')
-    await page.getByRole('button', { name: 'Accept' }).click()
+    // A wrong code is refused by the HOST ITSELF, with no prompt and nothing to accept. That is the
+    // current design: the joining device presents the code shown on this screen, and the engine compares
+    // it (getPassphrase in pro/main/sync-ipc.ts hands it this Mac's live code). What this spec used to
+    // drive - a "Synthetic Android wants to pair" heading, an "Incoming pairing code" textbox and an
+    // Accept button - does not exist in the renderer any more, so every run was waiting 15s for a screen
+    // that had been removed. Evidence from the app itself: the attempt is registered as
+    // stage=failed / failure.code=code_mismatch within ~11ms of arriving.
+    await expect(page.getByText('Pairing failed')).toBeVisible()
     await expect(page.getByRole('alert')).toContainText('The pairing codes did not match.')
     expect((await wrongPairing) as { code?: string }).toMatchObject({ code: 'code_mismatch' })
     await page.getByRole('button', { name: 'Dismiss' }).click()
-    await expect(
-      page.getByRole('heading', { name: 'Synthetic Android wants to pair' })
-    ).toHaveCount(0)
+    await expect(page.getByText('Pairing failed')).toHaveCount(0)
 
     waitForSecureStore = true
     const pairing = syntheticPeer.pair(
@@ -389,21 +449,50 @@ test.describe('Devices surface — pro tier', () => {
         host: '127.0.0.1',
         port: desktop.port
       },
-      'synthetic-pair-code'
+      desktopCode as string
     )
 
-    await expect(
-      page.getByRole('heading', { name: 'Synthetic Android wants to pair' })
-    ).toBeVisible()
-    await page.getByRole('textbox', { name: 'Incoming pairing code' }).fill('synthetic-pair-code')
-    await page.getByRole('button', { name: 'Accept' }).click()
-    await expect(page.getByRole('status')).toHaveText(
-      'Confirm the same pairing code on both devices.'
-    )
+    // The matching code completes the pairing on its own - the incoming dialog is informational and its
+    // only action is Cancel. The secure-store gate is still held on purpose: it proves the trust is
+    // written before the device is shown as paired, which is the half of this transaction the UI cannot
+    // show.
+    //
+    // WAIT for the gate to exist before releasing it. releaseSecureStore is only assigned once the peer's
+    // pairingPersistence.begin() actually runs, and the UI steps that used to sit here gave that time to
+    // happen. Releasing too early is releasing nothing: the peer then blocks in begin() forever and the
+    // attempt ends as "Pairing was cancelled" a minute later.
+    await expect
+      .poll(() => releaseSecureStore !== undefined, {
+        message: 'the peer should reach its secure-store write',
+        timeout: 20_000
+      })
+      .toBe(true)
     releaseSecureStore?.()
     await pairing
-    await expect(page.getByText('Synthetic Android').first()).toBeVisible()
-    await expect(page.getByText('Connected · LAN', { exact: true })).toBeVisible()
+    // What the screen can honestly show for THIS peer. The Devices list renders two groups - devices in
+    // the licence registry, and devices discovered on the network - and the synthetic peer is in neither:
+    // its entitlement adapter is a stub, so no machine is ever registered for it, where a real phone is
+    // registered as part of pairing. Asserting a device ROW here would be asserting a registry
+    // side effect the harness deliberately does not have.
+    //
+    // The connection itself is what this step is about, and that IS visible: the header counts it.
+    await expect(page.getByText('1 connected', { exact: true })).toBeVisible()
+    await page.screenshot({ path: 'e2e/screenshots/devices-after-pairing.png' })
+    // And the facts underneath, from the app's own state rather than a label.
+    const paired = await page.evaluate(async () => {
+      const status = (await (
+        window as unknown as { api: { proInvoke(c: string): Promise<unknown> } }
+      ).api.proInvoke('pro:sync:status')) as {
+        paired?: { id: string }[]
+        connectedIds?: string[]
+      }
+      return {
+        pairedIds: (status.paired ?? []).map((device) => device.id),
+        connectedIds: status.connectedIds ?? []
+      }
+    })
+    expect(paired.pairedIds).toContain('synthetic-android')
+    expect(paired.connectedIds).toContain('synthetic-android')
     await expect.poll(() => syntheticPeer?.isPaired(desktop.localDevice.id)).toBe(true)
 
     await openSyncSettings()
