@@ -123,6 +123,28 @@ jobs:
       - name: Test + coverage thresholds
         timeout-minutes: 10
         run: npm run test:coverage
+      # The DB journeys - 74 files, 255 cases - which CI has NEVER run.
+      #
+      # They are excluded from the default vitest project because they load the real native SQLite and need
+      # better-sqlite3-multiple-ciphers rebuilt for the TEST RUNNER's node ABI (the app builds it for
+      # ELECTRON's). scripts/test-db.sh does that swap and restores Electron's build afterwards, which is why
+      # this is its own step: the rebuild mutates node_modules.
+      #
+      # Not running them had a measurable cost. The default config EXCLUDES database.ts, rag/store.ts,
+      # prompt-store and runtime-residency with the note "covered by the tests in *.dbtest.ts via
+      # npm run test:db" - a claim nothing verified. approval-lifecycle.ts measured 0% for the same reason
+      # while having tests all along.
+      #
+      # OFFGRID_DB_VITEST_CONFIG selects the coverage variant, which is "the db journeys that pass today": it
+      # skips four files whose causes are each documented in vitest.db.coverage.config.ts (one of them is the
+      # control-center projection bug still awaiting a decision). vitest writes no report at all when any test
+      # fails, so the variant is what makes a report possible; the exclusions are visible in that file rather
+      # than hidden here, and each is meant to be deleted as its cause is resolved.
+      - name: DB journeys (real native SQLite)
+        timeout-minutes: 12
+        env:
+          OFFGRID_DB_VITEST_CONFIG: vitest.db.coverage.config.ts
+        run: npm run test:db
       # Build/native/port integration tests (packaging, whisper build-staging, the
       # model-port + System Health seams that own :8439). These need a packaged
       # build / native toolchain / a live engine port the pure `verify` runner
