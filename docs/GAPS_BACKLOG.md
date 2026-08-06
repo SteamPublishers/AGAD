@@ -289,3 +289,30 @@ The Linux-impossible ones are a platform mismatch rather than rot - but they are
 as failures on every push, which trains everyone to ignore the step. They should either be excluded by
 platform (like `vitest.db.ci.config.ts` does, with the reason recorded per file) or moved to a macOS
 runner, so that what remains inside an advisory step is only ever a real signal.
+
+### P1 - the desktop always reports its platform as `macos`, so a Windows node lies about itself
+
+`pro/main/sync/sync-store.ts:318` builds the LOCAL device identity with `platform: 'macos'` hardcoded,
+unconditionally, on every OS. Nothing misdetects Windows - the local device never reports its OS at all.
+The same literal is hardcoded in three more places: `pro/main/sync/model-transfer-service.ts:105` and
+`:414`, and `pro/main/sync/keygen-personal-mesh-registry.ts:163-164`.
+
+**Observed on the lab mesh (2026-08-06).** The Windows 11 ARM guest on .64, renamed
+`OGAD x.x.x.64 (Win)`, appears in the macOS node's own LICENSED DEVICES list as `macOS`, and the Android
+lists TWO macOS devices when the LAN has exactly one Mac. `DevicePlatform` in
+`shared/packages/sync/src/types/index.ts:2` already allows `"windows"`, so this is a missing
+`process.platform` map (`darwin`->macos, `win32`->windows, `linux`->linux), not a missing type.
+
+**Why P1 and not a labelling nit - `platform` gates two real decisions:**
+
+- `shared/packages/sync/src/multi-transport.ts:29` treats `platform === "ios" || "macos"` as
+  Apple-proximity-capable, so the mesh will attempt an APPLE-ONLY transport route to a Windows box.
+- `shared/packages/sync/src/transfer/model.ts:96-104` (`platformTransferBlocker`) refuses a model whose
+  `origin` platform differs from `receiverPlatform`, which exists precisely to stop an unrunnable
+  transfer. A Windows receiver claiming `macos` DEFEATS that guard: a macOS-only GGUF is allowed to
+  transfer to a machine that cannot load it. `model-transfer-service.ts:414` pins
+  `receiverPlatform: 'macos'` too, so both sides of that comparison are wrong together.
+
+Not fixed here: this is product code under `pro/`, and this sweep is not authorised to change `src/`.
+A fix needs a single platform helper used by all four sites, plus a test that a non-darwin
+`process.platform` yields a non-`macos` identity - otherwise the next hardcode reintroduces it.
