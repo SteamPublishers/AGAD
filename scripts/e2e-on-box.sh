@@ -78,7 +78,23 @@ ssh $SSH_OPTS "$BOX" "set -e
 
 # Headless there too: the box has a display, but a run nothing can disturb is also a run that disturbs
 # nothing - including whatever is already on that screen.
+# Default to ONLY what this branch touched. Running 25 spec files to check a one-line change wastes
+# minutes per push and trains everyone to skip the gate; CI runs the whole suite anyway. Explicit args
+# always win, and E2E_FULL=1 forces everything when that is what you actually want.
 PW_ARGS="$*"
+if [ -z "$PW_ARGS" ] && [ "${E2E_FULL:-0}" != "1" ]; then
+  base="$(git -C "$REPO_ROOT" merge-base HEAD origin/main 2>/dev/null || echo '')"
+  if [ -n "$base" ]; then
+    changed_specs="$(git -C "$REPO_ROOT" diff --name-only "$base"...HEAD -- 'e2e/*.spec.ts' 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+    # A change under src/ or pro/ can break any surface, so that still earns the full suite. A change
+    # confined to specs only needs those specs.
+    touched_app="$(git -C "$REPO_ROOT" diff --name-only "$base"...HEAD -- src pro shared 2>/dev/null | head -1)"
+    if [ -n "$changed_specs" ] && [ -z "$touched_app" ]; then
+      PW_ARGS="$changed_specs"
+      say "only the specs this branch changed: $PW_ARGS (E2E_FULL=1 for everything)"
+    fi
+  fi
+fi
 say "running the suite${PW_ARGS:+ (playwright args: $PW_ARGS)}"
 ssh $SSH_OPTS "$BOX" "bash -o pipefail -c '
   export PATH=\"\$HOME/node/bin:\$PATH\"
