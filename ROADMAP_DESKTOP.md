@@ -120,7 +120,11 @@ The Off Grid chat (`MemoryChat.tsx`) is becoming a full local-first studio — l
 
 - ✅ Engine exists: `@offgrid/sync` + `@offgrid/memory` (pairing, anti-entropy op-log)
 - ⬜ Carry the new memory (observations/actions/entities/reflect) across the mesh
-- ⬜ Embed sync + memory + clipboard into Desktop; desktop↔desktop converge; universal clipboard
+- 🟡 **Desktop mesh** — pairing/discovery, encrypted chat + project + model-settings convergence,
+  and opt-in universal text clipboard are verified in the desktop UI. Model transfer streams,
+  resumes, checksum-verifies, and registers single-file GGUF models; the physical multi-GB,
+  interrupted-transfer, and receiver-load gate remains open. Clipboard images/files, immediate
+  live-session teardown on unpair, and ambient file sharing remain open.
 - ⬜ **One brain across devices** — laptop (work) + phone (life) unify into a single working model, syncing over the home network, no cloud relay (`vision.md`)
 
 ## Phase 7 — Org / B2B distribution ⬜

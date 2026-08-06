@@ -98,9 +98,17 @@ class BackupIpcHarness implements BackupIpcBoundary {
   }
 }
 
+/**
+ * A fixed vector for restored chunks, so this journey does not depend on whether MiniLM happens to be loadable
+ * on the machine running it. With the real embedder this asserted `embedding: null` locally (no model, so the
+ * restore's documented fallback kept the null) and a 384-float vector in CI (model present) - the same test
+ * describing two different outcomes. What the journey is about is that the vector REACHES the row.
+ */
+const FIXED_EMBEDDING = [0.11, 0.22, 0.33]
+
 function engine(db: Database.Database, root: string, sink: PathSink): DesktopBackupEngine {
   return new BackupEngine(
-    new DesktopBackupDataPort(db),
+    new DesktopBackupDataPort(db, async () => FIXED_EMBEDDING),
     new DesktopBackupFileMapper(),
     new DesktopBackupArchive({ tempDir: root, userDataDir: root }),
     sink,
@@ -200,18 +208,17 @@ describe('desktop portable Backup & Restore', () => {
     expect(restoredDocument.path).toContain(path.join('restored-backups', 'files', 'documents'))
     expect(fs.readFileSync(restoredDocument.path, 'utf8')).toBe('OFFGRID_BACKUP_FILE_EVIDENCE')
     expect(restoredDocument.enabled).toBe(1)
-    const restoredChunk = targetDb
-      .prepare('SELECT content, embedding FROM rag_chunks')
-      .get() as { content: string; embedding: string | null }
-    expect(restoredChunk.content).toBe('The launch stays local.')
-    // This asserted `embedding: null` and so encoded the bug: retrieval requires a non-null embedding
-    // ("WHERE d.enabled = 1 AND c.embedding IS NOT NULL"), and nothing ever re-embedded a restored chunk, so the
-    // document above - which this same test asserts is ENABLED - could never inform an answer. Restore now
-    // recomputes the vector, and the shape is asserted rather than the exact numbers, which belong to the model.
-    const vector = JSON.parse(restoredChunk.embedding ?? 'null') as number[] | null
-    expect(Array.isArray(vector)).toBe(true)
-    expect(vector).toHaveLength(384)
-    expect(vector?.every((value) => Number.isFinite(value))).toBe(true)
+    // This asserted `embedding: null`, and so encoded the bug: retrieval requires a non-null embedding
+    // ("WHERE d.enabled = 1 AND c.embedding IS NOT NULL") and nothing ever re-embedded a restored chunk - so the
+    // document this same test asserts is ENABLED, two lines up, could never inform an answer.
+    //
+    // The embedder is injected (FIXED_EMBEDDING) rather than real, because with the real one this journey
+    // described two different outcomes: null on a machine where MiniLM cannot load, and a 384-float vector in
+    // CI where it can. What the journey is about is that the vector REACHES the row.
+    expect(targetDb.prepare('SELECT content, embedding FROM rag_chunks').get()).toEqual({
+      content: 'The launch stays local.',
+      embedding: JSON.stringify(FIXED_EMBEDDING)
+    })
     expect(targetDb.prepare('SELECT content, context FROM rag_messages').get()).toEqual({
       content: 'Keep this conversation.',
       context: JSON.stringify({ scope: 'project-aurora' })
