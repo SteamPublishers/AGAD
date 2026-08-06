@@ -316,3 +316,28 @@ lists TWO macOS devices when the LAN has exactly one Mac. `DevicePlatform` in
 Not fixed here: this is product code under `pro/`, and this sweep is not authorised to change `src/`.
 A fix needs a single platform helper used by all four sites, plus a test that a non-darwin
 `process.platform` yields a non-`macos` identity - otherwise the next hardcode reintroduces it.
+
+### P2 - a long-running desktop instance can end up with NO sockets at all, mesh included
+
+Observed on .64 (packaged v0.0.42) on 2026-08-06. The app had been up since 09:36 and was licensed
+(`[Pro] license loaded - entitled=true`), and `pro:sync:status` was answering IPC on a 2s poll - yet the
+process held **zero TCP and zero UDP sockets**. Confirmed three independent ways, all agreeing:
+`sudo lsof -nP -iTCP -sTCP:LISTEN`, `netstat -an -p tcp`, and `sudo lsof -nP -p <pid>` for each of the
+four app pids. Machine-wide there was only sshd:22 and a launchd 127.0.0.1:8021.
+
+Not just the mesh: `llama-server` (127.0.0.1:8439) and the gateway (7878/7879) were absent too, and the
+app's own sidebar read `Model stopped`. A restart restored everything at once - mesh listener on an
+ephemeral wildcard port, 8439, 7878, 7879 - and the sidebar went to `Model running`.
+
+**Why this is worth a gate, not just a restart.** `pro:sync:status` reported `serviceState: 'running'`
+throughout. The LAN route is `required: true` in the MultiTransportBridge, so a listen failure at startup
+would have rethrown out of `service.start(0)` and aborted `setupSyncIPC` before that handler was ever
+registered - meaning the socket was NOT lost at startup, it went away later while the service went on
+claiming to be up. From the phones' side this is indistinguishable from the Mac being switched off: both
+phones simply showed it Offline, for days (`last seen 03/08/2026`).
+
+Cause not established - this box is also running a VMware Fusion Windows guest, so resource pressure or a
+sleep/wake cycle are both plausible and neither is proven. What IS actionable regardless: the status a
+peer reports should be derived from the listener actually being bound, so `serviceState: 'running'` cannot
+outlive the socket. A liveness check that re-binds or reports unhealthy would have surfaced this in
+seconds instead of days.
