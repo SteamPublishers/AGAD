@@ -388,6 +388,90 @@ describe('taking a backup out of the database, and putting one back', () => {
       expect(summary.projectsAdded).toBe(0)
     })
 
+    it('fills in messages the archive has for a conversation that already exists', async () => {
+      // Synced from another device, or half-restored by an earlier run: the conversation is here, one of its
+      // messages is not.
+      db.prepare(
+        `INSERT INTO rag_conversations (id, title, project_id, created_at, updated_at)
+         VALUES ('c1', 'Existing', NULL, '2026-01-01T09:00:00.000Z', '2026-01-01T09:00:00.000Z')`
+      ).run()
+      db.prepare(
+        `INSERT INTO rag_messages (uuid, conversation_id, role, content, context, created_at)
+         VALUES ('m-existing', 'c1', 'user', 'first question', NULL, '2026-01-01T09:00:00.000Z')`
+      ).run()
+
+      await port.apply(
+        bundle({
+          conversations: [
+            {
+              id: 'c1',
+              title: 'Existing',
+              projectId: null,
+              createdAt: '2026-01-01T09:00:00.000Z',
+              updatedAt: '2026-01-02T09:00:00.000Z',
+              messages: [
+                { role: 'user', content: 'first question', createdAt: '2026-01-01T09:00:00.000Z' },
+                { role: 'assistant', content: 'the missing answer', createdAt: '2026-01-01T09:01:00.000Z' }
+              ]
+            }
+          ]
+        })
+      )
+
+      const contents = (
+        db
+          .prepare('SELECT content FROM rag_messages WHERE conversation_id = ? ORDER BY created_at ASC')
+          .all('c1') as Array<{ content: string }>
+      ).map(({ content }) => content)
+
+      // The archived message that was missing is now here, and the one already present is not duplicated. The
+      // old code skipped the whole conversation, so an additive restore reported success and silently left the
+      // history incomplete.
+      expect(contents).toEqual(['first question', 'the missing answer'])
+    })
+
+    it('embeds restored chunks, so a restored document can actually answer', async () => {
+      // A deterministic stand-in for MiniLM: the real one is a model file, and what matters here is that the
+      // vector REACHES the row - retrieval requires a non-null embedding
+      // ("WHERE d.enabled = 1 AND c.embedding IS NOT NULL" in rag/store.ts).
+      const embedding = [0.1, 0.2, 0.3]
+      const embedded = new DesktopBackupDataPort(db, async () => embedding)
+
+      await embedded.apply(bundle())
+
+      const chunk = db
+        .prepare(
+          `SELECT c.embedding AS embedding FROM rag_chunks c
+             JOIN rag_documents d ON d.id = c.doc_id
+            WHERE d.path = ?`
+        )
+        .get('/restored/Contract.pdf') as { embedding: string | null } | undefined
+      // Restored chunks used to land NULL and nothing ever re-embedded them - the background backfill covers
+      // observations, frames and transcripts, never rag_chunks - so the document sat in its project looking
+      // enabled and could never inform an answer.
+      expect(chunk?.embedding).toBe(JSON.stringify(embedding))
+    })
+
+    it('still restores the document when no embedder is available', async () => {
+      const noModel = new DesktopBackupDataPort(db, async () => {
+        throw new Error('the embedding model is not loaded')
+      })
+
+      const summary = await noModel.apply(bundle())
+
+      // A model that cannot load is not a reason to lose the restore. The document lands exactly as it did
+      // before embedding-on-restore existed, which is worse than being searchable and far better than failing.
+      expect(summary.documentsAdded).toBe(1)
+      const chunk = db
+        .prepare(
+          `SELECT c.embedding AS embedding FROM rag_chunks c
+             JOIN rag_documents d ON d.id = c.doc_id
+            WHERE d.path = ?`
+        )
+        .get('/restored/Contract.pdf') as { embedding: string | null } | undefined
+      expect(chunk?.embedding).toBeNull()
+    })
+
     it('does not add a document it already holds', async () => {
       insertProject('p1', 'Existing')
       const existing = insertDocument('p1', 'Contract.pdf')

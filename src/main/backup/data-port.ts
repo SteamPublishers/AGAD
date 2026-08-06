@@ -62,7 +62,53 @@ export class DesktopBackupDataPort implements BackupDataPort<
   DesktopBackupData,
   DesktopRestoreSummary
 > {
-  constructor(private readonly db: Database.Database) {}
+  /**
+   * @param embed Turns a chunk of restored text into a vector. Defaulted to the same MiniLM the RAG indexer
+   *   uses (loaded lazily, so a restore that never touches documents does not pull the model in), and injectable
+   *   so a test can supply a deterministic one.
+   */
+  constructor(
+    private readonly db: Database.Database,
+    private readonly embed: (text: string) => Promise<number[]> = async (text) => {
+      const { embeddings } = await import('../embeddings')
+      return embeddings.generateEmbedding(text)
+    }
+  ) {}
+
+  /**
+   * Vectors for every chunk in the archive, computed BEFORE the write transaction.
+   *
+   * Restored chunks used to land with embedding = NULL, and retrieval requires a non-null embedding
+   * (rag/store.ts: "WHERE d.enabled = 1 AND c.embedding IS NOT NULL"). Nothing re-embedded them either - the
+   * background backfill feeds universal search from observations, frames and transcripts, never rag_chunks. So a
+   * restored document appeared enabled in its project and could never inform an answer, permanently.
+   *
+   * The archive carries no vectors (DesktopBackupChunk is content + position), so they have to be recomputed
+   * here. Computed up front because better-sqlite3 transactions are synchronous and cannot await.
+   *
+   * A model that is unavailable does not fail the restore: those chunks keep their null and the document lands
+   * as it did before this change, which is a worse outcome than being embedded but a much better one than
+   * losing the restore entirely.
+   */
+  private async embedArchiveChunks(
+    data: DesktopBackupData
+  ): Promise<Map<string, string | null>> {
+    const vectors = new Map<string, string | null>()
+    for (const project of data.projects) {
+      for (const document of project.documents) {
+        for (const chunk of document.chunks) {
+          const key = `${project.id}#${document.path}#${chunk.position}`
+          try {
+            const vector = await this.embed(chunk.content)
+            vectors.set(key, vector.length > 0 ? JSON.stringify(vector) : null)
+          } catch {
+            vectors.set(key, null)
+          }
+        }
+      }
+    }
+    return vectors
+  }
 
   async collectAll(): Promise<DesktopBackupData> {
     return this.collect()
@@ -98,6 +144,7 @@ export class DesktopBackupDataPort implements BackupDataPort<
     const addedConversations: string[] = []
     const addedMessages: string[] = []
     let documentsAdded = 0
+    const chunkVectors = await this.embedArchiveChunks(data)
 
     const applyTransaction = this.db.transaction(() => {
       for (const project of data.projects) {
@@ -142,45 +189,74 @@ export class DesktopBackupDataPort implements BackupDataPort<
           const documentId = Number(result.lastInsertRowid)
           const insertChunk = this.db.prepare(
             `INSERT INTO rag_chunks (doc_id, content, position, embedding)
-             VALUES (?, ?, ?, NULL)`
+             VALUES (?, ?, ?, ?)`
           )
           for (const chunk of document.chunks) {
-            insertChunk.run(documentId, chunk.content, chunk.position)
+            insertChunk.run(
+              documentId,
+              chunk.content,
+              chunk.position,
+              chunkVectors.get(`${project.id}#${document.path}#${chunk.position}`) ?? null
+            )
           }
           documentsAdded += 1
         }
       }
 
       for (const conversation of data.conversations) {
-        const exists = this.db
-          .prepare('SELECT 1 FROM rag_conversations WHERE id = ?')
-          .get(conversation.id)
-        if (exists) continue
+        // An EXISTING conversation is no longer skipped whole. A restore is additive, and a conversation that
+        // already exists here - synced from another device, or half-restored by an earlier run - can still be
+        // missing messages the archive holds. Skipping it dropped them silently, so a restore could report
+        // success and leave an incomplete history.
+        const exists =
+          this.db.prepare('SELECT 1 FROM rag_conversations WHERE id = ?').get(conversation.id) !==
+          undefined
         const projectId =
           conversation.projectId &&
           this.db.prepare('SELECT 1 FROM projects WHERE id = ?').get(conversation.projectId)
             ? conversation.projectId
             : null
-        this.db
-          .prepare(
-            `INSERT INTO rag_conversations (id, title, project_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?)`
-          )
-          .run(
-            conversation.id,
-            conversation.title,
-            projectId,
-            conversation.createdAt,
-            conversation.updatedAt
-          )
-        addedConversations.push(conversation.id)
+        if (!exists) {
+          this.db
+            .prepare(
+              `INSERT INTO rag_conversations (id, title, project_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)`
+            )
+            .run(
+              conversation.id,
+              conversation.title,
+              projectId,
+              conversation.createdAt,
+              conversation.updatedAt
+            )
+          addedConversations.push(conversation.id)
+        }
 
         const insertMessage = this.db.prepare(
           `INSERT INTO rag_messages
             (uuid, conversation_id, role, content, context, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`
         )
+        // The archive carries no message id (role, content, context, createdAt - see DesktopBackupMessage), so
+        // identity has to come from the content itself. Same conversation, same role, same text, same timestamp
+        // IS the same message; matching on that is what lets an additive restore fill gaps without producing a
+        // second copy of everything the user already has.
+        const alreadyHere = this.db.prepare(
+          `SELECT 1 FROM rag_messages
+           WHERE conversation_id = ? AND role = ? AND content = ? AND created_at = ?`
+        )
         for (const message of conversation.messages) {
+          if (
+            exists &&
+            alreadyHere.get(
+              conversation.id,
+              message.role,
+              message.content,
+              message.createdAt
+            ) !== undefined
+          ) {
+            continue
+          }
           const uuid = crypto.randomUUID()
           insertMessage.run(
             uuid,
