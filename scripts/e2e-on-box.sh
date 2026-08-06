@@ -12,6 +12,10 @@
 #   3. Install only when the lockfile actually changed, so a normal run costs seconds.
 #   4. Run the suite, and bring the raw V8 coverage back so the coverage gate still counts it.
 #
+# Any arguments are passed straight to Playwright, so a single spec can be iterated on the box:
+#   bash scripts/e2e-on-box.sh devices-sync.spec.ts
+#   bash scripts/e2e-on-box.sh tour.spec.ts -g "locked Pro"
+#
 # Exit codes: 0 suite passed | 1 suite failed | 20 box unavailable (NOT a test failure).
 set -uo pipefail
 
@@ -74,12 +78,13 @@ ssh $SSH_OPTS "$BOX" "set -e
 
 # Headless there too: the box has a display, but a run nothing can disturb is also a run that disturbs
 # nothing - including whatever is already on that screen.
-say "running the suite"
+PW_ARGS="$*"
+say "running the suite${PW_ARGS:+ (playwright args: $PW_ARGS)}"
 ssh $SSH_OPTS "$BOX" "bash -o pipefail -c '
   export PATH=\"\$HOME/node/bin:\$PATH\"
   cd \"$BOX_DIR\"
   rm -rf coverage-e2e-raw && mkdir -p coverage-e2e-raw
-  OFFGRID_E2E_COVERAGE=\"$BOX_DIR/coverage-e2e-raw\" npm run --silent test:e2e 2>&1 | tee /tmp/ogad-e2e.log | tail -40
+  OFFGRID_E2E_COVERAGE=\"$BOX_DIR/coverage-e2e-raw\" npm run --silent test:e2e -- $PW_ARGS 2>&1 | tee /tmp/ogad-e2e.log | tail -40
 '"
 suite=$?
 
