@@ -200,10 +200,18 @@ describe('desktop portable Backup & Restore', () => {
     expect(restoredDocument.path).toContain(path.join('restored-backups', 'files', 'documents'))
     expect(fs.readFileSync(restoredDocument.path, 'utf8')).toBe('OFFGRID_BACKUP_FILE_EVIDENCE')
     expect(restoredDocument.enabled).toBe(1)
-    expect(targetDb.prepare('SELECT content, embedding FROM rag_chunks').get()).toEqual({
-      content: 'The launch stays local.',
-      embedding: null
-    })
+    const restoredChunk = targetDb
+      .prepare('SELECT content, embedding FROM rag_chunks')
+      .get() as { content: string; embedding: string | null }
+    expect(restoredChunk.content).toBe('The launch stays local.')
+    // This asserted `embedding: null` and so encoded the bug: retrieval requires a non-null embedding
+    // ("WHERE d.enabled = 1 AND c.embedding IS NOT NULL"), and nothing ever re-embedded a restored chunk, so the
+    // document above - which this same test asserts is ENABLED - could never inform an answer. Restore now
+    // recomputes the vector, and the shape is asserted rather than the exact numbers, which belong to the model.
+    const vector = JSON.parse(restoredChunk.embedding ?? 'null') as number[] | null
+    expect(Array.isArray(vector)).toBe(true)
+    expect(vector).toHaveLength(384)
+    expect(vector?.every((value) => Number.isFinite(value))).toBe(true)
     expect(targetDb.prepare('SELECT content, context FROM rag_messages').get()).toEqual({
       content: 'Keep this conversation.',
       context: JSON.stringify({ scope: 'project-aurora' })
