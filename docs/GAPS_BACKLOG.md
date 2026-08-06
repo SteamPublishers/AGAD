@@ -246,3 +246,42 @@ Two readings, and they want opposite actions:
 
 The test is left red on purpose. Deleting it would remove the only thing still asserting that the graph
 services work end to end, and would make the second reading invisible.
+
+### The three pro-tier Devices e2e specs have never passed - in CI or locally
+
+`e2e/devices-sync.spec.ts` is new on this branch, and its `Devices surface — pro tier` describe is red
+in BOTH environments. It has been invisible because the desktop CI `E2E (Playwright, xvfb)` step is
+`continue-on-error`, so the `ci` check reports pass with these failing inside it.
+
+Measured (headless macOS, 81 passed / 5 failed; the same three fail on a real display, so this is not
+the new headless mode):
+
+- **`renders the real Devices screen with live sync status`** asserts the text `LAN + nearby ready`.
+  That string does not exist anywhere in `src/`, `pro/` or `shared/packages/` - not as a literal and
+  not composed. The screen shows a peer count (`{n} nearby`, DevicesScreen.tsx:1091) instead. The spec
+  asserts copy that was never shipped, so the assertion is wrong rather than the screen.
+- **`pairs a real peer and converges projects and chats`** dies in the spec's own synthetic peer:
+  `TypeError: Cannot read properties of undefined (reading 'load')` at
+  `shared/packages/sync/src/clipboard-sync-coordinator.ts:258` - the harness constructs
+  `ClipboardSyncCoordinator` without the `deliveryPersistence` its options require. The REAL caller
+  (`pro/main/sync-ipc.ts:735`) does pass it, so the product is fine and the harness is incomplete.
+- **`sync settings ... expose a toggle per replicated category`** passes locally and fails in CI, which
+  makes it the one of the three that is not obviously test-side.
+
+Not fixed here, and deliberately not deleted: they are the only e2e evidence for the Devices surface
+this branch adds, and the first two are cheap to correct once someone decides what the status line is
+supposed to say. Recorded so "ci is green" is not read as "the Devices e2e passes".
+
+### The desktop `ci` check hides three advisory steps
+
+`Lint`, `Heavy integration (build/native/port)` and `E2E (Playwright, xvfb)` are all
+`continue-on-error: true` in `.github/workflows/ci.yml`, so a green `ci` says nothing about them. On the
+last successful run: heavy integration reported **12 failed / 15 passed**, all in macOS packaging and
+real-engine files that cannot pass on a Linux runner (`packaged-helpers`, `release-packaging`,
+`whisper-cli-build`, `model-server-chat`, `HealthPanel`), and the e2e step failed the macOS-only pro
+surfaces (clipboard restore, Vault clipboard copy, dictation) plus `resilience-single-instance`.
+
+The Linux-impossible ones are a platform mismatch rather than rot - but they are being run and reported
+as failures on every push, which trains everyone to ignore the step. They should either be excluded by
+platform (like `vitest.db.ci.config.ts` does, with the reason recorded per file) or moved to a macOS
+runner, so that what remains inside an advisory step is only ever a real signal.
