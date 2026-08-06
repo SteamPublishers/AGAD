@@ -23,6 +23,7 @@ import {
   SyncEngine,
   type DeviceInfo,
   type ClipboardHistoryRecord,
+  type ClipboardPendingDelivery,
   type Materializer,
   type MembershipRevocationPersistence,
   type MembershipRevocationTombstone,
@@ -46,6 +47,8 @@ let syntheticState: StateSync | null = null
 let syntheticFiles: FileTransferManager | null = null
 let syntheticClipboard: ClipboardSyncCoordinator | null = null
 const syntheticClipboardRecords = new Map<string, ClipboardHistoryRecord>()
+/** The peer's pending clipboard deliveries, keyed the way the coordinator keys them: record × device. */
+const syntheticClipboardDeliveries = new Map<string, ClipboardPendingDelivery>()
 const syntheticActiveMemberships = new Map<string, PairedDevice>()
 const syntheticProvisionalMemberships = new Map<string, PairedDevice>()
 const syntheticPendingRevocations = new Map<string, PendingMembershipRevocation>()
@@ -140,8 +143,14 @@ test.describe('Devices surface — pro tier', () => {
   test('renders the real Devices screen with live sync status', async () => {
     await navButton(page, 'Devices').click()
     await expect(page.getByRole('heading', { name: 'Devices', exact: true })).toBeVisible()
-    await expect(page.getByText('LAN + nearby ready')).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByRole('heading', { name: 'Personal mesh' })).toBeVisible()
+    // Per-ROUTE state, which is how the screen actually reports itself: one chip per transport reading
+    // "LAN: ready" or "LAN: <listen>/<advertise>/<browse>" (syncRouteDisplay + DevicesScreen). This asserted
+    // 'LAN + nearby ready' and 'Personal mesh', and neither string exists anywhere in the app - the first was
+    // never shipped and the second is now 'Licensed devices'. The spec was failing on its own stale copy, in
+    // CI and locally both, while the screen underneath was fine.
+    await expect(page.getByText(/^LAN:/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/\d+ nearby/)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Licensed devices' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Available on this network' })).toBeVisible()
     await page.screenshot({ path: 'e2e/screenshots/devices-pro.png' })
   })
@@ -324,6 +333,27 @@ test.describe('Devices surface — pro tier', () => {
         },
         remove: (id) => {
           syntheticClipboardRecords.delete(id)
+        }
+      },
+      // Required by the coordinator, and absent here - so this spec died on its own harness with
+      // "Cannot read properties of undefined (reading 'load')" from loadPendingDeliveries, in CI and
+      // locally both, before it ever reached the app it exists to exercise. In memory, like the history
+      // store above: it stands in for the peer's disk, not for any of our logic.
+      deliveryPersistence: {
+        load: () => [...syntheticClipboardDeliveries.values()],
+        upsert: (delivery) => {
+          syntheticClipboardDeliveries.set(
+            `${delivery.recordId}:${delivery.deviceId}`,
+            structuredClone(delivery)
+          )
+        },
+        remove: (recordId, deviceId) => {
+          syntheticClipboardDeliveries.delete(`${recordId}:${deviceId}`)
+        },
+        removeRecord: (recordId) => {
+          for (const key of [...syntheticClipboardDeliveries.keys()]) {
+            if (key.startsWith(`${recordId}:`)) syntheticClipboardDeliveries.delete(key)
+          }
         }
       }
     })

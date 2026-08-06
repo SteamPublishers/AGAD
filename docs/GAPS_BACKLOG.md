@@ -247,30 +247,34 @@ Two readings, and they want opposite actions:
 The test is left red on purpose. Deleting it would remove the only thing still asserting that the graph
 services work end to end, and would make the second reading invisible.
 
-### The three pro-tier Devices e2e specs have never passed - in CI or locally
+### RESOLVED (2 of 3): the pro-tier Devices e2e specs
 
-`e2e/devices-sync.spec.ts` is new on this branch, and its `Devices surface — pro tier` describe is red
-in BOTH environments. It has been invisible because the desktop CI `E2E (Playwright, xvfb)` step is
-`continue-on-error`, so the `ci` check reports pass with these failing inside it.
+`e2e/devices-sync.spec.ts` is new on this branch and its `Devices surface — pro tier` describe was red in
+BOTH environments, hidden because the desktop CI `E2E (Playwright, xvfb)` step is `continue-on-error`.
 
-Measured (headless macOS, 81 passed / 5 failed; the same three fail on a real display, so this is not
-the new headless mode):
+**Fixed - `renders the real Devices screen with live sync status`.** It asserted the text `LAN + nearby ready`
+and a heading `Personal mesh`. Neither string exists anywhere in `src/`, `pro/` or `shared/packages/`: the
+first was never shipped, and the second is now `Licensed devices`. The screen reports itself per ROUTE - one
+chip reading `LAN: ready`, or `LAN: <listen>/<advertise>/<browse>` when it is not (`syncRouteDisplay` +
+`DevicesScreen.tsx`) - so the spec now asserts that, plus the nearby counter. The screen underneath was fine
+the whole time; the spec was failing on its own stale copy.
 
-- **`renders the real Devices screen with live sync status`** asserts the text `LAN + nearby ready`.
-  That string does not exist anywhere in `src/`, `pro/` or `shared/packages/` - not as a literal and
-  not composed. The screen shows a peer count (`{n} nearby`, DevicesScreen.tsx:1091) instead. The spec
-  asserts copy that was never shipped, so the assertion is wrong rather than the screen.
-- **`pairs a real peer and converges projects and chats`** dies in the spec's own synthetic peer:
-  `TypeError: Cannot read properties of undefined (reading 'load')` at
-  `shared/packages/sync/src/clipboard-sync-coordinator.ts:258` - the harness constructs
-  `ClipboardSyncCoordinator` without the `deliveryPersistence` its options require. The REAL caller
-  (`pro/main/sync-ipc.ts:735`) does pass it, so the product is fine and the harness is incomplete.
-- **`sync settings ... expose a toggle per replicated category`** passes locally and fails in CI, which
-  makes it the one of the three that is not obviously test-side.
+**Fixed - `sync settings ... expose a toggle per replicated category`.** Passes with the above; it was
+inheriting a broken screen state from the spec before it, not failing on its own account.
 
-Not fixed here, and deliberately not deleted: they are the only e2e evidence for the Devices surface
-this branch adds, and the first two are cheap to correct once someone decides what the status line is
-supposed to say. Recorded so "ci is green" is not read as "the Devices e2e passes".
+**Still red - `pairs a real peer and converges projects and chats`.** Two problems, one down:
+
+- The harness constructed `ClipboardSyncCoordinator` without the `deliveryPersistence` its options require, so
+  the spec died inside its own setup (`Cannot read properties of undefined (reading 'load')` from
+  `loadPendingDeliveries`) before reaching the app. The synthetic peer now has an in-memory delivery store
+  beside its history store. FIXED.
+- What remains is not a harness defect: pairing now requires an **8-character code** shown on the other
+  device ("Enter the 8-character pairing code shown on the other device"), and the synthetic peer neither
+  mints one nor presents one the app will accept. `PairingCodeService` lives in
+  `shared/packages/sync/src/pairing-code.ts`; wiring it into the synthetic peer is the same job as the
+  standing "make pairing work in the test harness" item, so it is tracked there rather than bodged here.
+
+Verified headless: 5 of 6 in that file pass; the pairing one is the single remaining failure.
 
 ### The desktop `ci` check hides three advisory steps
 
