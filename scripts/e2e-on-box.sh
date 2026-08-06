@@ -87,6 +87,24 @@ suite=$?
 if ssh $SSH_OPTS "$BOX" "[ -n \"\$(ls -A '$BOX_DIR/coverage-e2e-raw' 2>/dev/null)\" ]"; then
   rm -rf "$REPO_ROOT/coverage-e2e-raw" && mkdir -p "$REPO_ROOT/coverage-e2e-raw"
   if scp -q $SSH_OPTS "$BOX:$BOX_DIR/coverage-e2e-raw/*" "$REPO_ROOT/coverage-e2e-raw/" 2>/dev/null; then
+    # V8 records the ABSOLUTE path of the machine that ran it, so every entry says
+    # file:///Users/admin/ogad-e2e/... and c8 can map none of it to this checkout - the whole e2e
+    # contribution silently disappears from the coverage gate (measured: 3823 box paths vs 69 local, and
+    # the gate fell from 72.8% to 63.5% the first time this ran). Rewrite the prefix on the way in.
+    node -e '
+      const fs = require("fs"), path = require("path");
+      const dir = process.argv[1], from = process.argv[2], to = process.argv[3];
+      let files = 0, rewritten = 0;
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith(".json")) continue;
+        const file = path.join(dir, name);
+        const before = fs.readFileSync(file, "utf8");
+        const after = before.split(from).join(to);
+        if (after !== before) { fs.writeFileSync(file, after); rewritten++; }
+        files++;
+      }
+      console.log(`[e2e-box] remapped box paths in ${rewritten}/${files} coverage files`);
+    ' "$REPO_ROOT/coverage-e2e-raw" "$BOX_DIR" "$REPO_ROOT"
     say "coverage returned from the box"
   fi
 fi
