@@ -341,3 +341,42 @@ sleep/wake cycle are both plausible and neither is proven. What IS actionable re
 peer reports should be derived from the listener actually being bound, so `serviceState: 'running'` cannot
 outlive the socket. A liveness check that re-binds or reports unhealthy would have surfaced this in
 seconds instead of days.
+
+### P1 - the device cap REFUSES at 5 instead of reclaiming, and the seat it counts is the pairing target's own
+
+Observed 2026-08-06, driving the real lab mesh. After activating the Mac's Pro licence
+(`08634d13-641c-455d-957b-ad1834c5fb50`, policy `ec95153c`, `maxMachines: null`) on the Android, the
+Android's Devices screen reports:
+
+    5 of 5 devices saved
+    All slots are in use. Forget a saved device before pairing another.
+    0 connected
+
+and pairing with the macOS node on .64 is refused outright. Three separate defects are tangled here.
+
+**1. It refuses where it is documented to reclaim.** The stated behaviour is that a 6th device is
+admitted by reclaiming the least attributable seat, never by refusing. This is a flat refusal at 5, with
+the remedy pushed onto the user ("Forget a saved device"). Nothing was reclaimed.
+
+**2. The counter and the list disagree, so the remedy is impossible.** The screen says `5 of 5 devices
+saved` but renders only TWO saved rows (`fa4d14a6…`, `c375a25b…`). The other three seats are invisible,
+so a user told to "forget a saved device before pairing another" cannot forget them - there is no row to
+act on. The cap is counting LICENCE MACHINES (Keygen reports exactly 5 on that licence) while the list
+renders only locally-saved sync pairings. Two different populations behind one number.
+
+**3. Worst: the target's own seat blocks pairing with the target.** The device being paired with -
+the .64 Mac, fingerprint `d0e933934ac1be2b3ecf50ce0d7fbc85` - is ITSELF one of the 5 machines on that
+licence. So the Android is refused a pairing with a device that already holds a seat on the Android's own
+licence. A seat held by the pairing target cannot sensibly count against admitting that same target;
+the cap check needs to exclude the counterparty (and ideally any machine already in the mesh) before
+declaring the mesh full.
+
+**Related, same session:** the licence swap silently dropped the working iPhone<->Android pairing. The
+iPhone (`9d25c24e…`) is not among the machines on this licence - it is still on the previous one
+(`c88a9e27…`) - and its row on the Android reverted from `Connected - LAN` to an unpaired
+`sync-pair-9d25c24e…`. A licence change invalidating existing trust may be intended, but it happens with
+no warning and no explanation on either screen.
+
+Evidence: Keygen machine roster for the licence (5: one android `6e1c3b71…`, four macos incl.
+`fa4d14a6…` which is really the Windows guest per the platform P1 above), against the Android's two
+rendered rows.
