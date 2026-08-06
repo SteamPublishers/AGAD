@@ -29,6 +29,13 @@ import { serveArtifactPreview } from './artifact-preview'
 import { ipcMain } from 'electron'
 import { loadProEntitlementProvider, loadProFeaturesMain } from './bootstrap/loadProFeaturesMain'
 import { resolveWindowPresentation } from './bootstrap/window-presentation'
+
+/**
+ * Whether this launch may put itself on screen or take the keyboard. Resolved ONCE: the main window, the Dock
+ * tile, the second-instance focus and every window pro opens must all give the same answer, or a headless run
+ * is only partly headless - which is exactly the bug this fixes.
+ */
+const windowPresentation = resolveWindowPresentation(process.env)
 import { initLicensing, revalidateProEntitlement } from './licensing/license-service'
 import { setupLicenseIpc } from './license-ipc'
 import { nativeImage } from 'electron'
@@ -162,9 +169,8 @@ function createWindow(): void {
   // Nothing is shown in a headless (e2e) run - see window-presentation for why the suite needs that on
   // macOS, where Playwright cannot make an Electron app headless and there is no xvfb to hide it behind.
   // The renderer has already loaded and painted by now either way, which is all Playwright drives.
-  const presentation = resolveWindowPresentation(process.env)
   mainWindow.on('ready-to-show', () => {
-    if (presentation.showWindow) mainWindow.show()
+    if (windowPresentation.showWindow) mainWindow.show()
   })
 
   // Pin zoom to 100% (clear any persisted accidental Cmd+= zoom) and disable
@@ -201,8 +207,23 @@ if (!app.requestSingleInstanceLock()) {
     const win = BrowserWindow.getAllWindows()[0]
     if (win) {
       if (win.isMinimized()) win.restore()
-      win.focus()
+      if (windowPresentation.showWindow) win.focus()
     }
+  })
+}
+
+// Windows this file does not own must obey the same answer. pro opens several that call show()+focus()
+// themselves - the clipboard quick-open popup, the tray and CRM notification surfaces, the meeting notice -
+// so hiding only the main window left a headless run still stealing the keyboard, once per spec that touches
+// them. Making every window non-focusable is the technique pro's dictation overlay already uses deliberately
+// (pro/main/dictation/overlay.ts: non-focusable + showInactive, so the user's target app keeps the keys);
+// here it is applied to all of them, from the one place that knows the launch is headless.
+//
+// Visibility is deliberately left alone. Popups stay visible and their isVisible()-gated logic keeps working,
+// which is what lets the clipboard quick-open journey pass headless - it just cannot take focus any more.
+if (!windowPresentation.showWindow) {
+  app.on('browser-window-created', (_event, win) => {
+    win.setFocusable(false)
   })
 }
 
@@ -249,7 +270,7 @@ app.whenReady().then(async () => {
     try {
       // Out of the Dock entirely in a headless run: an app with a Dock tile still becomes the frontmost
       // application, which is the half of the interruption that is not the window itself.
-      if (!resolveWindowPresentation(process.env).showInDock) {
+      if (!windowPresentation.showInDock) {
         app.dock.hide()
       } else {
         const dockImg = nativeImage.createFromPath(icon)
