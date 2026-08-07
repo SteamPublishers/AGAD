@@ -148,10 +148,10 @@ The `pro/` directory is a **git submodule** pointing at the private `desktop-pro
 
 **Settings sections follow the same rule.** A pro Settings section (proactive delivery, secretary/learned-prefs, identity, fleet console, etc.) is pro feature code — its component + logic live in `pro/renderer` and register into the core Settings screen via the section-registry seam (`pro/renderer/settings.ts` `registerProSettings` → core `registerSettingsSection`; core renders its own sections + all registered ones). Core must NOT hardcode pro section bodies in `Settings.tsx` gated by `isPro` — core only renders a dimmed `ProPlaceholder` for the locked preview when the section isn't registered (free build). Do not `if (isPro) <RealProSection/> : <ProPlaceholder/>` with the real section defined in core.
 
-> **Mirrored from `../shared/CLAUDE.md`, which is canonical.** This is deliberate duplication of a
-> rule that warns against duplication: `shared/` is a SEPARATE git repo, so an agent working only in
-> this one never opens it, and a rule that is not read is not a rule. Edit the canonical copy first,
-> then mirror it here and in the other apps verbatim.
+<!-- BEGIN GENERATED: shared/CLAUDE.md#debugging-source-of-truth -->
+> **Generated from `shared/CLAUDE.md` - do not edit this section here.**
+> Run `node scripts/mirror-doctrine.mjs` in `shared/` after changing the canonical copy.
+> `--check` fails the build when a mirror drifts, so these cannot silently disagree.
 
 ## Debugging — start with the source of truth
 
@@ -194,7 +194,7 @@ UI last remembered. Failures were dropped on the floor (`if (status !== 'complet
 failed transfer stopped existing the moment the view reset, and the surface confidently showed success.
 When you fix durability, fix the READ at the same time: persisting a failure while the renderer still
 hardcodes `status: 'completed'` converts a lost record into a durable lie.
-
+<!-- END GENERATED: shared/CLAUDE.md#debugging-source-of-truth -->
 ## Architecture & abstractions (SOLID)
 
 Design to abstractions, not concrete types. When implementations are interchangeable (model backends, TTS/STT engines, image/diffusion runtimes, connectors), the rest of the app depends on one service/interface — never branch on a concrete type in UI/stores (`if (engine === 'kokoro')`, `instanceof X`). Push the decision behind the abstraction; adding an implementation should need zero changes to callers. Normalize capability gaps inside the service, not the UI.
