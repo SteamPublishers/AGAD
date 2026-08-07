@@ -510,3 +510,36 @@ on their licence (the thing they need before evicting one to free a seat) finds 
 nothing.
 
 Either it lists the licensed installations, or it is not a button.
+
+---
+
+## Harness: there is NO passive way to observe an iPhone through WDA
+
+**Status:** open, harness limitation. Learned the hard way 2026-08-07, twice in one session.
+
+Every read of the iOS app goes through a WebDriverAgent session, and creating one is not an
+observation - it changes the device:
+
+- `session(bundleId)` LAUNCHES/ACTIVATES that bundle, terminating whatever it was doing. This killed a
+  706 MB model transfer that was mid-receive: the snapshot tool called it "read-only by design" while
+  relaunching the app it was recording.
+- `session()` with no bundle id was the attempted fix. It does not launch the app under test, but it
+  still appears to deactivate the FOREGROUND app - a read taken while the user had the app open
+  returned the SpringBoard home screen instead.
+
+So `passive: true` on the iOS surface is weaker than its name promises: it will not relaunch the app,
+but it cannot be trusted not to disturb what the user is doing.
+
+**Rules that follow, until something better exists:**
+
+1. Never read an iPhone while a person is driving it or a transfer is in flight. Ask them for a
+   screenshot instead - it is the only genuinely zero-cost observation.
+2. Automated iOS flows are fine, because there the harness IS the driver and nothing else is going on.
+3. Android does not have this problem to the same degree: `adb shell uiautomator dump` reads the tree
+   without touching the app, and only `session()`'s `monkey` launch foregrounds it, which `passive`
+   now skips.
+
+**Worth investigating:** whether an iOS read can be taken outside WDA entirely - the app could expose
+its own state over a dev-only local endpoint, which the harness reads without going near the UI. That
+would make observation free on every platform and is probably the right long-term answer for a suite
+that has to watch journeys it is not driving.
