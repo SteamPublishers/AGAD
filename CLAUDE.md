@@ -148,6 +148,12 @@ The `pro/` directory is a **git submodule** pointing at the private `desktop-pro
 
 **Settings sections follow the same rule.** A pro Settings section (proactive delivery, secretary/learned-prefs, identity, fleet console, etc.) is pro feature code — its component + logic live in `pro/renderer` and register into the core Settings screen via the section-registry seam (`pro/renderer/settings.ts` `registerProSettings` → core `registerSettingsSection`; core renders its own sections + all registered ones). Core must NOT hardcode pro section bodies in `Settings.tsx` gated by `isPro` — core only renders a dimmed `ProPlaceholder` for the locked preview when the section isn't registered (free build). Do not `if (isPro) <RealProSection/> : <ProPlaceholder/>` with the real section defined in core.
 
+## Debugging — start by asking what the SOURCE OF TRUTH is
+
+**Canonical version: `../shared/CLAUDE.md` ("Debugging — start with the source of truth").**
+One rule for every repo in this workspace, kept in one tracked file - restating it here is the
+duplication the rule itself warns about.
+
 ## Architecture & abstractions (SOLID)
 
 Design to abstractions, not concrete types. When implementations are interchangeable (model backends, TTS/STT engines, image/diffusion runtimes, connectors), the rest of the app depends on one service/interface — never branch on a concrete type in UI/stores (`if (engine === 'kokoro')`, `instanceof X`). Push the decision behind the abstraction; adding an implementation should need zero changes to callers. Normalize capability gaps inside the service, not the UI.
