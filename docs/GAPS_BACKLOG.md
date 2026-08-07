@@ -543,3 +543,57 @@ but it cannot be trusted not to disturb what the user is doing.
 its own state over a dev-only local endpoint, which the harness reads without going near the UI. That
 would make observation free on every platform and is probably the right long-term answer for a suite
 that has to watch journeys it is not driving.
+
+---
+
+## Model transfer: the sender says "sent", the receiver says "could not receive"
+
+**Status:** partially fixed 2026-08-07. Found by looking at both screens during a real macOS -> iOS send.
+
+**Symptom.** The Mac reported the model sent successfully. The iPhone reported the same transfer as
+"could not receive / interrupted". Both screens were honest about their own side, and the user has no
+way to know which to believe.
+
+**Cause.** The sender decided completion from its own loop:
+
+    await this.sendPackage({ ... })
+    modelTransferJobs.update(job.id, { phase: 'completed' })   // unconditional
+
+`advanceJob` already receives the receiver's status and maps `failed` onto the job - but the loop runs
+afterwards and overwrote it. The reason completion lives in the loop is sound (a per-file `completed`
+would end a two-file vision package after its primary), but it made the sender's "I pushed the bytes"
+outrank the receiver's "they did not arrive".
+
+**Fixed:** the loop no longer marks a job completed if it is already `failed`.
+
+**Still open, and bigger:** "completed" on the sender still means *bytes pushed*, not *peer verified*.
+The picker promises otherwise - "the receiving device verifies the complete model before it appears in
+Models" - so the sender should wait for a receiver-side completion signal, and show something like
+"sent, awaiting verification" until it arrives. Guarding against an already-failed job closes the
+contradiction we saw; it does not make the sender's success mean what the copy says.
+
+---
+
+## A model package that fails midway leaves a working-looking text model
+
+**Status:** open. Same session, same transfer.
+
+A vision package is two files sent in order: `Qwen3.5-0.8B-Q4_K_M.gguf` (508 MB) then
+`mmproj-Qwen3.5-0.8B-BF16.gguf` (198 MB). The transfer interrupted between them. The result on the
+receiver:
+
+- the primary is on disk, complete, and registered as a MODEL
+- the projector never arrived, so nothing links one
+- the model therefore presents as a plain text model, 508 MB, and loads happily
+- Activity, on another screen, says the transfer failed
+
+So a failed vision transfer silently produces a model that works and cannot see, and the only hint is
+a failure notice somewhere else. A user who does not cross-check believes they have the model.
+
+Package install needs to be atomic, or explicitly incomplete: either resume the missing file, or
+present the model as needing repair (the vision-repair path already exists for a missing projector and
+would fit exactly), or discard the partial package. What it must not do is register half a package as
+a whole model of a different kind.
+
+**Related and also open:** whether the interrupted projector left a partial file behind. That is flow
+15 ("a failed receive discards the partial file"), still unverified.
