@@ -178,9 +178,6 @@ const offGridApi = {
   getEntities: (appName?: string) => ipcRenderer.invoke('db:get-entities', appName),
   getEntityDetails: (entityId: number, appName?: string) =>
     ipcRenderer.invoke('db:get-entity-details', entityId, appName),
-  getEntityGraph: (appName?: string, focusEntityId?: number, edgeLimit?: number) =>
-    ipcRenderer.invoke('db:get-entity-graph', appName, focusEntityId, edgeLimit),
-  rebuildEntityGraph: () => ipcRenderer.invoke('db:rebuild-entity-graph'),
   deleteEntity: (entityId: number) => ipcRenderer.invoke('db:delete-entity', entityId),
   deleteMemory: (memoryId: number) => ipcRenderer.invoke('db:delete-memory', memoryId),
 

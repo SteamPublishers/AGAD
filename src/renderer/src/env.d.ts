@@ -233,12 +233,6 @@ interface RendererAPIOverrides {
 
   getEntities: (appName?: string) => Promise<unknown[]>
   getEntityDetails: (entityId: number, appName?: string) => Promise<unknown>
-  getEntityGraph: (
-    appName?: string,
-    focusEntityId?: number,
-    edgeLimit?: number
-  ) => Promise<{ nodes: unknown[]; edges: unknown[] }>
-  rebuildEntityGraph: () => Promise<boolean>
   deleteEntity: (entityId: number) => Promise<boolean>
   deleteMemory: (memoryId: number) => Promise<boolean>
 

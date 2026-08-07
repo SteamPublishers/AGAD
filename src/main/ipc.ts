@@ -12,9 +12,6 @@ import {
   getEntities,
   getEntityDetails,
   upsertEntitySession,
-  rebuildEntityEdgesForSession,
-  getEntityGraph,
-  rebuildEntityEdgesForAllSessions,
   deleteMemory,
   getEntitiesForSession,
   getDashboardStats,
@@ -372,7 +369,6 @@ async function extractEntitiesForSession(sessionId: string): Promise<void> {
 
     if (parsed.entities.length === 0) return
 
-    const touchedEntityIds = new Set<number>()
     for (const entity of parsed.entities) {
       const name = (entity.name || '').trim()
       if (!name) continue
@@ -390,7 +386,6 @@ async function extractEntitiesForSession(sessionId: string): Promise<void> {
       if (!resolution.admitted) continue
       const entityId = resolution.entityId
       if (!entityId) continue
-      touchedEntityIds.add(entityId)
       upsertEntitySession(entityId, sessionId)
 
       const newFacts: string[] = []
@@ -433,9 +428,6 @@ async function extractEntitiesForSession(sessionId: string): Promise<void> {
       }
     }
 
-    if (touchedEntityIds.size > 1) {
-      rebuildEntityEdgesForSession(sessionId)
-    }
   } catch (e) {
     console.error('[IPC] Entity extraction failed:', e)
   }
@@ -1060,17 +1052,6 @@ export function setupIPC() {
     return getMemoryRecordsForSession(sessionId)
   })
 
-  ipcMain.handle(
-    'db:get-entity-graph',
-    (_, appName?: string, focusEntityId?: number, edgeLimit: number = 200) => {
-      return getEntityGraph(appName, focusEntityId, edgeLimit)
-    }
-  )
-
-  ipcMain.handle('db:rebuild-entity-graph', () => {
-    rebuildEntityEdgesForAllSessions()
-    return true
-  })
   ipcMain.handle('db:delete-session', async (_, sessionId: string) => {
     const db = getDB()
     // Delete from new tables (messages will cascade due to foreign key)
@@ -1403,8 +1384,6 @@ export function setupIPC() {
         }
       }
 
-      // Rebuild entity edges from mentions across all entities
-      rebuildEntityEdgesForAllSessions()
     } else {
       // Additive reprocess: keep existing data, just re-run entity extraction on top
       console.log(

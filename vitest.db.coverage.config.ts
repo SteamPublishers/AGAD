@@ -16,9 +16,6 @@ export default mergeConfig(
     test: {
       exclude: [
         ...(dbConfig.test?.exclude ?? []),
-        // The rendered Entity Graph route resolves to nothing: the screen is gone from the renderer while
-        // its IPC remains in core. Whether it was retired or lost is the open question.
-        '**/entity-graph-renderer.integration.dbtest.ts',
         // Reads a previous release's profile and expects the current bootstrap to decrypt it; the
         // safeStorage stand-in does not satisfy the current decrypt path. Unfinished diagnosis, not a
         // decision.
