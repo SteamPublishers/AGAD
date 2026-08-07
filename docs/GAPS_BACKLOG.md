@@ -597,3 +597,49 @@ a whole model of a different kind.
 
 **Related and also open:** whether the interrupted projector left a partial file behind. That is flow
 15 ("a failed receive discards the partial file"), still unverified.
+
+---
+
+## macOS Activity reports FILES, so a half-sent package reads as success
+
+**Status:** open. Verified on screen and against the engine log, 2026-08-07.
+
+A model package is several files. A vision model is two: the GGUF and its mmproj. Activity lists a row
+per FILE and has no notion of the package, so a transfer that dies between files reads as a success.
+
+Observed after a macOS -> iOS send of `unsloth/Qwen3.5-0.8B-GGUF` (`kind="vision" files=2`):
+
+    Activity:  0 active - 0 queued - 0 failed
+               Qwen3.5-0.8B-Q4_K_M.gguf    COMPLETED
+               (no row for mmproj-Qwen3.5-0.8B-BF16.gguf at all)
+
+The engine knew better. From the same session's log:
+
+    13:06:39 INFO  pro:sync:send-model started
+    13:07:28 ERROR request.failed error="device disconnected during transfer"
+               at FileTransferManager.failOutgoing
+               at SyncEngine._removeSession
+
+So the send failed, the first file had already completed, the second never started, and Activity shows
+one COMPLETED row and ZERO failures. The user is told the model went.
+
+Meanwhile the receiver reports "could not receive / interrupted" AND registers the completed primary as
+a plain 508 MB text model - see the half-package entry above. Between them, the two devices give three
+different answers and none of them is "this vision model did not fully arrive".
+
+**The missing file is missing from Failed too.** Confirmed on screen: the mmproj is not under Completed,
+not under Failed, not queued. Nowhere. Transfer rows are created when a file STARTS, and the session
+died before file 2 began - so the one file the user needed to know about is the only one the UI cannot
+show. Absence is indistinguishable from "there was never a second file".
+
+**Fix shape.** Two parts, and the first is the one that makes the failure visible at all:
+
+1. **Enqueue every file of a package up front**, as `queued`, before any bytes move. Then a file that
+   never starts is a visible unsent row rather than nothing, and it lands under Failed when the package
+   fails. This alone would have shown the truth on this transfer.
+2. **Make the package a first-class row**: N files, progress across the set, one status for the whole
+   thing, with the per-file view underneath. The headline status has to be the package's, because that
+   is the unit the user asked for.
+
+Independently: `0 failed` next to a logged `request.failed` is its own bug - the failed job is not
+reaching Activity even for the file that DID have a row.
