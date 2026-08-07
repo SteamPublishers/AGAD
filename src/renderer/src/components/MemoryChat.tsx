@@ -3576,7 +3576,7 @@ export function MemoryChat({
                                 const a = parseArtifact(message.content)
                                 if (a) openCanvas(a)
                               }}
-                              className="flex items-center gap-1 text-[11px] text-green-500 transition-colors hover:text-green-400"
+                              className="flex items-center gap-1 text-[11px] text-green-500 transition-colors hover:text-emerald-500"
                             >
                               <svg
                                 className="h-3.5 w-3.5"

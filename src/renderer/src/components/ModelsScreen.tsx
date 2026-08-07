@@ -508,7 +508,7 @@ export function ModelsScreen(): React.JSX.Element {
             <div className="flex flex-wrap items-center gap-1">
               <button
                 onClick={() => openDetail(m)}
-                className="truncate text-left text-xs text-neutral-100 transition-colors duration-100 hover:text-green-400"
+                className="truncate text-left text-xs text-neutral-100 transition-colors duration-100 hover:text-emerald-500"
               >
                 {m.name}
               </button>
@@ -599,7 +599,7 @@ export function ModelsScreen(): React.JSX.Element {
             <button
               onClick={() => activateModel(m.id)}
               disabled={!!switching}
-              className="flex items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-green-400 active:scale-95 disabled:opacity-40"
+              className="flex items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-emerald-500 active:scale-95 disabled:opacity-40"
             >
               {switching === m.id ? (
                 <>
@@ -628,7 +628,7 @@ export function ModelsScreen(): React.JSX.Element {
           ) : (
             <button
               onClick={() => download(m.id)}
-              className="flex items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-green-400 active:scale-95"
+              className="flex items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-emerald-500 active:scale-95"
             >
               <IconDownload className="h-3 w-3" /> Download
             </button>
@@ -694,7 +694,7 @@ export function ModelsScreen(): React.JSX.Element {
           <button
             onClick={importModel}
             disabled={importing}
-            className="flex items-center gap-1.5 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-400 transition-all duration-150 hover:border-green-500/60 hover:text-green-400 active:scale-95 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-400 transition-all duration-150 hover:border-green-500/60 hover:text-emerald-500 active:scale-95 disabled:opacity-50"
           >
             {importing ? (
               <IconLoader2 className="h-3 w-3 animate-spin" />
@@ -809,7 +809,7 @@ export function ModelsScreen(): React.JSX.Element {
                   setFilterState(initialFilterState)
                   setSizeBucket(null)
                 }}
-                className="rounded border border-neutral-800 px-2 py-0.5 text-[9px] text-neutral-500 transition-all duration-150 hover:border-green-500/60 hover:text-green-400 active:scale-95"
+                className="rounded border border-neutral-800 px-2 py-0.5 text-[9px] text-neutral-500 transition-all duration-150 hover:border-green-500/60 hover:text-emerald-500 active:scale-95"
               >
                 Clear
               </button>
@@ -1032,7 +1032,7 @@ export function ModelsScreen(): React.JSX.Element {
                           window as { api?: { openExternal?: (u: string) => void } }
                         ).api?.openExternal?.(hfUrl)
                       }
-                      className="mt-4 flex items-center gap-1 text-[10px] text-green-500 transition-colors duration-150 hover:text-green-400"
+                      className="mt-4 flex items-center gap-1 text-[10px] text-green-500 transition-colors duration-150 hover:text-emerald-500"
                     >
                       <IconExternalLink className="h-3 w-3" /> View on Hugging Face
                     </button>
@@ -1052,7 +1052,7 @@ export function ModelsScreen(): React.JSX.Element {
                           closeDetail()
                         }}
                         disabled={!!switching}
-                        className="rounded border border-neutral-700 px-3 py-1.5 text-xs text-white transition-all duration-150 hover:border-green-500 hover:text-green-400 active:scale-95 disabled:opacity-50"
+                        className="rounded border border-neutral-700 px-3 py-1.5 text-xs text-white transition-all duration-150 hover:border-green-500 hover:text-emerald-500 active:scale-95 disabled:opacity-50"
                       >
                         Use this model
                       </button>
@@ -1080,7 +1080,7 @@ export function ModelsScreen(): React.JSX.Element {
                         download(m.id)
                         closeDetail()
                       }}
-                      className="flex items-center gap-1 rounded border border-neutral-700 px-3 py-1.5 text-xs text-white transition-all duration-150 hover:border-green-500 hover:text-green-400 active:scale-95"
+                      className="flex items-center gap-1 rounded border border-neutral-700 px-3 py-1.5 text-xs text-white transition-all duration-150 hover:border-green-500 hover:text-emerald-500 active:scale-95"
                     >
                       <IconDownload className="h-3.5 w-3.5" /> Download
                     </button>

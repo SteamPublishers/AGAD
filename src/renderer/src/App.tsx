@@ -765,7 +765,7 @@ function AppContent() {
           'group/nav relative flex items-center gap-3 rounded-lg py-2 text-sm transition-colors',
           sidebarOpen ? 'px-3' : 'justify-center px-0',
           active
-            ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+            ? 'bg-green-500/10 text-green-600 dark:text-emerald-400'
             : 'text-neutral-500 hover:bg-neutral-500/10 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
         )}
       >
@@ -864,7 +864,7 @@ function AppContent() {
               }
             }}
             disabled={installing}
-            className="flex items-center gap-1.5 rounded-sm border border-green-500/50 bg-green-500/10 px-2.5 py-1 text-green-400 hover:bg-green-500/20 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-sm border border-green-500/50 bg-green-500/10 px-2.5 py-1 text-emerald-400 hover:bg-green-500/20 disabled:opacity-60"
           >
             {installing ? (
               <>

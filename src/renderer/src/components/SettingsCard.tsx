@@ -184,7 +184,7 @@ export function ProPlaceholder({
               <Clock weight="bold" className="h-3 w-3" /> Coming soon
             </span>
           ) : (
-            <span className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-green-400">
+            <span className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-400">
               <LockKey weight="bold" className="h-3 w-3" /> Pro
             </span>
           )}

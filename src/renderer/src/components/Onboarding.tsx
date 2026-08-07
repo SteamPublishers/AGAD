@@ -216,8 +216,8 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
                   Off Grid AI
                 </h1>
                 <p className="mx-auto mt-4 max-w-xl text-lg text-neutral-400">
-                  Private AI that runs on <span className="text-green-400">your</span> machine. Your
-                  models, your data — <span className="text-green-400">no cloud, no accounts</span>.
+                  Private AI that runs on <span className="text-emerald-600 dark:text-emerald-400">your</span> machine. Your
+                  models, your data — <span className="text-emerald-600 dark:text-emerald-400">no cloud, no accounts</span>.
                 </p>
               </motion.div>
             </LampContainer>
@@ -265,7 +265,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
                       key={label}
                       className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-xl border border-neutral-800 bg-neutral-900"
                     >
-                      <Icon className="h-5 w-5 text-green-400" weight="regular" />
+                      <Icon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" weight="regular" />
                       <span className="text-[8px] text-neutral-500">{label}</span>
                     </div>
                   ))}
@@ -276,7 +276,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
                       key={label}
                       className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-xl border border-neutral-800 bg-neutral-900"
                     >
-                      <Icon className="h-5 w-5 text-green-400" weight="regular" />
+                      <Icon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" weight="regular" />
                       <span className="text-[8px] text-neutral-500">{label}</span>
                     </div>
                   ))}
@@ -307,7 +307,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
             <GridBackdrop className="opacity-70" />
             <div className="relative z-10 mx-auto max-w-5xl">
               <div className="mb-2 text-center">
-                <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-green-400">
+                <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-400">
                   Off Grid AI Pro · live now
                 </span>
               </div>
@@ -340,7 +340,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
                   >
                     <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-700 bg-neutral-800 transition-colors group-hover:border-green-500/30 group-hover:bg-green-500/10">
                       <Icon
-                        className="h-4 w-4 text-neutral-400 transition-colors group-hover:text-green-400"
+                        className="h-4 w-4 text-neutral-400 transition-colors group-hover:text-emerald-500"
                         weight="regular"
                       />
                     </div>
@@ -376,7 +376,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
             <GridBackdrop className="opacity-70" />
             <div className="relative z-10 mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(420px,0.95fr)] lg:items-center">
               <div>
-                <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-green-400">
+                <div className="mb-4 flex items-center gap-2 text-[11px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                   <Devices className="h-4 w-4" weight="regular" />
                   Five-device mesh
                 </div>
@@ -415,7 +415,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
                     transition={{ delay: 0.35 + index * 0.08, duration: 0.35 }}
                     className="min-h-36 border border-neutral-800 bg-neutral-900/60 p-4 transition-colors duration-150 hover:border-green-500/30"
                   >
-                    <Icon className="mb-5 h-5 w-5 text-green-400" weight="regular" />
+                    <Icon className="mb-5 h-5 w-5 text-emerald-600 dark:text-emerald-400" weight="regular" />
                     <h3 className="text-xs font-medium uppercase tracking-wide text-white">
                       {label}
                     </h3>
@@ -460,7 +460,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
                 className="mt-12 flex items-center justify-center gap-12"
               >
                 <div className="text-center">
-                  <div className="text-3xl font-light text-green-400">
+                  <div className="text-3xl font-light text-emerald-600 dark:text-emerald-400">
                     <AnimatedNumber value={100} delay={1.2} />%
                   </div>
                   <div className="mt-1 text-xs uppercase tracking-wider text-neutral-600">

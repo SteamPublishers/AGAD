@@ -55,7 +55,7 @@ function ProjectArtifacts({ projectId }: { projectId: string }): React.ReactElem
               className="group flex flex-col gap-2 rounded-lg border border-neutral-800/80 bg-neutral-900/30 p-4 text-left transition-colors hover:border-green-500/50 hover:bg-neutral-900/60"
             >
               <div className="flex items-center justify-between">
-                <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-green-400">
+                <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-400">
                   {artifactKindLabel(a.kind)}
                 </span>
                 <span className="text-[10px] text-neutral-600">

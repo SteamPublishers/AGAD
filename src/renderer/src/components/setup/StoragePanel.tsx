@@ -306,7 +306,7 @@ export function StoragePanel(): React.ReactElement {
                             <button
                               onClick={() => use(m.id)}
                               disabled={busy === m.id}
-                              className="hidden shrink-0 rounded border border-neutral-700 px-1.5 text-[9px] leading-4 text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-green-400 active:scale-95 disabled:opacity-40 group-hover:block"
+                              className="hidden shrink-0 rounded border border-neutral-700 px-1.5 text-[9px] leading-4 text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-emerald-500 active:scale-95 disabled:opacity-40 group-hover:block"
                             >
                               {busy === m.id ? '…' : 'Use'}
                             </button>
