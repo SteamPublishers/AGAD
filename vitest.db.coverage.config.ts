@@ -16,12 +16,6 @@ export default mergeConfig(
     test: {
       exclude: [
         ...(dbConfig.test?.exclude ?? []),
-        // Two tests: a paired peer over real loopback reads `available` where the projection can only say
-        // `connected` for a device the LICENCE REGISTRY lists. Traced to control-center.ts building its
-        // authoritative rows from registry installations alone, so a connected device missing from the
-        // registry snapshot - which is what happens offline - can never report connected. A src fix is
-        // proposed and waiting on a decision.
-        '**/sync-service.integration.dbtest.ts',
         // The rendered Entity Graph route resolves to nothing: the screen is gone from the renderer while
         // its IPC remains in core. Whether it was retired or lost is the open question.
         '**/entity-graph-renderer.integration.dbtest.ts',
