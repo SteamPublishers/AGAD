@@ -420,3 +420,55 @@ cannot stack retries.
 **Consequence for the e2e suite.** Flow 2 ("reconnect a dropped saved device with the held credential,
 no code") passes only because the flow TAPS Reconnect. The unattended behaviour a user actually relies
 on - it comes back by itself - is untested and currently absent. Worth its own flow once fixed.
+
+---
+
+## Disconnecting a device leaves BOTH sides saying "Needs repair", and it never clears
+
+**Status:** open. Found 2026-08-07 driving the four-device e2e suite.
+
+**Symptom.** Press the `x` (disconnect) on a connected peer - a deliberate, non-destructive action that
+is supposed to close the session and keep the credential. Both devices then show the other as
+`Needs repair`, with the description "The other device did not recognise this one." Nothing failed to
+recognise anything: the user pressed disconnect. Both sides still hold their credentials
+(`sync-paired-<id>`, offering repair rather than pair), so the accusation is not even true.
+
+Observed on OnePlus Nord 5 <-> 17 pro max. After the disconnect, BOTH rows read `Needs repair`.
+
+**It does not heal.** The peer was made discoverable again and a full rescan run; 90 seconds later
+both rows still read `Needs repair`. Only a manual repair tap clears it.
+
+**Cause.** `needs_repair` has exactly one source - `syncRuntimeCallbacks.ts:185`:
+
+    onPairingFailed: (remote, error) => {
+      if (remote && error === 'unknown_device') {
+        pairingSecretStore.markNeedsRepair(remote)
+
+So a single `unknown_device` answer is taken as fact. `pairingSecretStore.markNeedsRepair` documents
+the very false positive this hits - "a peer that is restarting, or whose pairing store has not
+finished loading, answers exactly the same way" - and keeps the secret for that reason, but the STATE
+is still set from one unanswered handshake, and nothing later re-tests it.
+
+`control-center.ts:298` then makes it stick to the top of the priority list: `needs_repair` beats
+`available`, so the row keeps the warning even once the peer is discovered again and reachable.
+
+**Why it matters.** This is the ordinary path - disconnect and reconnect later is what the control is
+FOR. A user who uses it once is left with two devices showing a red warning triangle and an
+instruction to repair a pairing that was never broken.
+
+**Fixed, in part (2026-08-07).** A disconnect the user asked for no longer enters this path.
+`onDisconnected` already consulted `manuallyDisconnected` to present the row as
+available-and-disconnected; a handshake refusal arriving afterwards overwrote that. `onPairingFailed`
+now consults the same set and leaves the pairing alone. That is the whole of the reported symptom.
+
+**Still open: one `unknown_device` is still taken as a verdict when the disconnect was NOT deliberate.**
+Requiring two consecutive refusals was tried and reverted, because nothing retries after a refusal: a
+pairing failure is not a disconnect, so no heal is scheduled, the second answer never arrives, and a
+peer that has genuinely forgotten this device would sit silent instead of asking for a repair. Trading
+a false accusation for silence is the worse bug, and `syncPersistence.integration.test.ts`
+("repairs one-sided trust") catches exactly that.
+
+So corroboration needs a RETRY before it can be safe: on the first refusal, re-attempt the reconnect
+with the held credential and decide on the second answer. The orchestrator already knows how to retry
+on a backoff (`connectSaved`, added the same day for dropped sessions); what is missing is entering it
+from a refused handshake rather than only from a lost session.
