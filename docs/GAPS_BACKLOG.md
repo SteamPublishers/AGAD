@@ -472,3 +472,41 @@ So corroboration needs a RETRY before it can be safe: on the first refusal, re-a
 with the held credential and decide on the second answer. The orchestrator already knows how to retry
 on a backoff (`connectSaved`, added the same day for dropped sessions); what is missing is entering it
 from a refused handshake rather than only from a lost session.
+
+---
+
+## macOS: a CONNECTED device offers no actions at all
+
+**Status:** open. Found 2026-08-07 while driving the model-transfer flow by hand.
+
+**Symptom.** On the Mac's Devices screen, every connected peer card carries ZERO controls. Enumerated
+live from the DOM:
+
+    CARD: 17 pro max            ->  buttons: NONE
+    CARD: OnePlus Nord 5        ->  buttons: NONE
+    CARD: OGAD x.x.x.26 (Win)   ->  buttons: NONE
+    CARD: Off Grid AI Desktop   ->  buttons: Pair        (unpaired - this one has a control)
+    CARD: OGAD x.x.x.25 (MacOS) ->  buttons: NONE
+
+So on macOS a user cannot send a model, disconnect, forget or rename a device they are connected to.
+The only cards with controls are the ones NOT connected: unpaired shows `Pair`, saved-but-away shows
+`Reconnect` / `Evict`. Being connected removes every action.
+
+Both phones offer all four on every row - `sync-rename-<id>`, `sync-disconnect-<id>`,
+`sync-send-model-<id>`, `sync-forget-<id>` - so this is a desktop gap, not a product decision.
+
+**Consequence.** Flow 12 (send a model, with progress on both sides) cannot be driven from the Mac at
+all. Model transfer desktop -> phone is unreachable through the UI.
+
+---
+
+## macOS: the "N/5 licensed devices" chip is a button that goes nowhere
+
+**Status:** open. Found 2026-08-07, same session.
+
+`4/5 licensed devices` on the Devices header is a real `<button>`, so it invites a click. Clicking it
+leaves the screen unchanged - no panel, no navigation, no roster. A user looking for which devices are
+on their licence (the thing they need before evicting one to free a seat) finds a control that does
+nothing.
+
+Either it lists the licensed installations, or it is not a button.
