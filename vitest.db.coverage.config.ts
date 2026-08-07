@@ -16,10 +16,6 @@ export default mergeConfig(
     test: {
       exclude: [
         ...(dbConfig.test?.exclude ?? []),
-        // Reads a previous release's profile and expects the current bootstrap to decrypt it; the
-        // safeStorage stand-in does not satisfy the current decrypt path. Unfinished diagnosis, not a
-        // decision.
-        '**/upgrade-profile.dbtest.ts',
         // Passes alone, fails when a neighbour still holds the model port: LLMService probes 8439 with an
         // HTTP /health request, so a process squatting the port without that endpoint reads as free and
         // the engine spawn then dies with EADDRINUSE. The journey is sound; the coupling is the port.
