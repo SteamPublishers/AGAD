@@ -121,7 +121,7 @@ const teardown = async (): Promise<void> => {
   if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true })
 }
 
-test.describe('Devices surface — free tier', () => {
+test.describe('Devices surface — unlicensed', () => {
   test.beforeAll(async () => launch('0'))
   test.afterAll(teardown)
 

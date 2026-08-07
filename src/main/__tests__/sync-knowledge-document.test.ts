@@ -63,7 +63,7 @@ describe('announcing a knowledge document change to the optional sync coordinato
   })
 
   it('does nothing at all in a build with no coordinator', () => {
-    // The free tier. Not an error and not a warning: there is nobody to tell, and indexing a document is a
+    // An unlicensed install. Not an error and not a warning: there is nobody to tell, and indexing a document is a
     // core feature that must not notice pro's absence.
     expect(() =>
       emitKnowledgeDocumentMutation({ kind: 'indexed', document: snapshot })

@@ -136,7 +136,7 @@ The Off Grid chat (`MemoryChat.tsx`) is becoming a full local-first studio — l
 - ⬜ Onboarding permission ladder (screen → Google OAuth → MCP) — _deferred, not now_
 - ⬜ Settings consolidation; ✅ theme toggle wiring
 - ⬜ Packaging: signed/notarized DMG + auto-update
-- ⬜ Licensing: AGPL + CLA + open-core; device cap (2 free / 3+ paid) — _deferred, not now_
+- ⬜ Licensing: AGPL + CLA + open-core; Sync is a Pro feature, personal mesh capped at 5 — _deferred, not now_
 
 ---
 

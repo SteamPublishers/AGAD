@@ -35,7 +35,7 @@ test.beforeEach(async () => {
     env: {
       ...process.env,
       OFFGRID_USER_DATA: userDataDir, // pristine first-run
-      OFFGRID_PRO: '0', // deterministic free tier (no permission gate)
+      OFFGRID_PRO: '0', // deterministic unlicensed build (no permission gate)
       NODE_ENV: 'production'
     }
   })
