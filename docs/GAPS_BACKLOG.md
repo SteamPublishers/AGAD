@@ -380,3 +380,43 @@ no warning and no explanation on either screen.
 Evidence: Keygen machine roster for the licence (5: one android `6e1c3b71…`, four macos incl.
 `fa4d14a6…` which is really the Windows guest per the platform P1 above), against the Android's two
 rendered rows.
+
+---
+
+## Sync never re-connects a saved device after the session drops (only after a NEW discovery)
+
+**Status:** open. Found 2026-08-07 while building the four-device e2e flow suite.
+
+**Symptom, seen on two screens at once.** The iPhone `17 pro max` and the Mac `OGAD x.x.x.25 (MacOS)`
+are paired, both hold the credential, and each can see the other. The link drops (a phone restart is one
+way in). Neither side ever comes back on its own. The Mac sits on `Last connected just now` /
+`The device could not be reached.` with a `Reconnect` button, and the iPhone sits on `macos - Nearby`
+with its own `Reconnect`. Tapping Reconnect works instantly - so the credential, the address and the
+transport are all fine. The only thing missing is anything that decides to retry.
+
+**Cause.** Auto-reconnect is edge-triggered on discovery and nothing else. `Orchestrator.handleFound`
+(`shared/packages/sync/src/orchestrator.ts:223`) is the only automatic caller of `engine.reconnect()`,
+and it is wired to `discovery.onDeviceFound` (`orchestrator.ts:81`). Two consequences:
+
+1. A peer that is ALREADY in the discovery set produces no new `found` event, so `handleFound` never
+   runs again for it. The device is visible and saved and still never retried.
+2. A dropped session is a dead end. `onDisconnected` reaches production at
+   `desktop/pro/main/sync-ipc.ts:342`, where it only calls `chatStream?.onDisconnected(deviceId)`.
+   The orchestrator is never told, so nothing schedules a reconnect.
+
+The state machine heals on the RISING edge of discovery and never on the FALLING edge of a session.
+`orchestrator.ts:174` shows the intent was already understood - "until now the user was the retry
+mechanism" - but that was fixed for a STALE ADDRESS (`connectSaved`), not for a lost session.
+
+**Why it looks like one bad pair.** It is not. The other four links in the mesh simply have not dropped.
+Any link that drops stays dropped in exactly the same way.
+
+**Fix shape.** Make healing level-triggered: on `onDisconnected`, hand the device back to the
+orchestrator so a saved peer with a held credential is retried on a backoff for as long as discovery
+still sees it. `connectSaved` already does the hard part (re-resolve a stale address, then reconnect);
+what is missing is a caller on session loss. Guard with the existing `connecting` set so a flapping link
+cannot stack retries.
+
+**Consequence for the e2e suite.** Flow 2 ("reconnect a dropped saved device with the held credential,
+no code") passes only because the flow TAPS Reconnect. The unattended behaviour a user actually relies
+on - it comes back by itself - is untested and currently absent. Worth its own flow once fixed.
