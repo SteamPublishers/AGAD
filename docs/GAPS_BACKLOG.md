@@ -7,8 +7,151 @@ how to reproduce, and the fix direction. Close with evidence; never hide.
 
 ## OPEN
 
-_None._ The data-layer/presentation-layer drift sweep (2026-07-09) is fully closed - see RESOLVED
-below. No open bugs or regressions tracked.
+### DEF-001 (P1) - Replay capture control reports a state that is not factual
+
+**Evidence (2026-08-08):** macOS Settings reported `Screen access: denied` and `Permission
+required` while Replay simultaneously showed the recording indicator and `Pause capture`. The
+button was disabled, but its label still claimed capture was active. The current renderer derives
+the verb from `paused` before it considers permission or scheduler state, so a disabled false claim
+is still visible.
+
+**Owning seams:** `pro/main/focus.ts` owns pause reasons, scheduler state, and the native capture
+gate; `pro/main/capture-ipc.ts` owns the read-only renderer contract;
+`pro/renderer/use-capture-control.ts` owns the shared projection used by
+`CaptureToggle.tsx`/Replay and `settings-sections.tsx`; `pro/main/services.ts` must consume the same
+projection for the tray. There must be one capture state machine, not independent interpretations of
+`running`, `paused`, and permission. Work in progress in these seams is not closure evidence.
+
+**Acceptance criteria:**
+
+- Replay, Capture & processing, and the tray render the same authoritative state: capturing,
+  user-paused, temporarily paused (batch/system/privacy), permission required, checking permission,
+  or scheduler stopped.
+- Only `capturing` offers `Pause capture`; only an explicit user pause offers `Resume capture`.
+  Permission-required and checking states never show either verb. A temporary pause identifies its
+  owner and cannot be cleared by a conflicting user control. `Restart capture` is offered only for a
+  granted-but-stopped scheduler and never clears a privacy or batch pause.
+- When Screen Recording is unavailable, Replay shows what is blocked plus actions to open the
+  relevant permission surface and recheck. Historical Replay remains usable.
+- A state change from Replay, Settings, tray, reprocess, sleep/wake, privacy deletion, or TCC is
+  reflected on every mounted surface without reload and without contradictory intermediate copy.
+
+**Evidence required to close:** a real renderer-to-main integration journey covering the complete
+state/action matrix through production IPC (only macOS/TCC may be faked); the same journey proving
+all mounted surfaces update from one event; packaged-mac screenshots for capturing, user-paused,
+permission-required, temporary-pause, and stopped states; and an on-device grant/revoke/relaunch run
+showing Replay never claims capture is active while TCC blocks it.
+
+**QA/platform sweep (2026-08-08) - remains OPEN:** the code now has a single main-process runtime
+projection for permission, scheduler, pause owner, and allowed controls. Replay, Capture &
+processing, and the tray consume that projection. Focused state/action tests, rendered Replay and
+Settings tests, and a real App-shell permission route pass; the former source-reading parity check
+was removed. The production build, signature verification, scoped lint, and both core/pro typechecks
+also passed. A fresh synthetic-profile real-app E2E verified the current native projection in Replay
+and produced the UI screenshots, but the cached packaged-app licence was stale, so the packaged
+bundle itself could not activate Pro for that visual run. Closure evidence is still missing: no one
+journey mounts Replay and Settings while driving the real main IPC and tray through the complete
+capturing/user/batch/system/privacy/TCC matrix, and no on-device TCC grant/revoke/relaunch run was
+produced. The repository-wide run passed all 433 files and 4,096 tests (one skipped), but the command
+still exited nonzero because two unrelated sync tests leaked asynchronous filesystem work/file
+handles after teardown. Those pre-existing sync owners remain out of this capture-fix scope, but the
+repository test gate is not clean until the unhandled errors are fixed.
+
+### DEF-002 (P1) - Permission status and recovery are not independently discoverable
+
+**Evidence (2026-08-08):** after onboarding, the user could not intentionally open a Permissions
+surface to audit or repair access. Permission rows exist inside Settings > Setup & health > System
+health, but they are buried among runtime components and have no per-permission recovery actions.
+The richer permission cards and `Check permissions again` action live in the first-run setup overlay,
+which is not a durable navigation destination. Replay also does not explain its missing permission or
+route directly to recovery.
+
+**Owning seams:** core `src/main/permissions.ts` and `src/main/system-status-ipc.ts` own native
+permission status/actions and the IPC contract; core Settings owns the durable navigation surface;
+Pro Replay/Capture only adds capability context and links into that owner. Reuse the existing
+`PermissionGate` card behavior or extract it behind the existing shared component boundary - do not
+create a second TCC reader or writable permission store in Pro.
+
+**Acceptance criteria:**
+
+- Settings > Setup & health ends with a plainly named, always-reachable System permissions section
+  showing Accessibility, Screen Recording, Microphone, and Local Network independently, including
+  what each grant enables.
+- Each row distinguishes granted, denied, not determined, status unavailable, and restart required;
+  supplies the correct request/open-System-Settings action; and can recheck without restarting the
+  whole setup journey. Development builds explain that macOS may list the app as Electron.
+- Replay and every permission-dependent surface show a concise permission-required state with a
+  direct route to the relevant row. Back returns to the originating surface and unrelated features
+  remain usable.
+- The status shown in Permissions, System health, Capture & processing, Replay, and setup is a
+  one-way projection of one native contract. A failed or inconclusive Local Network probe is not
+  mislabeled as a user denial.
+
+**Evidence required to close:** real Settings navigation tests (normal shell and Replay deep-link),
+including Back/history and absence of a duplicate first-run-only hierarchy; production-contract
+tests for every status/action; packaged-mac fresh-profile and existing-profile runs that grant,
+revoke, toggle, recheck, and relaunch each relevant permission; light/dark screenshots at the target
+desktop size; and a development build proving the Electron-name guidance and Local Network recovery.
+
+**QA/platform sweep (2026-08-08) - remains OPEN:** the requested durable placement is wired at the
+end of Settings > Setup & health, and Replay/Capture & processing can route directly to that section.
+Onboarding and Settings reuse the same permission controller instead of adding a second TCC reader.
+The focused onboarding/Settings tests and a real App navigation test pass. A fresh synthetic-profile
+real-app E2E verified the three current native grants and recheck action in this section and produced
+a light-mode screenshot. The current panel still shows only Accessibility, Screen Recording, and
+Local Network; Microphone is absent. The shared contract is four booleans, so the renderer cannot
+distinguish denied, not determined, status unavailable, or an inconclusive Local Network probe as
+required. Back to the originating Replay surface and every native status/action are not yet covered,
+and the stale packaged E2E licence prevented a packaged Pro visual run. No packaged
+fresh/existing-profile grant/revoke/relaunch run or dark-mode visual evidence was produced. Scoped
+lint is now clean.
+
+### DEF-003 (P1) - Capture exposes raw JSON parser failures and strands failed frames
+
+**Evidence (2026-08-08):** Capture & processing displayed `Last frame failure: Expected ',' or ']'
+after array element in JSON at position 446 (line 11 column 2)`, with 14 failed frames. The model
+response parser wraps malformed structured output as `capture-model-output-invalid`, but frame
+persistence stores the underlying parser message, `capturePipelineStats()` drops the stable error
+code, and the renderer prints the raw message. The only broad recovery is `Re-process today`; the
+alert itself does not explain impact or recovery.
+
+**Owning seams:** `pro/main/crm/extract.ts` owns structured model-output validation;
+`capture-retry-policy.ts` owns retry versus terminal disposition; `capture-frames.ts` owns durable
+error code, safe user message, diagnostic detail, and retry state; Capture & processing owns the
+projection and recovery intent. Parser internals belong in local diagnostics, not visible copy.
+
+**Acceptance criteria:**
+
+- Malformed model output is recorded under the stable `capture-model-output-invalid` code and shown
+  as a safe explanation such as "This frame could not be analyzed"; raw parser text and model output
+  remain only in local logs/diagnostics and never leak captured content into the UI.
+- The retry policy explicitly handles invalid structured output with a bounded retry/backoff policy.
+  Exhaustion leaves the frame durably failed without blocking capture or the rest of a batch.
+- The visible failure states the impact, identifies the affected frame/count, and offers an
+  appropriate retry/reprocess action. A successful retry clears the active alert and updates pending,
+  failed, and observed counts truthfully while retaining diagnostic history.
+- Reprocessing a day is resilient to one bad frame, reports updated/skipped/failed outcomes, restores
+  live capture according to its pre-run user/privacy state, and never presents the batch pause as a
+  user pause.
+
+**Evidence required to close:** an integration journey through the real parser, retry policy, SQLite
+frame store, IPC, and rendered Capture section using a controllable malformed response only at the
+model-runtime boundary; proof of bounded retry, terminal exhaustion, successful later reprocess, and
+non-blocking batch continuation; assertions that raw parser/model content is absent from the rendered
+UI; packaged-mac screenshots before and after recovery; and logs correlating the stable code to the
+affected frame without recording private frame content.
+
+**QA/platform sweep (2026-08-08) - remains OPEN:** malformed output is now persisted under
+`capture-model-output-invalid`, legacy raw parser text is sanitized before renderer projection, an
+automatic three-attempt budget is exercised through the real fake-model HTTP boundary and SQLite,
+and a later manual reprocess can recover the frame while the next frame in the batch continues.
+However, invalid-output retries have no explicit backoff, successful recovery clears the row's
+diagnostic fields instead of retaining diagnostic history, and the rendered alert is still only
+`Last frame failure: <safe message>`; it does not identify the affected frame/count or place a
+recovery action with that failure. The tests do not yet carry one malformed frame through parser,
+store, IPC, rendered recovery action, successful retry, and truthful count/alert clearing in a
+single journey. No packaged before/after screenshots or privacy-safe correlation-log evidence was
+produced.
 
 ---
 
