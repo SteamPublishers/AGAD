@@ -15,9 +15,20 @@ import { proComingSoonHere } from './pro/proCatalog'
 import { SoftwareUpdateSection } from './SoftwareUpdateSection'
 import { ProcessingControls } from './ProcessingControls'
 import { BackupRestoreSection } from './BackupRestoreSection'
+import { SettingsPermissionsPanel } from './PermissionsPanel'
 export { ModelPipelineSection } from './ProcessingControls'
 
-export function Settings(): React.ReactElement {
+const SETTINGS_SECTION_TITLES: Record<string, string> = {
+  permissions: 'Setup & health'
+}
+
+export function Settings({
+  initialSection,
+  onInitialSectionConsumed
+}: {
+  initialSection?: string | null
+  onInitialSectionConsumed?: () => void
+} = {}): React.ReactElement {
   // Pro/core aware: the pro Settings sections (identity / proactive / secretary /
   // plan) render only when the pro package has registered them (section registry);
   // the free build shows the catalogued placeholders. isPro still drives the header
@@ -38,6 +49,20 @@ export function Settings(): React.ReactElement {
       .then((v: string) => setAppVersion(v || ''))
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!initialSection) return
+    const timer = window.setTimeout(() => {
+      if (initialSection === 'permissions') {
+        const target: {
+          scrollIntoView?: (options?: ScrollIntoViewOptions) => void
+        } | null = document.getElementById('settings-permissions')
+        target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      }
+      onInitialSectionConsumed?.()
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [initialSection, onInitialSectionConsumed])
 
   return (
     <div className="relative flex h-full flex-col">
@@ -84,7 +109,9 @@ export function Settings(): React.ReactElement {
         >
           {/* Grid of section cards; clicking one opens it as a full-width L2 detail
               (single-open) and hides the rest — one seam via SettingsCardsGroup. */}
-          <SettingsCardsGroup>
+          <SettingsCardsGroup
+            initialOpenId={initialSection ? SETTINGS_SECTION_TITLES[initialSection] : null}
+          >
             {/* Each section is a collapsed-by-default accordion (SettingsCard). */}
             <SettingsCard
               title="Setup & health"
@@ -95,6 +122,14 @@ export function Settings(): React.ReactElement {
               <div className="mt-4">
                 <StoragePanel />
               </div>
+              {isPro && currentPlatform() === 'darwin' ? (
+                <section id="settings-permissions" className="mt-6 scroll-mt-4">
+                  <div className="mb-3 text-[10px] font-medium uppercase tracking-widest text-neutral-600">
+                    System permissions
+                  </div>
+                  <SettingsPermissionsPanel />
+                </section>
+              ) : null}
             </SettingsCard>
 
             <SettingsCard

@@ -89,6 +89,11 @@ type ViewMode =
   | 'vault'
   | 'devices'
 
+interface NavigationIntent {
+  view: ViewMode
+  section?: string
+}
+
 // Navigation state type for history tracking
 interface NavigationState {
   viewMode: ViewMode
@@ -262,6 +267,8 @@ function AppContent() {
   // Free users land on Models (download a model first, with the sidebar to
   // explore); Mac Pro users land on Day. Never land on a locked or unavailable tab.
   const [viewMode, setViewMode] = useState<ViewMode>(isPro && isMac() ? 'day' : 'models')
+  const [settingsSection, setSettingsSection] = useState<string | null>(null)
+  const [settingsNavigationKey, setSettingsNavigationKey] = useState(0)
   const [navigationSubroute, setNavigationSubroute] = useState<string | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [selectedMemoryId, setSelectedMemoryId] = useState<number | null>(null)
@@ -356,8 +363,17 @@ function AppContent() {
   // "pick a model yourself" CTA) — switch the active view without a remount.
   useEffect(() => {
     const onNav = (e: Event): void => {
-      const v = (e as CustomEvent).detail as ViewMode | undefined
-      if (v) setViewMode(v)
+      const intent = (e as CustomEvent<unknown>).detail
+      if (typeof intent === 'string') {
+        setSettingsSection(null)
+        setViewMode(intent as ViewMode)
+        return
+      }
+      if (!intent || typeof intent !== 'object' || !('view' in intent)) return
+      const navigation = intent as NavigationIntent
+      setSettingsSection(navigation.view === 'settings' ? (navigation.section ?? null) : null)
+      if (navigation.view === 'settings') setSettingsNavigationKey((value) => value + 1)
+      setViewMode(navigation.view)
     }
     window.addEventListener('og:navigate', onNav)
     // Main-driven navigation (tray → a screen).
@@ -1054,7 +1070,11 @@ function AppContent() {
                   ) : viewMode === 'gateway' ? (
                     <GatewayScreen />
                   ) : viewMode === 'settings' ? (
-                    <Settings />
+                    <Settings
+                      key={settingsNavigationKey}
+                      initialSection={settingsSection}
+                      onInitialSectionConsumed={() => setSettingsSection(null)}
+                    />
                   ) : proFeatureComingSoon(viewMode, currentPlatform(), isPro) ? (
                     <UpgradeScreen variant="coming-soon" feature={getProFeature(viewMode)} />
                   ) : (

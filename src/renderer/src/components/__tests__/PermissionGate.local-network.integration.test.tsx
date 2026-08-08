@@ -70,10 +70,12 @@ describe('<PermissionGate/> Local Network recovery', () => {
     await user.click(screen.getByRole('button', { name: 'Set up' }))
 
     expect(await screen.findByRole('heading', { name: 'Local Network' })).toBeTruthy()
-    expect(screen.getByText('Find and sync directly with your devices')).toBeTruthy()
+    expect(
+      screen.getByText('Find and sync directly with your devices on this network.')
+    ).toBeTruthy()
     expect(
       screen.getByText(
-        'Select Local Network, then enable Off Grid AI Desktop. Development builds appear as Electron.'
+        'Enable Off Grid AI Desktop. Development builds appear as Electron. If it is already on but still reads denied, toggle it off and on once.'
       )
     ).toBeTruthy()
 
@@ -108,7 +110,9 @@ describe('<PermissionGate/> Local Network recovery', () => {
     expect(requestScreenRecordingPermission).toHaveBeenCalledOnce()
     expect(openScreenRecordingSettings).toHaveBeenCalledOnce()
     expect(await screen.findByText('Restart required')).toBeTruthy()
-    expect(screen.getByText('Restart to apply the access selected in System Settings')).toBeTruthy()
+    expect(
+      screen.getByText('Relaunch once to apply the access selected in System Settings.')
+    ).toBeTruthy()
 
     await user.click(
       screen.getByRole('button', {

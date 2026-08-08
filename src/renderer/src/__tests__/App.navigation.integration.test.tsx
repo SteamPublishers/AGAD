@@ -130,4 +130,47 @@ describe('<App/> desktop navigation integration', () => {
     expect(onNewAction).not.toHaveBeenCalled()
     expect(proOn).toHaveBeenCalledWith('notification:open-target', expect.any(Function))
   })
+
+  it('routes permission recovery into the existing Setup & health detail', async () => {
+    const user = userEvent.setup()
+    installAppBoundary({
+      isPro: true,
+      getPermissionStatus: async () => ({
+        accessibility: true,
+        screenRecording: false,
+        localNetwork: true,
+        allGranted: false
+      })
+    })
+    render(<App />)
+    expect(
+      await screen.findByRole('heading', { name: 'Projects' }, { timeout: 5_000 })
+    ).toBeTruthy()
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('og:navigate', {
+          detail: { view: 'settings', section: 'permissions' }
+        })
+      )
+    })
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeTruthy()
+    expect(await screen.findByText('System permissions')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Screen Recording' })).toBeTruthy()
+    expect(screen.getByText('Permission needed')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Permissions' })).toBeNull()
+
+    await user.click(screen.getByText('Setup & health'))
+    await waitFor(() => expect(screen.queryByText('System permissions')).toBeNull())
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('og:navigate', {
+          detail: { view: 'settings', section: 'permissions' }
+        })
+      )
+    })
+    expect(await screen.findByText('System permissions')).toBeTruthy()
+  })
 })

@@ -52,6 +52,22 @@ describe('SettingsCardsGroup — grid drills into one L2 detail', () => {
     expect(screen.getByText('Beta')).toBeTruthy() // not hidden — no group
   })
 
+  it('opens a requested detail on mount for programmatic navigation', () => {
+    render(
+      <SettingsCardsGroup initialOpenId="Setup & health">
+        <SettingsCard title="Setup & health" summary="setup">
+          <div>SYSTEM_PERMISSIONS</div>
+        </SettingsCard>
+        <SettingsCard title="Capture & processing" summary="capture">
+          <div>CAPTURE_BODY</div>
+        </SettingsCard>
+      </SettingsCardsGroup>
+    )
+
+    expect(screen.getByText('SYSTEM_PERMISSIONS')).toBeTruthy()
+    expect(screen.queryByText('Capture & processing')).toBeNull()
+  })
+
   it('returns from a Settings detail with Command+]', async () => {
     render(
       <SettingsCardsGroup>

@@ -21,11 +21,13 @@ interface AccordionGroup {
 const GroupContext = createContext<AccordionGroup | null>(null)
 
 export function SettingsCardsGroup({
-  children
+  children,
+  initialOpenId = null
 }: {
   children: React.ReactNode
+  initialOpenId?: string | null
 }): React.ReactElement {
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(initialOpenId)
   useEffect(() => {
     if (!openId) return
     const collapseDetail = (event: KeyboardEvent): void => {

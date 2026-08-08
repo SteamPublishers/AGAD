@@ -111,9 +111,7 @@ installApi()
 const { PermissionGate } = await import('@renderer/components/PermissionGate')
 
 function permissionCard(title: string): HTMLElement {
-  const card = screen.getByRole('heading', { name: title }).closest('div.relative')
-  if (!(card instanceof HTMLElement)) throw new Error(`${title} permission card was not rendered`)
-  return card
+  return screen.getByRole('status', { name: `${title} permission` })
 }
 
 beforeEach(() => {
@@ -199,7 +197,7 @@ describe('capture permission recovery', () => {
     boundary.screenRecording = 'granted'
     await user.click(screen.getByRole('button', { name: 'Check permissions again' }))
     await waitFor(() =>
-      expect(within(permissionCard('Screen Recording')).getByText('Enabled')).not.toBeNull()
+      expect(within(permissionCard('Screen Recording')).getByText('Granted')).not.toBeNull()
     )
     expect(
       within(permissionCard('Accessibility')).getByRole('button', {
