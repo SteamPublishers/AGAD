@@ -153,6 +153,54 @@ store, IPC, rendered recovery action, successful retry, and truthful count/alert
 single journey. No packaged before/after screenshots or privacy-safe correlation-log evidence was
 produced.
 
+**Recovery verification contract (2026-08-09) - pending product gates:** the acceptance journey
+starts with a frame that became durably failed through the real capture-frame service and a
+malformed response from the controllable model-runtime boundary. Opening Capture & processing must
+then show the authoritative failed count, the safe impact statement, and a retry action beside the
+failure. Invoking it must show scanning/progress, expose the batch-owned capture pause without a
+user Resume action, and remain observable after navigating away and back. After the model boundary
+returns valid structured output, a real IPC refresh must show the count at zero and remove both the
+active warning and retry action. A second journey starts with two failed frames and lets only one
+recover; its outcome must say one recovered and one still failed, keep the retry action available,
+and never render the raw parser text or captured content.
+
+The current real-app Playwright harness cannot create that starting state through a supported
+product boundary. `OFFGRID_SEED_PRO` inserts already-observed Replay rows, there is no capture-now or
+synthetic-frame ingress, and relying on host Screen Recording permission and capture-loop timing is
+not deterministic. Although `OFFGRID_BIN_DIR` can provide a fake llama executable, directly editing
+SQLite would bypass the capture-frame owner and prove only a staged renderer state. The missing E2E
+seam is an isolated-profile fixture/service that submits a synthetic image and accessibility text
+through the real capture-frame/domain owner; the fake model HTTP process remains the only controlled
+boundary and must be switchable from malformed to valid output during the run. No Playwright spec
+should claim end-to-end coverage until that seam exists. Packaged macOS evidence still requires
+before/progress/after screenshots plus privacy-safe logs correlated by stable error code and frame
+identifier only.
+
+### DEF-004 (P1) - Oversized capture analysis stays pending and retries forever
+
+**Evidence (2026-08-09):** the live macOS database showed 115 frames as `pending` under the stable
+`capture-model-unavailable` code. Every row carried the same model-runtime response: the analysis
+request exceeded the model context window. The backlog was not a burst of current capture failures:
+114 rows dated to Aug 3, while the last 30 minutes contained 57 observed frames, 12 intentional
+skips, and one pending frame. Pending accessibility text ranged from 1,442 to 71,633 characters, and
+the same rows had accumulated between 3 and 202 transient retries.
+
+**Impact:** capture remains available and the images stay saved, but Replay never receives
+observations for these frames. The UI reports only a growing pending count while the processor spends
+time repeating requests that cannot fit the selected model. A model shown as `ready` therefore
+coexists with a six-day queue that has no visible reason or recovery path.
+
+**Owning seams:** capture input construction owns a model-aware text/image token budget;
+`capture-retry-policy.ts` owns the retry ceiling and backoff; frame persistence owns a durable blocked
+reason; Capture & processing owns the user-facing backlog explanation and recovery action.
+
+**Acceptance criteria:** fit capture input within the active model's context budget using a
+deterministic, privacy-preserving reduction strategy; bound and back off repeated context-overflow
+attempts; retain the captured frame when analysis cannot proceed; distinguish actively queued work
+from work blocked by model capacity; and show the exact next action without exposing captured text.
+Changing models or increasing context, then retrying, must drain the blocked backlog and update Replay
+and queue counts through the normal database and IPC owners.
+
 ---
 
 ## RESOLVED
@@ -353,6 +401,7 @@ deregisters the installation before it ever contacts the peer, so the seat is re
 the evicted device correctly appears once, in `available`. The trigger is a genuinely stale installation.
 
 Candidate fixes, both deliberately not taken yet:
+
 - Do not emit a `saved` row for an installation with no local pairing (narrow; may hide a real device
   whose pairing this side genuinely lost).
 - Have the desktop and mobile hosts report `hasCredential` so the repair correctly says "Pair" and asks
@@ -383,6 +432,7 @@ purpose would normally have taken its IPC with it, which is why this is written 
 resolved by deleting the test.
 
 Two readings, and they want opposite actions:
+
 - The graph was deliberately retired and folded into Entities. Then the test should go, and so should
   the three IPC handlers and the preload entries, or they are dead surface area a renderer can still call.
 - The screen was lost in a refactor. Then the test is correctly failing and the screen needs restoring.
@@ -709,7 +759,7 @@ outrank the receiver's "they did not arrive".
 
 **Fixed:** the loop no longer marks a job completed if it is already `failed`.
 
-**Still open, and bigger:** "completed" on the sender still means *bytes pushed*, not *peer verified*.
+**Still open, and bigger:** "completed" on the sender still means _bytes pushed_, not _peer verified_.
 The picker promises otherwise - "the receiving device verifies the complete model before it appears in
 Models" - so the sender should wait for a receiver-side completion signal, and show something like
 "sent, awaiting verification" until it arrives. Guarding against an already-failed job closes the
