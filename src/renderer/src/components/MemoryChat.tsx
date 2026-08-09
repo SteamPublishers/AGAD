@@ -805,6 +805,8 @@ export function MemoryChat({
   // read could see undefined and the persisted 'Thinking' block would vanish on
   // reload (the exact T1f bug). A ref is written synchronously and read directly.
   const reasoningByStream = useRef<Record<string, string>>({})
+  /** What the model has actually said so far, per stream — see the stream handler for why. */
+  const answerByStream = useRef<Record<string, string>>({})
   // Conversations the user hit "stop" on. The in-flight send checks this at each of
   // its awaits and bails (no error bubble, no persisted junk) instead of finalizing a
   // turn the user abandoned. Cleared when the conversation's send settles.
@@ -1632,30 +1634,7 @@ export function MemoryChat({
             ? { unified: tr?.unified ?? [], toolCalls }
             : undefined
         if (cancelledRef.current.has(convId)) {
-          const partial = (tr?.answer || '').trim()
-          if (partial) {
-            setConvMessages(convId, (prev) =>
-              prev.map((m) =>
-                m.id === toolStreamId
-                  ? {
-                      ...m,
-                      content: partial,
-                      context,
-                      toolCalls,
-                      activity: undefined,
-                      streaming: false
-                    }
-                  : m
-              )
-            )
-            try {
-              await window.api.addRagMessage(convId, 'assistant', partial, toolCtx)
-            } catch {
-              /* ignore */
-            }
-          } else {
-            setConvMessages(convId, (prev) => prev.filter((m) => m.id !== toolStreamId))
-          }
+          await finalizeStoppedTurn(convId, toolStreamId, { answer: tr?.answer, context })
           return
         }
         const answer = tr?.answer || 'No response returned.'
@@ -1664,6 +1643,7 @@ export function MemoryChat({
         // context blob so the 'Thinking' block survives reload (T1f).
         const toolReasoning = reasoningByStream.current[toolStreamId]
         delete reasoningByStream.current[toolStreamId] // done with this stream — free it
+        delete answerByStream.current[toolStreamId]
         // Finalize the streamed placeholder in place (never append a second bubble).
         setConvMessages(convId, (prev) =>
           prev.map((m) =>
@@ -1759,50 +1739,13 @@ export function MemoryChat({
       )
       const resultContext = result.context as RagContext | undefined
 
-      // Stopped mid-stream: the abort keeps whatever streamed so far. Finalize it, or drop the
-      // placeholder when nothing arrived. Never write the "No response returned." filler or a
-      // fresh bubble for a cancelled turn.
-      //
-      // "Whatever streamed" INCLUDES the thinking. A stopped turn used to persist the partial
-      // answer with the raw context and no reasoning, so the Thought process block vanished the
-      // moment the conversation reloaded; and a turn stopped while the model was STILL thinking
-      // had no answer yet, so `if (partial)` deleted the whole turn and every word of reasoning
-      // with it. Reasoning is kept work: the user watched it arrive and stopped BECAUSE of what
-      // they read.
+      // Stopped mid-stream — one owner decides what survives (finalizeStoppedTurn).
       if (cancelledRef.current.has(convId)) {
-        const partial = (result.answer || '').trim()
-        const reasoning = reasoningByStream.current[streamId]
-        delete reasoningByStream.current[streamId] // done with this stream - free it
-        if (partial || reasoning?.trim()) {
-          setConvMessages(convId, (prev) =>
-            prev.map((m) =>
-              m.id === streamId
-                ? {
-                    ...m,
-                    content: partial,
-                    context: resultContext,
-                    reasoning: reasoning?.trim() ? reasoning : undefined,
-                    activity: undefined,
-                    streaming: false
-                  }
-                : m
-            )
-          )
-          try {
-            // The same context builder the completed path uses, so a stopped turn and a finished
-            // one are stored the same way and reload the same way.
-            await window.api.addRagMessage(
-              convId,
-              'assistant',
-              partial,
-              buildAssistantContext(resultContext, { reasoning, cutoff: result.cutoff })
-            )
-          } catch {
-            /* ignore */
-          }
-        } else {
-          setConvMessages(convId, (prev) => prev.filter((m) => m.id !== streamId))
-        }
+        await finalizeStoppedTurn(convId, streamId, {
+          answer: result.answer,
+          context: resultContext,
+          cutoff: result.cutoff
+        })
         return
       }
       const assistantContent = result.answer || 'No response returned.'
@@ -1865,6 +1808,7 @@ export function MemoryChat({
         // a setState-updater side effect. Rides the persisted context blob (T1f).
         const ragReasoning = reasoningByStream.current[streamId]
         delete reasoningByStream.current[streamId] // done with this stream — free it
+        delete answerByStream.current[streamId]
         setConvMessages(convId, (prev) =>
           prev.map((m) =>
             m.id === streamId
@@ -1912,14 +1856,12 @@ export function MemoryChat({
         }
       }
     } catch (e) {
-      // User stopped: no error bubble — drop the empty placeholder (any partial text
-      // was already finalized on the cancel path above).
+      // User stopped and the call REJECTED rather than returning, so there is no result to read.
+      // This is the path that used to save nothing at all: the turn stayed on screen and was gone
+      // the next time the conversation loaded. The refs still hold what streamed, so the same
+      // owner finalises it.
       if (cancelledRef.current.has(convId)) {
-        const sid = activeStreamId
-        if (sid)
-          setConvMessages(convId, (prev) =>
-            prev.filter((m) => !(m.id === sid && !m.content && !m.reasoning))
-          )
+        if (activeStreamId) await finalizeStoppedTurn(convId, activeStreamId)
         return
       }
       console.error('RAG chat failed', e)
@@ -1968,6 +1910,68 @@ export function MemoryChat({
   // return the UI to idle now. The in-flight sendMessage sees cancelledRef and bails at
   // its next await; this handles both the pre-stream ("Searching your memory…") window
   // and a live token stream.
+  /**
+   * Finalise a turn the user stopped. The ONE place that decides what a stopped turn keeps.
+   *
+   * There are three ways a stop lands: the plain reply settles with a partial result, the tool
+   * loop settles with one, or the call REJECTS and there is no result at all. Each used to answer
+   * this for itself and the three disagreed. The plain path saved the partial answer but dropped
+   * the reasoning; the tool path did the same; and the reject path saved NOTHING, so a turn the
+   * user could still see on screen was gone the next time the conversation loaded. All three also
+   * gated on the answer alone, so stopping while the model was still thinking deleted the turn and
+   * every word of reasoning with it.
+   *
+   * The rule, once: a stopped turn survives on EITHER partial answer or partial reasoning, and it
+   * is written through the same context builder a completed turn uses, so both reload the same.
+   * The answer and reasoning are read from the per-stream refs rather than from a result, because
+   * the reject path has no result and the refs always hold what actually arrived.
+   */
+  const finalizeStoppedTurn = useCallback(
+    async (
+      convId: string,
+      streamId: string,
+      settled?: { answer?: string; context?: RagContext; cutoff?: ResponseCutoffContract }
+    ): Promise<void> => {
+      const reasoning = reasoningByStream.current[streamId]?.trim() || undefined
+      const streamed = answerByStream.current[streamId] || ''
+      delete reasoningByStream.current[streamId]
+      delete answerByStream.current[streamId]
+
+      const answer = (settled?.answer ?? streamed).trim()
+      if (!answer && !reasoning) {
+        setConvMessages(convId, (prev) => prev.filter((m) => m.id !== streamId))
+        return
+      }
+
+      setConvMessages(convId, (prev) =>
+        prev.map((m) =>
+          m.id === streamId
+            ? {
+                ...m,
+                content: answer,
+                reasoning,
+                context: settled?.context ?? m.context,
+                cutoff: settled?.cutoff ?? m.cutoff,
+                activity: undefined,
+                streaming: false
+              }
+            : m
+        )
+      )
+      try {
+        await window.api.addRagMessage(
+          convId,
+          'assistant',
+          answer,
+          buildAssistantContext(settled?.context, { reasoning, cutoff: settled?.cutoff })
+        )
+      } catch (e) {
+        console.error('Failed to persist stopped assistant message:', e)
+      }
+    },
+    [setConvMessages]
+  )
+
   const stopGeneration = useCallback(
     (cid: string | null): void => {
       const convId = cid ?? activeConversationId
@@ -2272,6 +2276,13 @@ export function MemoryChat({
       if (data.type === 'reasoning') {
         reasoningByStream.current[data.streamId] =
           (reasoningByStream.current[data.streamId] || '') + (data.text || '')
+      }
+      // The answer is mirrored for the same reason: when the user stops, the call can REJECT
+      // rather than return, and then there is no result to read the partial answer out of. This
+      // ref is the one place that always has what arrived.
+      if (data.type === 'content') {
+        answerByStream.current[data.streamId] =
+          (answerByStream.current[data.streamId] || '') + (data.text || '')
       }
       setConvMessages(cid, (prev) =>
         prev.map((m) =>
