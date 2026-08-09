@@ -238,10 +238,10 @@ describe('registering the core resources', () => {
 })
 
 describe('the Electron quit seam', () => {
-  it('tears down when before-quit fires, and reports each failure', async () => {
+  it('tears down when will-quit fires, and reports each failure', async () => {
     const listeners: (() => void)[] = []
     const source = {
-      on: (_event: 'before-quit', listener: () => void) => listeners.push(listener),
+      on: (_event: 'will-quit', listener: () => void) => listeners.push(listener),
       removeListener: vi.fn()
     }
     const registry = new ShutdownRegistry()
@@ -258,7 +258,7 @@ describe('the Electron quit seam', () => {
   it('removes its own listener BEFORE cleanup starts', () => {
     const listeners: (() => void)[] = []
     const source = {
-      on: (_event: 'before-quit', listener: () => void) => listeners.push(listener),
+      on: (_event: 'will-quit', listener: () => void) => listeners.push(listener),
       removeListener: vi.fn()
     }
     const registry = new ShutdownRegistry()
@@ -266,9 +266,9 @@ describe('the Electron quit seam', () => {
     installApplicationShutdown(source, registry, () => {})
     listeners[0]!()
 
-    // Detached first, so a second before-quit cannot start a second teardown, and no lifecycle listener
+    // Detached first, so a second will-quit cannot start a second teardown, and no lifecycle listener
     // outlives the resources it refers to.
-    expect(source.removeListener).toHaveBeenCalledWith('before-quit', listeners[0])
+    expect(source.removeListener).toHaveBeenCalledWith('will-quit', listeners[0])
   })
 
   it('can be uninstalled, and uninstalling twice is harmless', () => {
