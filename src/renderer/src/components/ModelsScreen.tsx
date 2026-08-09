@@ -199,13 +199,36 @@ function featureRank(
 
 const MODE_LABELS: Record<string, string> = { txt2img: 'Text→Image', img2img: 'Image→Image' }
 
+/** What the card needs to describe a download honestly: one percent for the WHOLE job, the bytes
+ *  behind it, which file is in flight and how many the job has, and why it failed if it did. */
+interface DownloadCardProgress {
+  percent: number
+  status?: string
+  currentFile?: string
+  error?: string
+  downloadedMB?: string
+  totalMB?: string
+  fileIndex?: number
+  fileCount?: number
+}
+
 function withoutProgressEntry(
-  progress: Record<string, { percent: number; status?: string; currentFile?: string }>,
+  progress: Record<string, DownloadCardProgress>,
   modelId: string
-): Record<string, { percent: number; status?: string; currentFile?: string }> {
+): Record<string, DownloadCardProgress> {
   const next = { ...progress }
   delete next[modelId]
   return next
+}
+
+/** Plain words for a download that failed. You need two things from this line: what happened, and
+ *  whether trying again is worth it. The raw engine string stays in the title attribute, where it
+ *  helps a bug report without shouting at everyone else. */
+function downloadFailureText(error?: string): string {
+  if (!error) return 'The download did not start.'
+  if (error.startsWith('interrupted')) return 'The download stopped before it finished.'
+  if (error === 'unknown model') return 'This model is not available to download.'
+  return error
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -225,9 +248,7 @@ export function ModelsScreen(): React.JSX.Element {
     void api.getModelVisionStatus?.().then((s) => setVisionSt(s ?? {}))
   }
   const [activeKind, setActiveKind] = useState<string>('text')
-  const [progress, setProgress] = useState<
-    Record<string, { percent: number; status?: string; currentFile?: string }>
-  >({})
+  const [progress, setProgress] = useState<Record<string, DownloadCardProgress>>({})
   // Active model ids across ALL modalities (chat + image/voice/transcription) —
   // one truth from the backend; the UI never re-derives "active" per kind.
   const [activeIds, setActiveIds] = useState<Set<string>>(new Set())
@@ -320,7 +341,13 @@ export function ModelsScreen(): React.JSX.Element {
     refreshVision()
     refreshActive()
     const off = api.onModelProgress?.(
-      (d: { modelId: string; percent?: number; status?: string; currentFile?: string }) => {
+      (d: {
+        modelId: string
+        percent?: number
+        status?: string
+        currentFile?: string
+        error?: string
+      }) => {
         if (d.status === 'cancelled') {
           setProgress((p) => withoutProgressEntry(p, d.modelId))
           return
@@ -330,7 +357,9 @@ export function ModelsScreen(): React.JSX.Element {
           [d.modelId]: {
             percent: d.percent ?? p[d.modelId]?.percent ?? 0,
             status: d.status,
-            currentFile: d.currentFile ?? p[d.modelId]?.currentFile
+            currentFile: d.currentFile ?? p[d.modelId]?.currentFile,
+            // Carried, because a failure the user cannot read is a failure they cannot act on.
+            error: d.error
           }
         }))
         if (d.status === 'completed') {
@@ -351,8 +380,25 @@ export function ModelsScreen(): React.JSX.Element {
     setProgress((p) => withoutProgressEntry(p, id))
   }
   const download = (id: string): void => {
-    setProgress((p) => ({ ...p, [id]: { percent: 0, status: 'downloading' } }))
-    api.downloadModel?.(id)
+    // 'queued', not 'downloading': nothing has been downloaded yet, and claiming otherwise is what
+    // left a refused request showing a spinner at 0% forever. The main process moves it to
+    // 'downloading' when bytes actually start, and to 'failed' if it never gets that far.
+    setProgress((p) => ({ ...p, [id]: { percent: 0, status: 'queued' } }))
+    void Promise.resolve(api.downloadModel?.(id)).then(
+      (r?: { success: boolean; error?: string }) => {
+        if (!r || r.success) return
+        // A refusal also arrives on the progress channel; recording it here too means the card
+        // still tells the truth if this window was not listening when the event went out.
+        setProgress((p) => ({
+          ...p,
+          [id]: { ...p[id], percent: 0, status: 'failed', error: r.error }
+        }))
+      }
+    )
+  }
+  const retryDownload = (id: string): void => {
+    setProgress((p) => withoutProgressEntry(p, id))
+    download(id)
   }
   const removeModel = async (id: string, label: string): Promise<void> => {
     if (!window.confirm(`Delete "${label}"? This removes its files from disk.`)) return
@@ -686,9 +732,21 @@ export function ModelsScreen(): React.JSX.Element {
             read as a full re-download. */}
         {downloading && (
           <>
-            {companionDownloadLabel(prog.currentFile) && (
+            {/* The percent measures the whole download. This line says which PART is moving right
+                now, and never repeats the percent — two numbers on one card is what read as
+                "is that the projector or the model?". */}
+            {(companionDownloadLabel(prog.currentFile) || (prog.fileCount ?? 0) > 1) && (
               <div className="text-[9px] uppercase tracking-wide text-emerald-300">
-                Adding {companionDownloadLabel(prog.currentFile)} · {prog.percent}%
+                {companionDownloadLabel(prog.currentFile)
+                  ? `Adding ${companionDownloadLabel(prog.currentFile)}`
+                  : 'Downloading'}
+                {(prog.fileCount ?? 0) > 1 && ` · file ${prog.fileIndex} of ${prog.fileCount}`}
+              </div>
+            )}
+            {/* Bytes cannot mislead, and a stall is visible in them long before a percent moves. */}
+            {prog.downloadedMB && prog.totalMB && (
+              <div className="text-[9px] text-neutral-500">
+                {prog.downloadedMB} MB of {prog.totalMB} MB
               </div>
             )}
             <div className="h-0.5 w-full overflow-hidden rounded-full bg-neutral-800">
@@ -698,6 +756,22 @@ export function ModelsScreen(): React.JSX.Element {
               />
             </div>
           </>
+        )}
+
+        {/* A download that failed says so, and offers the one action that helps. Silence here is
+            what a stuck 0% actually was: the request had been refused and nothing said a word. */}
+        {prog?.status === 'failed' && (
+          <div className="flex items-center justify-between gap-2 rounded border border-red-500/40 bg-red-500/5 px-2 py-1">
+            <span className="min-w-0 truncate text-[10px] text-red-300" title={prog.error}>
+              {downloadFailureText(prog.error)}
+            </span>
+            <button
+              onClick={() => retryDownload(m.id)}
+              className="shrink-0 rounded border border-neutral-700 px-2 py-0.5 text-[10px] text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-emerald-500 active:scale-95"
+            >
+              Try again
+            </button>
+          </div>
         )}
       </div>
     )
@@ -1088,10 +1162,12 @@ export function ModelsScreen(): React.JSX.Element {
                     </>
                   ) : downloading ? (
                     <span className="text-xs text-neutral-400">
+                      {/* Same rule as the card: the percent is the whole download, and the part
+                          being fetched is named beside it, never given a percent of its own. */}
                       {prog.status === 'queued'
                         ? 'Queued'
                         : companionDownloadLabel(prog.currentFile)
-                          ? `Adding ${companionDownloadLabel(prog.currentFile)} ${prog.percent}%…`
+                          ? `Downloading ${prog.percent}% · adding ${companionDownloadLabel(prog.currentFile)}`
                           : `Downloading ${prog.percent}%…`}
                     </span>
                   ) : (
