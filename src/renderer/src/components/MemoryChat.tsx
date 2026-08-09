@@ -295,7 +295,8 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
       {
         id: turn.id,
         role: turn.role,
-        content: turn.content,
+        // The cleaned view: `content` stays verbatim for hosts that store it back.
+        content: turn.role === 'assistant' ? (turn.answer ?? turn.content) : turn.content,
         context: ctx,
         // Reasoning rides in the context blob so the "Thinking" block survives reload.
         reasoning: turn.reasoning ?? readReasoning(ctx),
