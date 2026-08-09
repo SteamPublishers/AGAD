@@ -13,8 +13,8 @@ export interface ShutdownOwner {
 }
 
 export interface ApplicationQuitSource {
-  on(event: 'before-quit', listener: () => void): unknown
-  removeListener(event: 'before-quit', listener: () => void): unknown
+  on(event: 'will-quit', listener: () => void): unknown
+  removeListener(event: 'will-quit', listener: () => void): unknown
 }
 
 export interface ApplicationRelaunchSource {
@@ -143,7 +143,16 @@ export function registerCoreShutdownOwners(
 
 /** Connect the registry to the real Electron quit seam. The subscription removes
  * itself before cleanup starts, so repeated quit emission cannot create duplicate
- * work and no lifecycle listener survives teardown. */
+ * work and no lifecycle listener survives teardown.
+ *
+ * The seam is `will-quit`, NOT `before-quit`. `before-quit` announces that a quit was
+ * REQUESTED and any listener may cancel it — this app's own handler does exactly that, to
+ * unload the model engine before letting the quit through. Tearing down on the request made
+ * every cancelled or deferred quit permanent for the resources: teardown is one-way, so a
+ * process that kept running was left with its downloads refused for the rest of its life
+ * ("stuck at 0%", device-confirmed on macOS). `will-quit` fires only once the quit is
+ * COMMITTED, and never when a `before-quit` was prevented, so teardown now follows the
+ * application actually going away rather than someone asking whether it should. */
 export function installApplicationShutdown(
   source: ApplicationQuitSource,
   registry: ShutdownRegistry,
@@ -153,13 +162,13 @@ export function installApplicationShutdown(
   const remove = (): void => {
     if (!installed) return
     installed = false
-    source.removeListener('before-quit', listener)
+    source.removeListener('will-quit', listener)
   }
   const listener = (): void => {
     remove()
     void registry.shutdown().then((failures) => failures.forEach(reportFailure))
   }
-  source.on('before-quit', listener)
+  source.on('will-quit', listener)
   return remove
 }
 

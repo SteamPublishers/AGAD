@@ -45,6 +45,10 @@ export interface DownloadProgress {
   percent?: number
   status?: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled'
   currentFile?: string
+  /** Which file of the job is in flight, 1-based, and how many the job has. percent/downloadedMB
+   *  measure the WHOLE job, so these exist to say what the named file is a part of. */
+  fileIndex?: number
+  fileCount?: number
   downloadedMB?: string
   totalMB?: string
   error?: string
@@ -148,6 +152,22 @@ export function cancelDownload(modelId: string): boolean {
   return cancelled
 }
 
+/** A download refused before it ever reached the queue is still an OUTCOME the watchers must see.
+ *  The refusal used to be returned to the caller only, so the status registry kept whatever the UI
+ *  had assumed and the card sat on a spinner forever. Publishing 'failed' the same way a mid-transfer
+ *  failure does means every client — the screen, a headless poller, the registry — learns the same
+ *  thing from one place, whether the download died at byte zero or at the last one. */
+function publishRefusal(
+  modelId: string,
+  error: string,
+  onProgress?: ProgressCb
+): { success: false; error: string } {
+  const p: DownloadProgress = { modelId, status: 'failed', percent: 0, error }
+  lastProgress.set(modelId, p)
+  onProgress?.(p)
+  return { success: false, error }
+}
+
 /** Download a catalog entry or any Hugging Face repo id. Progress via callback
  *  AND a status registry (so a headless poller can read it). */
 export async function downloadModel(
@@ -159,14 +179,14 @@ export async function downloadModel(
       modelId,
       reason: 'application_shutdown'
     })
-    return { success: false, error: DOWNLOAD_INTERRUPTED_ERROR }
+    return publishRefusal(modelId, DOWNLOAD_INTERRUPTED_ERROR, onProgress)
   }
   const { CATALOG, resolveHuggingFaceModel } = await import('@offgrid/models')
   const inCatalog = CATALOG.find((m) => m.id === modelId)
   const entry = inCatalog ?? (await resolveHuggingFaceModel(modelId))
   if (!entry) {
     writeDiagnosticLog('models.download', 'request.rejected', { modelId, reason: 'unknown_model' })
-    return { success: false, error: 'unknown model' }
+    return publishRefusal(modelId, 'unknown model', onProgress)
   }
   writeDiagnosticLog('models.download', 'request.accepted', {
     modelId,
@@ -236,16 +256,31 @@ export async function downloadModel(
 
       let activePartPath: string | null = null
       try {
-        for (const file of entry.files) {
+        // Decide the JOB before reporting on it. A model is several files, and percent used to be
+        // per-file: a two-file download ran 0→100 for the weights and then 0→100 again for the
+        // projector, so the number reset halfway and meant something different each time. The job
+        // is the set of files this run must actually fetch (a file already on disk is not work),
+        // and one percent measures the whole of it.
+        const pending = entry.files.filter((file) => {
           const dest = path.join(dir, file.name)
-          if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
+          const present = fs.existsSync(dest) && fs.statSync(dest).size > 0
+          if (present) {
             writeDiagnosticLog('models.download', 'file.skipped', {
               modelId,
               file: file.name,
               reason: 'already_present'
             })
-            continue
           }
+          return !present
+        })
+        // Catalog sizes plan the denominator; the file being fetched contributes its REAL
+        // content-length instead, so the total sharpens as the job proceeds rather than drifting.
+        const plannedBytes = pending.map((file) => file.sizeBytes ?? 0)
+        const laterBytes = (index: number): number =>
+          plannedBytes.slice(index + 1).reduce((sum, bytes) => sum + bytes, 0)
+        let jobDoneBytes = 0
+        for (const [fileIndex, file] of pending.entries()) {
+          const dest = path.join(dir, file.name)
           const partPath = `${dest}.part`
           activePartPath = partPath
           // Resume from a partial .part if one exists (e.g. download interrupted by a
@@ -278,11 +313,15 @@ export async function downloadModel(
           // process, and never hangs on a 'finish' that won't come.
           await pumpToFile(reader, out, (n) => {
             written += n
+            const jobDone = jobDoneBytes + written
+            const jobTotal = jobDoneBytes + total + laterBytes(fileIndex)
             send({
               currentFile: file.name,
-              percent: total ? Math.round((written / total) * 100) : 0,
-              downloadedMB: (written / 1048576).toFixed(1),
-              totalMB: total ? (total / 1048576).toFixed(1) : '?',
+              fileIndex: fileIndex + 1,
+              fileCount: pending.length,
+              percent: jobTotal ? Math.round((jobDone / jobTotal) * 100) : 0,
+              downloadedMB: (jobDone / 1048576).toFixed(1),
+              totalMB: jobTotal ? (jobTotal / 1048576).toFixed(1) : '?',
               status: 'downloading'
             })
           })
@@ -304,6 +343,7 @@ export async function downloadModel(
           if (checksumErr) throw new Error(checksumErr)
           fs.renameSync(partPath, dest)
           activePartPath = null
+          jobDoneBytes += written // this file's real bytes now count toward the job, not a new 0%
           writeDiagnosticLog('models.download', 'file.completed', {
             modelId,
             file: file.name,
