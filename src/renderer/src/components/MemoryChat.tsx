@@ -1634,7 +1634,14 @@ export function MemoryChat({
             ? { unified: tr?.unified ?? [], toolCalls }
             : undefined
         if (cancelledRef.current.has(convId)) {
-          await finalizeStoppedTurn(convId, toolStreamId, { answer: tr?.answer, context })
+          // The tool calls made before the stop are kept, exactly as a completed tool turn keeps
+          // them: rendered from `toolCalls`, stored in `toolCtx` beside the citation sources.
+          await finalizeStoppedTurn(convId, toolStreamId, {
+            answer: tr?.answer,
+            context,
+            persistContext: toolCtx,
+            toolCalls
+          })
           return
         }
         const answer = tr?.answer || 'No response returned.'
@@ -1930,7 +1937,17 @@ export function MemoryChat({
     async (
       convId: string,
       streamId: string,
-      settled?: { answer?: string; context?: RagContext; cutoff?: ResponseCutoffContract }
+      settled?: {
+        answer?: string
+        /** The context the RENDERED message carries. */
+        context?: RagContext
+        /** What goes in the stored blob, when that differs from the rendered context: the tool
+         *  loop renders `{ unified }` but persists the tool calls alongside it. Defaults to
+         *  `context`, so a caller with one context passes one context. */
+        persistContext?: Record<string, unknown>
+        cutoff?: ResponseCutoffContract
+        toolCalls?: ChatMessage['toolCalls']
+      }
     ): Promise<void> => {
       const reasoning = reasoningByStream.current[streamId]?.trim() || undefined
       const streamed = answerByStream.current[streamId] || ''
@@ -1952,6 +1969,7 @@ export function MemoryChat({
                 reasoning,
                 context: settled?.context ?? m.context,
                 cutoff: settled?.cutoff ?? m.cutoff,
+                toolCalls: settled?.toolCalls ?? m.toolCalls,
                 activity: undefined,
                 streaming: false
               }
@@ -1963,7 +1981,10 @@ export function MemoryChat({
           convId,
           'assistant',
           answer,
-          buildAssistantContext(settled?.context, { reasoning, cutoff: settled?.cutoff })
+          buildAssistantContext(settled?.persistContext ?? settled?.context, {
+            reasoning,
+            cutoff: settled?.cutoff
+          })
         )
       } catch (e) {
         console.error('Failed to persist stopped assistant message:', e)
