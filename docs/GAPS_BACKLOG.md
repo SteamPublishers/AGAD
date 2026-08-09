@@ -311,9 +311,167 @@ before-open, return/relaunch, and post-relaunch screenshots. A packaged macOS ru
 real TCC grant/return/relaunch flow and show that no nested scroll ancestor retains a stale offset.
 DOM visibility alone is not closure evidence.
 
+### DEF-008 (P1) - Catalog model downloads have a checksum gate but no trusted checksums
+
+**Evidence (2026-08-09):** APP-025 passed its full rendered journey after the download boundary first
+served a corrupt payload with a bad GGUF header: production kept the `.part`, showed the integrity
+failure, resumed through the visible Storage retry, promoted the real model and projector, activated
+the model, generated correct replies, and repeated the reply after a full relaunch. This proves the
+current byte-count/header gate and recovery path. It does not prove content integrity when corruption
+preserves the expected size and the leading `GGUF` magic.
+
+The downloader already calls `sha256IntegrityError()` before promotion
+(`src/main/models-manager.ts:294-304`), and `ModelFile` already has a `sha256` field. However, the
+catalog entries used by APP-025 - and currently the catalog generally - provide sizes and roles but no
+trusted SHA-256 values (`packages/models/src/catalog.ts:58-80`). `sha256IntegrityError()` explicitly
+returns success when the expected hash is absent (`src/main/models/download-verify.ts:42-64`). A
+same-length modified model with an intact header can therefore be promoted as installed and offered
+for activation.
+
+**Impact:** a CDN, mirror, proxy, disk, or interrupted-resume corruption that happens to preserve
+length and header can become an installed model. It may fail later, produce unreliable output, or
+make the model server appear broken with no trustworthy way to distinguish bad weights from a runtime
+defect. APP-025's green result must be described as structural-integrity and recovery proof, not full
+cryptographic download verification.
+
+**Owning seams:** `@offgrid/models` owns immutable model-file identity and trusted digest metadata;
+the desktop downloader owns streaming verification and atomic promotion; the Models/Storage UI owns
+the actionable failure/retry projection. Do not fetch a mutable checksum from the same untrusted
+response being verified or maintain a second desktop-only catalog.
+
+**Acceptance criteria:**
+
+- Every immutable catalog file that is downloaded directly, including primary weights and companion
+  projectors/tokenizers, carries a trusted lowercase SHA-256 sourced from the upstream immutable LFS
+  object/release and reviewed with the catalog entry.
+- Download completion streams the staged file through SHA-256 before rename. Missing or malformed
+  digest metadata fails catalog validation/build rather than silently disabling verification.
+- A matching-size file with a valid GGUF header but one changed byte remains a failed `.part`, is
+  never listed as installed/active, and presents a privacy-safe checksum error with Retry.
+- Retry replaces or resumes bytes according to the server response, verifies every file in the model
+  package, atomically promotes the package, and still supports the APP-025 activate/chat/relaunch
+  journey. No corrupt primary or companion file survives as a usable partial model.
+
+**Evidence required to close:** extend APP-025's real Electron boundary so the first response has the
+correct length and GGUF magic but a wrong digest, then prove the rendered checksum failure, absence
+from installed/active state, successful retry of the real primary and projector, real-model reply,
+and relaunch persistence. Add catalog validation that rejects a downloadable immutable file without
+a digest and focused downloader tests for match, mismatch, malformed metadata, and multi-file atomic
+promotion.
+
+### BLK-001 (release verification) - APP-106 is green, but its provider trace was not retained
+
+**Initial evidence (2026-08-09, superseded):** APP-106 used the real entitlement provider with a
+private `0600` licence fixture, a stable persisted `device-fingerprint`, no `OFFGRID_PRO` override,
+no licence cache, and no licensing mock. The first rendered activation returned
+`registration_failed`: validation accepted the credential, but no `license.json` was created and the
+journey did not reach `Restart now`. Because that run retained no privacy-safe provider evidence, it
+could not distinguish provider policy/capacity from a client response-contract mismatch.
+
+The client now accepts a successful create/update without a parseable machine document only after an
+authoritative roster read confirms the exact stable fingerprint. A missing/malformed roster fails
+closed, committed-but-unverifiable mutations surface `rollback_incomplete`, and focused provider
+contracts prove a retry of the same fingerprint is idempotent rather than spending another seat. The
+subsequent authorized real-provider run completed the full rendered activation/restart journey, so
+the original functional blocker is no longer present. What remains OPEN is the explicitly required
+diagnostic artifact: that green run did not preserve its sanitized stage/status attachment.
+
+**Owning seams:** the Keygen product/policy and licence-fixture administrator owns confirming that the
+fixture may create or reclaim this stable installation. The desktop licensing owner owns a
+privacy-safe diagnostic correlation from validate through machine registration and the mapping to
+`registration_failed`. APP-106 owns the release proof only; it must continue using the real service
+and must not replace this failure with a successful fake.
+
+**Acceptance criteria:**
+
+- The dedicated real licence can validate and register the stable APP-106 fingerprint without
+  consuming a new seat on every rerun; any stale fixture installation is deliberately reclaimed or
+  removed outside the test.
+- A privacy-safe provider trace identifies validation code, registration HTTP/result category,
+  policy/capacity disposition, and correlation identifier without logging the licence key or raw
+  sensitive response.
+- The rendered flow reaches `Activated. Restart to finish unlocking Pro.`, creates an OS-protected
+  `license.json`, restarts through `Restart now`, and returns with `isPro: true`.
+- The project and chat created before activation remain visible after restart, and Licensed devices
+  shows this installation once as `macOS · This device`; teardown leaves no Electron/model process.
+
+**Evidence required to close:** a green APP-106 focused run against the real entitlement service,
+with redacted service-side evidence that registration succeeded for the stable fingerprint, plus its
+post-restart project/chat and licensed-device screenshots. A mocked Keygen response, `OFFGRID_PRO=1`,
+or a preseeded `license.json` cannot close this blocker because each bypasses the failed boundary.
+
+**QA/platform sweep (2026-08-09) - functional journey passes; evidence gap remains OPEN:** the one
+authorized real-key rerun passed 1/1 in 27.1 seconds with no licensing mock, `OFFGRID_PRO`, or seeded
+`license.json`. The rendered flow activated Pro, used `Restart now`, preserved the existing project
+and chat, and returned to the authoritative Licensed devices roster with one stable local row marked
+`Off Grid AI Desktop`, `macOS · This device`, and `LOCAL`. The inspected project and roster
+screenshots contain no licence credential, and teardown left no Electron test process. Focused
+provider contracts passed 49/49; Pro typecheck, scoped lint/Prettier, shared Sync build, and the
+desktop production build passed. The broader dirty-branch suite passed 450/452, with two unrelated
+membership-revocation/reconnect failures.
+
+The new evidence collector allowlists only provider stage, HTTP status, duration, and bounded
+timeout/network outcomes; it never retains the licence key, request path, raw response, fingerprint,
+or exception detail. However, the explicit line-reporter run did not materialize its text attachment,
+so the exact stage/status sequence and provider correlation are not recoverable from this run. The
+authoritative post-restart roster proves the user-visible activation outcome, but it does not satisfy
+the separately stated diagnostic-trace evidence requirement. Do not rerun the real activation merely
+to manufacture that artifact; close BLK-001 only when a future authorized run preserves the sanitized
+trace, or explicitly disposition that trace requirement as a separate non-release diagnostic gap.
+
+### AUT-001 (test evidence) - APP-142 proves recorder lifecycle, not finalized meeting persistence
+
+**Evidence (2026-08-09):** APP-142 is green through the rendered Meetings UI and production
+controller/services/IPC. It proves no recorder exists before consent, one click starts one native
+child, both local and global recording indicators are visible, Stop sends `SIGINT`, controller/UI
+return to idle, and the child exits. The native boundary emits a valid `screen.mov`, so production
+finalization code is entered. However, the spec ends after idle/process assertions
+(`e2e/app142-meeting-consent-lifecycle.spec.ts:172-187`). It never asserts that finalization created
+exactly one meeting record, that the recording is visible/usable, or that either survives relaunch.
+
+This does not identify a product defect and does not invalidate APP-142's explicit-consent,
+visible-indicator, singular-recorder, or resource-release evidence. It does mean the spec header's
+claim that the “finalization pipeline” is covered must not be interpreted as persisted user-outcome
+proof.
+
+**Owning seams:** APP-142 owns the rendered evidence; the production meeting service/store owns the
+finalized record and media; the Meetings screen owns discoverability and playback/export. The native
+recorder remains the only controlled boundary.
+
+**Acceptance criteria:** after rendered Stop, wait for the real finalization owner and assert exactly
+one completed meeting appears with truthful duration/state; open the item and prove its generated
+media is usable; fully relaunch Electron and prove the same single meeting remains discoverable and
+usable. Assert no duplicate record and no recorder/transcription child survives. If persistence is
+deliberately outside APP-142's requirement, narrow its documentation so it claims recorder lifecycle
+only and assign the finalization outcome to a separately identified case.
+
 ---
 
 ## RESOLVED
+
+### DEF-007 (P0) - Secure notes are masked until deliberate reveal/copy - CLOSED 2026-08-09
+
+The Vault service now treats a Secure Note body as secret data: list, add, and update return only its
+redacted public projection, while the explicit unlocked `get` operation is the sole read path for the
+body. The renderer fetches that value only after the labelled `Reveal` action, shares the existing
+secret-field Reveal/Hide/Copy interaction, requires reveal before editing, and clears the revealed
+value on Hide, entry change, navigation, lock, window close, and relaunch. KDBX remains the durable
+encrypted owner; no renderer-only masking or second secret store was introduced.
+
+**Closure evidence:** `e2e/app159-vault-secret-protection.spec.ts` passed both real Electron journeys
+(2/2, 22.9 seconds) through rendered entry creation, default masking, scoped reveal/hide, exact real
+OS clipboard copies, locked production-IPC denial, unlock, navigation, and a full Electron relaunch.
+The test also proved the KDBX bytes contain none of the fixture plaintext and that the public list
+projection omits the secure-note body. Focused vault service and renderer contracts passed 45/45,
+including redacted list/add/update and explicit-get behavior. Root and Pro typechecks, the desktop
+production build, scoped ESLint, scoped Prettier, and root/Pro diff checks passed; ESLint reported no
+errors and 26 pre-existing complexity/file-size/style warnings. A leak scan found no fixture secret
+in `test-results`.
+
+The four settled screenshots were inspected in light and dark mode: login/API-key secrets are masked
+after unlock, the Secure Note shows a masked Notes row with a deliberate Reveal action, and the same
+note is masked again after full relaunch. No plaintext secret is visible, clipped, or stored in the
+captured evidence.
 
 ### Data-layer / presentation-layer drift sweep (2026-07-09) - CLOSED
 
