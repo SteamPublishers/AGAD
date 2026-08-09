@@ -683,21 +683,35 @@ export function ModelsScreen(): React.JSX.Element {
               )}
             </button>
           ) : downloading ? (
-            // The action slot holds the ACTION. The percent used to live in here, inside a control
-            // whose hover meaning was "Cancel" — so the card's main number sat in the one place you
-            // could not read without being offered a way to destroy it. Progress moved below, where
-            // the bar and the bytes already are.
-            <button
-              onClick={() => cancelDownload(m.id)}
-              className="flex items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-400 transition-all duration-150 hover:border-red-500/60 hover:text-red-400 active:scale-95"
-            >
-              {prog.status === 'queued' ? (
-                <IconClock className="h-3 w-3" />
-              ) : (
-                <IconX className="h-3 w-3" />
-              )}
-              {prog.status === 'queued' ? 'Queued' : 'Cancel'}
-            </button>
+            // Status left, action right, across the full width of the card. Stacked in a column on
+            // the left they left half the card empty and the whole thing read as lopsided; the row
+            // is already justify-between, so the pair simply uses the space that was there.
+            // The percent is NOT in the button: a control whose meaning is "Cancel" is the one place
+            // the card's main number should not live.
+            <>
+              <div className="flex min-w-0 items-baseline gap-1.5 text-[10px] text-neutral-500">
+                <span className="text-neutral-300">
+                  {prog.status === 'queued' ? 'Queued' : `${prog.percent}%`}
+                </span>
+                {prog.downloadedMB && prog.totalMB && (
+                  <span className="whitespace-nowrap">
+                    {formatTransferred(prog.downloadedMB)} of {formatTransferred(prog.totalMB)}
+                  </span>
+                )}
+                <span className="min-w-0 truncate">{downloadPartLabel(prog)}</span>
+              </div>
+              <button
+                onClick={() => cancelDownload(m.id)}
+                className="flex shrink-0 items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-400 transition-all duration-150 hover:border-red-500/60 hover:text-red-400 active:scale-95"
+              >
+                {prog.status === 'queued' ? (
+                  <IconClock className="h-3 w-3" />
+                ) : (
+                  <IconX className="h-3 w-3" />
+                )}
+                Cancel
+              </button>
+            </>
           ) : (
             <button
               onClick={() => download(m.id)}
@@ -752,23 +766,12 @@ export function ModelsScreen(): React.JSX.Element {
             carries the exact amount, and the part being fetched is named at the end of it where it
             belongs (adding a projector to a model already on disk is not a re-download). */}
         {downloading && (
-          <>
-            <div className="h-0.5 w-full overflow-hidden rounded-full bg-neutral-800">
-              <div
-                className="h-full bg-green-500 transition-all"
-                style={{ width: `${prog.percent}%` }}
-              />
-            </div>
-            <div className="flex items-baseline gap-1.5 text-[10px] text-neutral-500">
-              <span className="text-neutral-300">{prog.percent}%</span>
-              {prog.downloadedMB && prog.totalMB && (
-                <span>
-                  {formatTransferred(prog.downloadedMB)} of {formatTransferred(prog.totalMB)}
-                </span>
-              )}
-              <span className="min-w-0 truncate">{downloadPartLabel(prog)}</span>
-            </div>
-          </>
+          <div className="h-0.5 w-full overflow-hidden rounded-full bg-neutral-800">
+            <div
+              className="h-full bg-green-500 transition-all"
+              style={{ width: `${prog.percent}%` }}
+            />
+          </div>
         )}
 
         {/* A download that failed says so, and offers the one action that helps. Silence here is
