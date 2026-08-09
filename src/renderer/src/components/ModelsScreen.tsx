@@ -341,27 +341,29 @@ export function ModelsScreen(): React.JSX.Element {
     refreshVision()
     refreshActive()
     const off = api.onModelProgress?.(
-      (d: {
-        modelId: string
-        percent?: number
-        status?: string
-        currentFile?: string
-        error?: string
-      }) => {
+      // Partial, because the main process sends only what changed on each tick. Typed off the
+      // card's own shape all the same, so a field the card renders cannot be dropped in transit.
+      (d: Partial<DownloadCardProgress> & { modelId: string }) => {
         if (d.status === 'cancelled') {
           setProgress((p) => withoutProgressEntry(p, d.modelId))
           return
         }
-        setProgress((p) => ({
-          ...p,
-          [d.modelId]: {
-            percent: d.percent ?? p[d.modelId]?.percent ?? 0,
-            status: d.status,
-            currentFile: d.currentFile ?? p[d.modelId]?.currentFile,
-            // Carried, because a failure the user cannot read is a failure they cannot act on.
-            error: d.error
+        // Spread the payload instead of copying named fields. Listing them by hand is what
+        // silently discarded the bytes and the file count: the main process sent them, this
+        // handler never copied them, and the card had nothing to show.
+        const { modelId, ...fields } = d
+        setProgress((p) => {
+          const prev = p[modelId]
+          return {
+            ...p,
+            [modelId]: {
+              ...prev,
+              ...fields,
+              percent: fields.percent ?? prev?.percent ?? 0,
+              currentFile: fields.currentFile ?? prev?.currentFile
+            }
           }
-        }))
+        })
         if (d.status === 'completed') {
           api.getInstalledModels?.().then(setInstalled)
           refreshVision()
