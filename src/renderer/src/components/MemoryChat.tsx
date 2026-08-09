@@ -124,6 +124,8 @@ type ChatMessage = {
   toolName?: string
   toolCallId?: string
   turnStatus?: SyncedTurnStatus
+  /** The app said this ("Model loaded: …"), not the model. Drawn as a quiet marker, never a bubble. */
+  notice?: boolean
   generationTimeMs?: number
   provenance?: RecordProvenance
   reasoning?: string
@@ -151,6 +153,14 @@ async function announceImageMessagePersisted(conversationId: string): Promise<vo
   } catch {
     /* The message is already durable; a later mount still loads it from SQLite. */
   }
+}
+
+/**
+ * A notice is stored with markdown emphasis wrapped around it (`_Model loaded: Qwen3.5 0.8B_`),
+ * and this line is drawn as plain text, so the markers would otherwise be read out literally.
+ */
+function noticeText(content: string): string {
+  return content.replace(/^_([\s\S]*)_$/, '$1').trim()
 }
 
 type AskBlock = { question: string; options: string[]; multiSelect: boolean }
@@ -291,6 +301,7 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
         toolName: turn.role === 'tool' ? turn.tools[0]?.name : undefined,
         toolCallId: turn.role === 'tool' ? turn.tools[0]?.id : undefined,
         turnStatus: turn.status,
+        notice: turn.notice,
         generationTimeMs: turn.role === 'tool' ? turn.tools[0]?.durationMs : turn.durationMs,
         provenance: turn.provenance,
         image: ctx?.image ? `ogcapture://${ctx.image}` : undefined,
@@ -2882,7 +2893,17 @@ export function MemoryChat({
             ) : (
               <div className="w-full px-6 py-5">
                 {messages.map((message) =>
-                  voiceMode && message.role !== 'tool' ? (
+                  /* A runtime notice is not somebody speaking, so it gets no bubble and no side:
+                     a centred muted line in the timeline, the same shape the phone draws. Checked
+                     before voice mode for the same reason the phone checks it first - a notice
+                     reads as a notice whichever way the conversation is being shown. */
+                  message.notice ? (
+                    <div key={message.id} className="mb-4 flex justify-center">
+                      <span className="px-3 text-center text-[11px] leading-relaxed text-neutral-500">
+                        {noticeText(message.content)}
+                      </span>
+                    </div>
+                  ) : voiceMode && message.role !== 'tool' ? (
                     <div
                       key={message.id}
                       className={`mb-4 flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
