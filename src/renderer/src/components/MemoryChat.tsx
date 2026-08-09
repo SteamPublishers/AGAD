@@ -281,11 +281,12 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
     // Mobile tool turns can persist a delimiter-only intermediate assistant row before the
     // tool result and final answer. It carries no thought content and must not become a visible
     // "<think> </think>" bubble on Desktop.
-    if (
-      turn.role === 'assistant' &&
-      /^<think>\s*<\/think>$/i.test(turn.content.trim()) &&
-      turn.reasoning === undefined
-    ) {
+    // A turn with nothing in it is not a bubble. Mobile's tool loop persists a delimiter-only
+    // assistant row before the tool result and the final answer; it used to arrive as the literal
+    // "<think></think>" and was matched as that string. The shared projection now splits inline
+    // reasoning out, so the same row arrives empty instead - test emptiness, which covers both and
+    // any other way a turn can carry nothing.
+    if (turn.role === 'assistant' && !turn.content.trim() && turn.reasoning === undefined) {
       return []
     }
     return [
