@@ -201,6 +201,116 @@ from work blocked by model capacity; and show the exact next action without expo
 Changing models or increasing context, then retrying, must drain the blocked backlog and update Replay
 and queue counts through the normal database and IPC owners.
 
+### DEF-005 (P1) - Settings Pro previews are dead ends and omit Proactive delivery
+
+**Evidence (2026-08-09):** APP-105's real Electron free-profile journey opened all 12 locked
+sidebar destinations and verified that each reaches its matching upgrade screen. Settings does not
+provide the same journey. `ProPlaceholder` deliberately renders a non-interactive `motion.div`
+with no button, link, navigation intent, or keyboard affordance
+(`src/renderer/src/components/SettingsCard.tsx:147-193`). The visible `Device sync`, `You`, and
+`What Off Grid has learned` cards therefore show a Pro badge and description but cannot explain how
+to unlock the feature or take the user to the existing purchase/activation journey. The same run
+also found that `Proactive delivery` has canonical placeholder copy in
+`proSettingsCatalog.ts:61-70`, but Settings filters that slot out unconditionally at
+`Settings.tsx:190-192`, so a free user never sees it.
+
+**Impact:** the sidebar teaches a consistent locked-feature pattern while Settings breaks it with
+controls that look like cards but are inert. A user exploring personalization, sync, or learned
+preferences reaches a dead end instead of the upgrade path. The hidden Proactive delivery entry
+also makes the free Settings catalogue incomplete and lets the declared slot list drift from what
+the product renders.
+
+**Owning seams:** `PRO_SETTINGS_SLOTS` is the single source of truth for Settings Pro section
+identity, order, availability, and free preview copy. `Settings` owns projecting every applicable
+slot. `ProPlaceholder` owns the shared locked-card interaction and accessibility contract. The
+existing `UpgradeScreen`/purchase flow owns upgrade and activation; do not create a second Settings-
+specific purchase implementation or duplicate the slot copy in a new route map.
+
+**Acceptance criteria:**
+
+- Every applicable free Settings Pro slot, including Proactive delivery, is rendered exactly once
+  from `PRO_SETTINGS_SLOTS`; the visible catalogue and the declared catalogue cannot drift.
+- Each locked Settings card is a real keyboard- and pointer-accessible control with an unambiguous
+  accessible name and visible focus state. Activating it opens the matching upgrade explanation and
+  the canonical purchase/license activation actions rather than silently expanding an empty detail.
+- The destination has a durable route/deep link, and Back/Cmd+[ returns to the same Settings scroll
+  position. Directly opening that route on a free profile shows the same locked explanation; an
+  entitled profile resolves the same identity to the real registered Settings section.
+- One catalogue owner supplies the title, description, order, platform state, and destination
+  identity. Removing or consolidating a feature requires updating that owner, not adding another
+  filter or parallel mapping.
+- Opening every locked Settings preview leaves Pro services and durable Pro data uninitialized until
+  entitlement is actually granted, preserving APP-105's free/Pro isolation guarantee.
+
+**Evidence required to close:** extend `e2e/app105-free-pro-isolation.spec.ts` so a fresh free
+profile activates every Settings Pro preview through rendered pointer and keyboard actions, asserts
+the exact URL/heading/upgrade CTA, exercises direct deep links and Back/Cmd+[, and repeats the
+protected IPC/filesystem isolation checks after visiting them. Add an entitled-profile comparison
+showing the same slot identities resolve to their registered sections. Capture settled light/dark
+screenshots at the target desktop size and inspect them for focus visibility, clipping, hierarchy,
+and absence of duplicate upgrade surfaces. The current APP-105 evidence (3/3 focused tests, clean
+typecheck/build, and inspected free upgrade/Settings screenshots) covers every reachable surface but
+cannot close this gap because the Settings previews have no activation path and Proactive delivery
+is absent.
+
+### DEF-006 (P1) - Screen Recording recovery returns to a blank, stale Settings scroll position
+
+**Evidence (2026-08-09):** APP-120's real Electron journey followed the shipped route from
+Capture & processing > `Review permissions` into the nested Settings permissions section, then
+clicked `Enable Screen Recording`. After the native boundary opened System Settings and the app
+projected `Restart required`, the `Relaunch Off Grid AI Desktop` control remained mounted and a DOM
+visibility assertion passed (`e2e/app120-app122-capture-privacy.spec.ts:178-197`), but the settled
+2048x1152 screenshot showed only the Settings header, an almost entirely blank canvas, and a scroll
+thumb stranded near the bottom. The System permissions content and relaunch action were outside the
+viewport, so the rendered recovery path was not usable without hunting through the stale scroll.
+
+The current reveal coordinator is a one-shot, fixed 350 ms `scrollIntoView` keyed to section
+selection (`src/renderer/src/components/Settings.tsx:74-86`). It does not re-anchor when permission
+state or the expanded card's measured height changes. Settings also introduces its own scrolling
+container (`Settings.tsx:123-129`) inside the App content host's `overflow-y-auto`
+(`src/renderer/src/App.tsx:1090-1092`), leaving two ancestors able to preserve or mutate scroll
+position while `SettingsCard` animates from zero to auto height (`SettingsCard.tsx:127-138`). A DOM
+`visible` result therefore does not guarantee that the recovery action is in the user's viewport.
+
+**Impact:** Screen Recording is required for Replay and local vision capture. At the exact point a
+denied user returns from macOS and must relaunch to apply the grant, Off Grid appears empty and hides
+the only next action off-screen. This makes a recoverable permission state look like an application
+failure and can leave capture permanently blocked for a user who does not discover the stale scroll
+position.
+
+**Owning seams:** App/Settings navigation owns the `/settings/permissions` destination and return
+history; Settings owns one authoritative scroll viewport and selected-section reveal; SettingsCard
+owns expansion layout completion. `usePermissionController` continues to own permission and
+restart-required state only - it must not gain DOM scrolling logic. Establish one scroll owner and a
+layout-aware reveal/focus contract instead of adding another timeout or per-button scroll repair.
+
+**Acceptance criteria:**
+
+- `Review permissions` opens `/settings/permissions`, expands Setup & health, and places the Screen
+  Recording card fully inside the Settings viewport after the accordion layout has settled.
+- After `Enable Screen Recording` opens System Settings and Off Grid becomes active again, every
+  status transition (permission needed, checking, restart required, granted, or error) preserves a
+  useful anchored viewport. `Relaunch Off Grid AI Desktop` is immediately visible, focused or
+  predictably reachable, and clickable without manual scrolling; the canvas never becomes blank.
+- There is one vertical scroll owner for Settings detail content. Section reveal waits for observable
+  route/layout readiness rather than an arbitrary delay and does not scroll an outer App container.
+- Directly opening `/settings/permissions`, resizing the desktop window, switching themes, checking
+  permissions again, and using Back/Cmd+[ all retain a coherent section header, permission context,
+  and recovery action without jumps or stale deep scroll.
+- Relaunch still follows the production shutdown/replacement path. A successful grant does not
+  implicitly opt the user into capture; APP-120's explicit Resume requirement and APP-122's privacy
+  gates remain unchanged.
+
+**Evidence required to close:** extend `e2e/app120-app122-capture-privacy.spec.ts` to assert the
+Screen Recording card and relaunch control are inside the actual Settings scroll viewport before
+any Playwright action can auto-scroll them, then activate the visible relaunch control and complete
+the granted-but-user-paused recovery journey. Cover direct deep-link and Capture-origin navigation,
+Back/Cmd+[, a shorter desktop viewport, and the permission-needed/restart-required/granted/error
+layout transitions using the native boundary only. Capture and inspect settled light/dark
+before-open, return/relaunch, and post-relaunch screenshots. A packaged macOS run must repeat the
+real TCC grant/return/relaunch flow and show that no nested scroll ancestor retains a stale offset.
+DOM visibility alone is not closure evidence.
+
 ---
 
 ## RESOLVED
