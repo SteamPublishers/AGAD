@@ -126,6 +126,8 @@ type ChatMessage = {
   turnStatus?: SyncedTurnStatus
   /** The app said this ("Model loaded: …"), not the model. Drawn as a quiet marker, never a bubble. */
   notice?: boolean
+  /** What this turn's reasoning block is called, when it named itself ("Enhanced prompt"). */
+  reasoningLabel?: string
   generationTimeMs?: number
   provenance?: RecordProvenance
   reasoning?: string
@@ -303,6 +305,7 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
         toolCallId: turn.role === 'tool' ? turn.tools[0]?.id : undefined,
         turnStatus: turn.status,
         notice: turn.notice,
+        reasoningLabel: turn.reasoningLabel,
         generationTimeMs: turn.role === 'tool' ? turn.tools[0]?.durationMs : turn.durationMs,
         provenance: turn.provenance,
         image: ctx?.image ? `ogcapture://${ctx.image}` : undefined,
@@ -3039,7 +3042,7 @@ export function MemoryChat({
                                 d="M9.663 17h4.673M12 3a6 6 0 00-3.6 10.8c.3.225.45.6.45.975V16.5h6.3v-1.725c0-.375.15-.75.45-.975A6 6 0 0012 3z"
                               />
                             </svg>
-                            Thought process
+                            {message.reasoningLabel ?? 'Thought process'}
                             <svg
                               className="h-3 w-3 transition-transform group-data-[state=open]:rotate-180"
                               fill="none"
