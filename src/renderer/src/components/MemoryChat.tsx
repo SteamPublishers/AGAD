@@ -1759,21 +1759,44 @@ export function MemoryChat({
       )
       const resultContext = result.context as RagContext | undefined
 
-      // Stopped mid-stream: the abort keeps whatever streamed so far. Finalize the
-      // partial text if any arrived; otherwise drop the empty placeholder. Never write
-      // the "No response returned." filler or a fresh bubble for a cancelled turn.
+      // Stopped mid-stream: the abort keeps whatever streamed so far. Finalize it, or drop the
+      // placeholder when nothing arrived. Never write the "No response returned." filler or a
+      // fresh bubble for a cancelled turn.
+      //
+      // "Whatever streamed" INCLUDES the thinking. A stopped turn used to persist the partial
+      // answer with the raw context and no reasoning, so the Thought process block vanished the
+      // moment the conversation reloaded; and a turn stopped while the model was STILL thinking
+      // had no answer yet, so `if (partial)` deleted the whole turn and every word of reasoning
+      // with it. Reasoning is kept work: the user watched it arrive and stopped BECAUSE of what
+      // they read.
       if (cancelledRef.current.has(convId)) {
         const partial = (result.answer || '').trim()
-        if (partial) {
+        const reasoning = reasoningByStream.current[streamId]
+        delete reasoningByStream.current[streamId] // done with this stream - free it
+        if (partial || reasoning?.trim()) {
           setConvMessages(convId, (prev) =>
             prev.map((m) =>
               m.id === streamId
-                ? { ...m, content: partial, context: resultContext, streaming: false }
+                ? {
+                    ...m,
+                    content: partial,
+                    context: resultContext,
+                    reasoning: reasoning?.trim() ? reasoning : undefined,
+                    activity: undefined,
+                    streaming: false
+                  }
                 : m
             )
           )
           try {
-            await window.api.addRagMessage(convId, 'assistant', partial, resultContext)
+            // The same context builder the completed path uses, so a stopped turn and a finished
+            // one are stored the same way and reload the same way.
+            await window.api.addRagMessage(
+              convId,
+              'assistant',
+              partial,
+              buildAssistantContext(resultContext, { reasoning, cutoff: result.cutoff })
+            )
           } catch {
             /* ignore */
           }
