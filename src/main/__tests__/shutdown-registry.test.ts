@@ -138,9 +138,9 @@ describe('the shutdown registry', () => {
 
     // Loudly, at registration time. A silent overwrite would leave one resource with nothing to close it, and
     // the leak would only appear as a busy port on the next launch.
-    expect(() => registry.register({ name: 'core:model-gateway', shutdown: () => undefined })).toThrow(
-      'Shutdown owner already registered: core:model-gateway'
-    )
+    expect(() =>
+      registry.register({ name: 'core:model-gateway', shutdown: () => undefined })
+    ).toThrow('Shutdown owner already registered: core:model-gateway')
   })
 
   it('lets an owner unregister while the app is still running', async () => {
@@ -212,7 +212,10 @@ describe('the shutdown registry', () => {
     // Nobody is left to collect this failure - shutdown() has already resolved - so it must not surface as an
     // unhandled rejection while the process is on its way out.
     expect(() =>
-      registry.register({ name: 'late-and-broken', shutdown: () => Promise.reject(new Error('nope')) })
+      registry.register({
+        name: 'late-and-broken',
+        shutdown: () => Promise.reject(new Error('nope'))
+      })
     ).not.toThrow()
     await Promise.resolve()
   })
@@ -269,6 +272,39 @@ describe('the Electron quit seam', () => {
     // Detached first, so a second will-quit cannot start a second teardown, and no lifecycle listener
     // outlives the resources it refers to.
     expect(source.removeListener).toHaveBeenCalledWith('will-quit', listeners[0])
+  })
+
+  it('a quit that gets cancelled leaves downloads working; only a committed quit closes them', async () => {
+    // The real queue, registered the way the application registers it. Its `shuttingDown` is
+    // one-way by design, so whatever event drives this decides whether a process that keeps
+    // running can still download — the macOS session that refused every download for hours while
+    // the app was open, because a deferred quit had already torn it down.
+    const { modelDownloadQueue } = await import('../models/download-queue')
+    const listeners: Record<string, (() => void)[]> = {}
+    const app = {
+      on: (event: string, listener: () => void) => (listeners[event] ??= []).push(listener),
+      removeListener: () => {}
+    } as unknown as Parameters<typeof installApplicationShutdown>[0]
+    const registry = new ShutdownRegistry()
+    registry.register({
+      name: 'core:model-downloads',
+      shutdown: () => modelDownloadQueue.shutdown()
+    })
+    installApplicationShutdown(app, registry, () => {})
+
+    // BEFORE: downloads are open.
+    expect(modelDownloadQueue.isAccepting()).toBe(true)
+
+    // A quit is REQUESTED and then cancelled — which is what the app itself does, to unload the
+    // model engine first. Nothing is torn down, because nothing is going away yet.
+    listeners['before-quit']?.forEach((l) => l())
+    await Promise.resolve()
+    expect(modelDownloadQueue.isAccepting()).toBe(true)
+
+    // The quit is COMMITTED. Now, and only now, the queue closes.
+    listeners['will-quit']?.forEach((l) => l())
+    await Promise.resolve()
+    expect(modelDownloadQueue.isAccepting()).toBe(false)
   })
 
   it('can be uninstalled, and uninstalling twice is harmless', () => {
@@ -335,7 +371,10 @@ describe('relaunching', () => {
     process.env.npm_node_execpath = '/usr/bin/node'
     process.env.npm_execpath = '/usr/lib/npm/bin/npm-cli.js'
     let options: ApplicationRelaunchOptions | undefined
-    const source = { quit: vi.fn(), relaunch: (o?: ApplicationRelaunchOptions) => void (options = o) }
+    const source = {
+      quit: vi.fn(),
+      relaunch: (o?: ApplicationRelaunchOptions) => void (options = o)
+    }
 
     requestApplicationRelaunch(source)
     commitApplicationRelaunch(source)
@@ -351,7 +390,10 @@ describe('relaunching', () => {
   it('relaunches Electron alone in a packaged build', () => {
     delete process.env.NODE_ENV_ELECTRON_VITE
     let options: ApplicationRelaunchOptions | undefined | 'unset' = 'unset'
-    const source = { quit: vi.fn(), relaunch: (o?: ApplicationRelaunchOptions) => void (options = o) }
+    const source = {
+      quit: vi.fn(),
+      relaunch: (o?: ApplicationRelaunchOptions) => void (options = o)
+    }
 
     requestApplicationRelaunch(source)
     commitApplicationRelaunch(source)
@@ -366,7 +408,10 @@ describe('relaunching', () => {
     delete process.env.npm_node_execpath
     delete process.env.npm_execpath
     let options: ApplicationRelaunchOptions | undefined | 'unset' = 'unset'
-    const source = { quit: vi.fn(), relaunch: (o?: ApplicationRelaunchOptions) => void (options = o) }
+    const source = {
+      quit: vi.fn(),
+      relaunch: (o?: ApplicationRelaunchOptions) => void (options = o)
+    }
 
     requestApplicationRelaunch(source)
     commitApplicationRelaunch(source)
