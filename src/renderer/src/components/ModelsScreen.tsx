@@ -406,6 +406,10 @@ export function ModelsScreen(): React.JSX.Element {
     void Promise.resolve(api.downloadModel?.(id)).then(
       (r?: { success: boolean; error?: string }) => {
         if (!r || r.success) return
+        // You cancelled it, so there is nothing to report: the download resolves unsuccessfully by
+        // design, and the progress channel has already cleared the card. Treating that as a failure
+        // put a red "cancelled" box under a model you had just chosen to stop.
+        if (r.error === 'cancelled') return
         // A refusal also arrives on the progress channel; recording it here too means the card
         // still tells the truth if this window was not listening when the event went out.
         setProgress((p) => ({
@@ -712,6 +716,26 @@ export function ModelsScreen(): React.JSX.Element {
                 Cancel
               </button>
             </>
+          ) : prog?.status === 'failed' ? (
+            // A failure is a STATE of the action row, not a banner under it. As its own block it
+            // stacked a second button beneath "Download" and asked you to choose between two ways
+            // of doing the same thing. Reason left, one button right, on the row that was already
+            // there.
+            <>
+              <span
+                className="min-w-0 truncate text-[10px] text-red-400/90"
+                title={prog.error}
+                role="status"
+              >
+                {downloadFailureText(prog.error)}
+              </span>
+              <button
+                onClick={() => retryDownload(m.id)}
+                className="flex shrink-0 items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-emerald-500 active:scale-95"
+              >
+                <IconDownload className="h-3 w-3" /> Try again
+              </button>
+            </>
           ) : (
             <button
               onClick={() => download(m.id)}
@@ -774,21 +798,6 @@ export function ModelsScreen(): React.JSX.Element {
           </div>
         )}
 
-        {/* A download that failed says so, and offers the one action that helps. Silence here is
-            what a stuck 0% actually was: the request had been refused and nothing said a word. */}
-        {prog?.status === 'failed' && (
-          <div className="flex items-center justify-between gap-2 rounded border border-red-500/40 bg-red-500/5 px-2 py-1">
-            <span className="min-w-0 truncate text-[10px] text-red-300" title={prog.error}>
-              {downloadFailureText(prog.error)}
-            </span>
-            <button
-              onClick={() => retryDownload(m.id)}
-              className="shrink-0 rounded border border-neutral-700 px-2 py-0.5 text-[10px] text-neutral-300 transition-all duration-150 hover:border-green-500 hover:text-emerald-500 active:scale-95"
-            >
-              Try again
-            </button>
-          </div>
-        )}
       </div>
     )
   }
