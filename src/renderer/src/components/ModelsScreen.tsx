@@ -221,6 +221,23 @@ function withoutProgressEntry(
   return next
 }
 
+/** Megabytes at human scale. "6296.4 MB" is a number you have to convert before it means anything;
+ *  "6.3 GB" is the number on the card above it. */
+function formatTransferred(megabytes: string): string {
+  const mb = Number(megabytes)
+  if (!Number.isFinite(mb)) return `${megabytes} MB`
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`
+}
+
+/** What part of the model is moving right now, as a quiet tail on the progress line. Empty for the
+ *  ordinary single-file case, where naming it adds words and no information. */
+function downloadPartLabel(prog: DownloadCardProgress): string {
+  const companion = companionDownloadLabel(prog.currentFile)
+  if (companion) return `· adding ${companion}`
+  if ((prog.fileCount ?? 0) > 1) return `· file ${prog.fileIndex} of ${prog.fileCount}`
+  return ''
+}
+
 /** Plain words for a download that failed. You need two things from this line: what happened, and
  *  whether trying again is worth it. The raw engine string stays in the title attribute, where it
  *  helps a bug report without shouting at everyone else. */
@@ -666,20 +683,20 @@ export function ModelsScreen(): React.JSX.Element {
               )}
             </button>
           ) : downloading ? (
+            // The action slot holds the ACTION. The percent used to live in here, inside a control
+            // whose hover meaning was "Cancel" — so the card's main number sat in the one place you
+            // could not read without being offered a way to destroy it. Progress moved below, where
+            // the bar and the bytes already are.
             <button
               onClick={() => cancelDownload(m.id)}
-              className="group/dl flex items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-400 transition-all duration-150 hover:border-red-500/60 hover:text-red-400 active:scale-95"
+              className="flex items-center gap-1 rounded border border-neutral-700 px-2.5 py-1 text-[10px] text-neutral-400 transition-all duration-150 hover:border-red-500/60 hover:text-red-400 active:scale-95"
             >
               {prog.status === 'queued' ? (
-                <IconClock className="h-3 w-3 group-hover/dl:hidden" />
+                <IconClock className="h-3 w-3" />
               ) : (
-                <IconLoader2 className="h-3 w-3 animate-spin group-hover/dl:hidden" />
+                <IconX className="h-3 w-3" />
               )}
-              <IconX className="hidden h-3 w-3 group-hover/dl:block" />
-              <span className="group-hover/dl:hidden">
-                {prog.status === 'queued' ? 'Queued' : `${prog.percent}%`}
-              </span>
-              <span className="hidden group-hover/dl:inline">Cancel</span>
+              {prog.status === 'queued' ? 'Queued' : 'Cancel'}
             </button>
           ) : (
             <button
@@ -729,33 +746,27 @@ export function ModelsScreen(): React.JSX.Element {
           </button>
         )}
 
-        {/* Download progress. Name the companion when that's all that's downloading
-            (e.g. adding a vision projector to a model already on disk) so it doesn't
-            read as a full re-download. */}
+        {/* Download progress: one bar, one line. It used to be four stacked rows — a percent chip,
+            a shouted status, the bytes, then the bar — which said the same thing three times and
+            grew the card by half while it ran. The bar carries the shape of the progress, the line
+            carries the exact amount, and the part being fetched is named at the end of it where it
+            belongs (adding a projector to a model already on disk is not a re-download). */}
         {downloading && (
           <>
-            {/* The percent measures the whole download. This line says which PART is moving right
-                now, and never repeats the percent — two numbers on one card is what read as
-                "is that the projector or the model?". */}
-            {(companionDownloadLabel(prog.currentFile) || (prog.fileCount ?? 0) > 1) && (
-              <div className="text-[9px] uppercase tracking-wide text-emerald-300">
-                {companionDownloadLabel(prog.currentFile)
-                  ? `Adding ${companionDownloadLabel(prog.currentFile)}`
-                  : 'Downloading'}
-                {(prog.fileCount ?? 0) > 1 && ` · file ${prog.fileIndex} of ${prog.fileCount}`}
-              </div>
-            )}
-            {/* Bytes cannot mislead, and a stall is visible in them long before a percent moves. */}
-            {prog.downloadedMB && prog.totalMB && (
-              <div className="text-[9px] text-neutral-500">
-                {prog.downloadedMB} MB of {prog.totalMB} MB
-              </div>
-            )}
             <div className="h-0.5 w-full overflow-hidden rounded-full bg-neutral-800">
               <div
                 className="h-full bg-green-500 transition-all"
                 style={{ width: `${prog.percent}%` }}
               />
+            </div>
+            <div className="flex items-baseline gap-1.5 text-[10px] text-neutral-500">
+              <span className="text-neutral-300">{prog.percent}%</span>
+              {prog.downloadedMB && prog.totalMB && (
+                <span>
+                  {formatTransferred(prog.downloadedMB)} of {formatTransferred(prog.totalMB)}
+                </span>
+              )}
+              <span className="min-w-0 truncate">{downloadPartLabel(prog)}</span>
             </div>
           </>
         )}
