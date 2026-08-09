@@ -21,6 +21,11 @@ import { deviceNoun } from '@renderer/lib/device'
 import { modelKindLabel } from '@renderer/lib/model-kind-labels'
 import { collectTags, matchesAllTags, toggleTag } from '@renderer/lib/model-tag-filter'
 import { companionDownloadLabel } from '@renderer/lib/download-label'
+import {
+  modelSettingsTabForKind,
+  openModelSettingsPanel,
+  supportsModelSettings
+} from '@renderer/lib/model-settings-panel'
 import { fitTier, type FitTier, fitLevel, FIT_OK_FRAC } from '../../../shared/model-fit'
 import {
   filterAndSort,
@@ -383,6 +388,9 @@ export function ModelsScreen(): React.JSX.Element {
       setSwitching(null)
     }
   }
+  const openModelSettings = (kind?: string): void => {
+    openModelSettingsPanel(modelSettingsTabForKind(kind))
+  }
 
   const searchEnabled = activeKind !== 'voice' && activeKind !== 'transcription'
   const searchingMode = searchEnabled && query.trim().length >= 2
@@ -634,18 +642,30 @@ export function ModelsScreen(): React.JSX.Element {
             </button>
           )}
           {isInstalled && (
-            <button
-              onClick={() => removeModel(m.id, m.name)}
-              disabled={deleting === m.id || active}
-              title={active ? 'Switch to another model before deleting' : 'Delete from disk'}
-              className="rounded p-1 text-neutral-700 transition-all duration-150 hover:text-red-400 active:scale-90 disabled:opacity-30 group-hover:text-neutral-500"
-            >
-              {deleting === m.id ? (
-                <IconLoader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <IconTrash className="h-3 w-3" />
+            <div className="flex shrink-0 items-center gap-1">
+              {active && supportsModelSettings(m.kind) && (
+                <button
+                  onClick={() => openModelSettings(m.kind)}
+                  aria-label="Open model settings"
+                  title="Open settings for the active model"
+                  className="rounded border border-neutral-800 px-1.5 py-1 text-[9px] text-neutral-500 transition-all duration-150 hover:border-green-500/60 hover:text-emerald-500 active:scale-95"
+                >
+                  Settings
+                </button>
               )}
-            </button>
+              <button
+                onClick={() => removeModel(m.id, m.name)}
+                disabled={deleting === m.id || active}
+                title={active ? 'Switch to another model before deleting' : 'Delete from disk'}
+                className="rounded p-1 text-neutral-700 transition-all duration-150 hover:text-red-400 active:scale-90 disabled:opacity-30 group-hover:text-neutral-500"
+              >
+                {deleting === m.id ? (
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <IconTrash className="h-3 w-3" />
+                )}
+              </button>
+            </div>
           )}
         </div>
 

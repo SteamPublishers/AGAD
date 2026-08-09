@@ -19,16 +19,37 @@ import { SettingsPermissionsPanel } from './PermissionsPanel'
 export { ModelPipelineSection } from './ProcessingControls'
 
 const SETTINGS_SECTION_TITLES: Record<string, string> = {
-  permissions: 'Setup & health'
+  setup: 'Setup & health',
+  permissions: 'Setup & health',
+  capture: 'Capture & processing',
+  sync: 'Device sync',
+  identity: 'You',
+  secretary: 'What Off Grid has learned',
+  'pro-plan': 'Your Pro plan',
+  privacy: 'Data & privacy',
+  backup: 'Backup & restore',
+  shortcuts: 'Keyboard shortcuts',
+  update: 'Software update'
 }
+
+const SETTINGS_TITLE_IDS = Object.fromEntries(
+  Object.entries(SETTINGS_SECTION_TITLES)
+    .filter(([id]) => id !== 'permissions')
+    .map(([id, title]) => [title, id])
+) as Record<string, string>
 
 export function Settings({
   initialSection,
-  onInitialSectionConsumed
+  onInitialSectionConsumed,
+  activeSection,
+  onSectionChange
 }: {
   initialSection?: string | null
   onInitialSectionConsumed?: () => void
+  activeSection?: string | null
+  onSectionChange?: (section: string | null) => void
 } = {}): React.ReactElement {
+  const selectedSection = activeSection === undefined ? initialSection : activeSection
   // Pro/core aware: the pro Settings sections (identity / proactive / secretary /
   // plan) render only when the pro package has registered them (section registry);
   // the free build shows the catalogued placeholders. isPro still drives the header
@@ -51,9 +72,9 @@ export function Settings({
   }, [])
 
   useEffect(() => {
-    if (!initialSection) return
+    if (!selectedSection) return
     const timer = window.setTimeout(() => {
-      if (initialSection === 'permissions') {
+      if (selectedSection === 'permissions') {
         const target: {
           scrollIntoView?: (options?: ScrollIntoViewOptions) => void
         } | null = document.getElementById('settings-permissions')
@@ -62,7 +83,7 @@ export function Settings({
       onInitialSectionConsumed?.()
     }, 350)
     return () => window.clearTimeout(timer)
-  }, [initialSection, onInitialSectionConsumed])
+  }, [selectedSection, onInitialSectionConsumed])
 
   return (
     <div className="relative flex h-full flex-col">
@@ -110,7 +131,17 @@ export function Settings({
           {/* Grid of section cards; clicking one opens it as a full-width L2 detail
               (single-open) and hides the rest — one seam via SettingsCardsGroup. */}
           <SettingsCardsGroup
-            initialOpenId={initialSection ? SETTINGS_SECTION_TITLES[initialSection] : null}
+            initialOpenId={selectedSection ? SETTINGS_SECTION_TITLES[selectedSection] : null}
+            openId={
+              onSectionChange
+                ? selectedSection
+                  ? (SETTINGS_SECTION_TITLES[selectedSection] ?? null)
+                  : null
+                : undefined
+            }
+            onOpenIdChange={(title) =>
+              onSectionChange?.(title ? (SETTINGS_TITLE_IDS[title] ?? null) : null)
+            }
           >
             {/* Each section is a collapsed-by-default accordion (SettingsCard). */}
             <SettingsCard

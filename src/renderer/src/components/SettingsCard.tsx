@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { LockKey, CaretDown, CaretLeft, Clock } from '@phosphor-icons/react'
 import { cn } from '@renderer/lib/utils'
@@ -22,23 +22,21 @@ const GroupContext = createContext<AccordionGroup | null>(null)
 
 export function SettingsCardsGroup({
   children,
-  initialOpenId = null
+  initialOpenId = null,
+  openId: controlledOpenId,
+  onOpenIdChange
 }: {
   children: React.ReactNode
   initialOpenId?: string | null
+  openId?: string | null
+  onOpenIdChange?: (id: string | null) => void
 }): React.ReactElement {
-  const [openId, setOpenId] = useState<string | null>(initialOpenId)
-  useEffect(() => {
-    if (!openId) return
-    const collapseDetail = (event: KeyboardEvent): void => {
-      if (!(event.metaKey || event.ctrlKey) || event.key !== ']') return
-      event.preventDefault()
-      event.stopPropagation()
-      setOpenId(null)
-    }
-    window.addEventListener('keydown', collapseDetail, true)
-    return () => window.removeEventListener('keydown', collapseDetail, true)
-  }, [openId])
+  const [localOpenId, setLocalOpenId] = useState<string | null>(initialOpenId)
+  const openId = controlledOpenId === undefined ? localOpenId : controlledOpenId
+  const setOpenId = (id: string | null): void => {
+    if (controlledOpenId === undefined) setLocalOpenId(id)
+    onOpenIdChange?.(id)
+  }
   return <GroupContext.Provider value={{ openId, setOpenId }}>{children}</GroupContext.Provider>
 }
 

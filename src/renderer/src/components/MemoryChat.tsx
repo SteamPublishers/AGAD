@@ -25,10 +25,11 @@ import { getSlot, SLOTS } from '@/bootstrap/slotRegistry'
 import { ArtifactCanvas, parseArtifact, type Artifact } from './ArtifactCanvas'
 import { VoiceBubble, stopAllVoicePlayback } from './VoiceBubble'
 import { SkillsPanel } from './SkillsPanel'
-import { SettingsPanel } from './SettingsPanel'
 import { ModelPicker } from './ModelPicker'
+import { SettingsPanel } from './SettingsPanel'
 import { ConversationTitleActions } from './ConversationTitleActions'
 import { resolveImageParams, setOverride, type ImageParamStore } from '@renderer/lib/image-params'
+import { IMAGE_SETTINGS_CHANGED_EVENT } from '@renderer/lib/image-settings-events'
 import { shouldAutoRouteImage, cleanImagePrompt } from '@renderer/lib/image-intent'
 import {
   buildAssistantContext,
@@ -680,8 +681,8 @@ export function MemoryChat({
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [speakLoadingId, setSpeakLoadingId] = useState<string | null>(null)
   const [speakError, setSpeakError] = useState<{ id: string; message: string } | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Active text model + running context window, shown in the composer. Refreshes when
   // the model picker closes (the selection may have changed).
   const modelSummary = useActiveModelSummary(modelPickerOpen)
@@ -907,6 +908,20 @@ export function MemoryChat({
       /* engine may be down; leave prior state */
     }
   }, [])
+  useEffect(() => {
+    const refreshImageSettings = (): void => {
+      void Promise.all([window.api.getSettings(), refreshImageModel()]).then(([settings]) => {
+        if (settings.imageParams && typeof settings.imageParams === 'object')
+          setImgParamStore(settings.imageParams as ImageParamStore)
+        if (typeof settings.imgSeed === 'string') setImgSeed(settings.imgSeed)
+        if (typeof settings.imgNegative === 'string') setImgNegative(settings.imgNegative)
+        if (typeof settings.enhanceImagePrompts === 'boolean')
+          setEnhanceImg(settings.enhanceImagePrompts)
+      })
+    }
+    window.addEventListener(IMAGE_SETTINGS_CHANGED_EVENT, refreshImageSettings)
+    return () => window.removeEventListener(IMAGE_SETTINGS_CHANGED_EVENT, refreshImageSettings)
+  }, [refreshImageModel])
   // When the model picker closes it may have changed the active image model
   // (setActiveModalModel). Re-read so the composer reflects the single source of
   // truth rather than a stale mirror.
@@ -2140,10 +2155,10 @@ export function MemoryChat({
   const closePanels = useCallback(() => {
     setCanvasArtifact(null)
     setSkillsOpen(false)
-    setSettingsOpen(false)
     setViewer(null)
     setShowGallery(false)
     setModelPickerOpen(false)
+    setSettingsOpen(false)
   }, [])
   const openCanvas = useCallback(
     (a: Artifact) => {
@@ -2488,7 +2503,7 @@ export function MemoryChat({
           </svg>
         </button>
 
-        {/* Settings — model params, voice, tools, connectors (right-side panel) */}
+        {/* Keep the conversation in place while its model settings drawer is open. */}
         <button
           onClick={() => {
             closePanels()
@@ -4865,9 +4880,9 @@ export function MemoryChat({
         />
       )}
 
-      {/* Settings — model params, voice, tools, connectors */}
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       {modelPickerOpen && <ModelPicker onClose={() => setModelPickerOpen(false)} />}
+
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
 
       {/* Attachment viewer — same full-screen overlay layout as the image lightbox
           (floating Download/Close top-right, content centered), for text/PDF/docs.

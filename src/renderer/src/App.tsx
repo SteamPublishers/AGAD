@@ -5,6 +5,7 @@ import logo from './assets/logo.png'
 import { useMeetingRecorder } from './useMeetingRecorder'
 import { MemoryChat } from './components/MemoryChat'
 import { Settings } from './components/Settings'
+import { SettingsPanel } from './components/SettingsPanel'
 import { ModelsScreen } from './components/ModelsScreen'
 import { ProjectsScreen } from './components/ProjectsScreen'
 import { ConnectorsScreen } from './components/ConnectorsScreen'
@@ -53,6 +54,10 @@ import { OFF_GRID_MOBILE_URL, openExternal } from './constants/links'
 import { cn } from './lib/utils'
 import { normalizeProNavigationIntent, type ProNavigationIntent } from './lib/pro-navigation'
 import { navigateSearchHit } from './lib/search-navigation'
+import {
+  OPEN_MODEL_SETTINGS_PANEL_EVENT,
+  type ModelSettingsPanelTab
+} from './lib/model-settings-panel'
 import { callHook } from './bootstrap/hookRegistry'
 import {
   NOTIFICATION_METADATA_HOOK,
@@ -92,12 +97,14 @@ type ViewMode =
 interface NavigationIntent {
   view: ViewMode
   section?: string
+  subroute?: string
 }
 
 // Navigation state type for history tracking
 interface NavigationState {
   viewMode: ViewMode
   subroute: string | null
+  settingsSection: string | null
   selectedSessionId: string | null
   selectedMemoryId: number | null
   selectedEntityId: number | null
@@ -270,6 +277,8 @@ function AppContent() {
   const [settingsSection, setSettingsSection] = useState<string | null>(null)
   const [settingsNavigationKey, setSettingsNavigationKey] = useState(0)
   const [navigationSubroute, setNavigationSubroute] = useState<string | null>(null)
+  const [modelSettingsOpen, setModelSettingsOpen] = useState(false)
+  const [modelSettingsTab, setModelSettingsTab] = useState<ModelSettingsPanelTab>('model')
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [selectedMemoryId, setSelectedMemoryId] = useState<number | null>(null)
   // Version of a downloaded-and-staged update (null = none). Surfaced as a banner
@@ -354,7 +363,13 @@ function AppContent() {
       '/devices': 'devices'
     }
 
-    if (viewMap[path]) {
+    if (path.startsWith('/settings/')) {
+      setSettingsSection(decodeURIComponent(path.slice('/settings/'.length)) || null)
+      setNavigationSubroute(null)
+      setViewMode('settings')
+    } else if (viewMap[path]) {
+      setNavigationSubroute(null)
+      setSettingsSection(null)
       setViewMode(viewMap[path])
     }
   }, [])
@@ -366,6 +381,7 @@ function AppContent() {
       const intent = (e as CustomEvent<unknown>).detail
       if (typeof intent === 'string') {
         setSettingsSection(null)
+        setNavigationSubroute(null)
         setViewMode(intent as ViewMode)
         return
       }
@@ -373,15 +389,31 @@ function AppContent() {
       const navigation = intent as NavigationIntent
       setSettingsSection(navigation.view === 'settings' ? (navigation.section ?? null) : null)
       if (navigation.view === 'settings') setSettingsNavigationKey((value) => value + 1)
+      setNavigationSubroute(navigation.view === 'devices' ? (navigation.subroute ?? null) : null)
       setViewMode(navigation.view)
     }
     window.addEventListener('og:navigate', onNav)
     // Main-driven navigation (tray → a screen).
-    const offNav = window.api.onNavigate?.((v: string) => setViewMode(v as ViewMode))
+    const offNav = window.api.onNavigate?.((v: string) => {
+      setNavigationSubroute(null)
+      setSettingsSection(null)
+      setViewMode(v as ViewMode)
+    })
     return () => {
       window.removeEventListener('og:navigate', onNav)
       offNav?.()
     }
+  }, [])
+
+  useEffect(() => {
+    const open = (event: Event): void => {
+      const detail = (event as CustomEvent<{ tab?: ModelSettingsPanelTab } | undefined>).detail
+      const requestedTab = detail ? detail.tab : undefined
+      setModelSettingsTab(requestedTab ?? 'model')
+      setModelSettingsOpen(true)
+    }
+    window.addEventListener(OPEN_MODEL_SETTINGS_PANEL_EVENT, open)
+    return () => window.removeEventListener(OPEN_MODEL_SETTINGS_PANEL_EVENT, open)
   }, [])
 
   // Update browser URL when view mode changes
@@ -410,11 +442,14 @@ function AppContent() {
       devices: '/devices'
     }
 
-    const newPath = urlMap[viewMode]
+    const newPath =
+      viewMode === 'settings' && settingsSection
+        ? `/settings/${encodeURIComponent(settingsSection)}`
+        : urlMap[viewMode]
     if (window.location.pathname !== newPath) {
       window.history.replaceState(null, '', newPath)
     }
-  }, [viewMode])
+  }, [navigationSubroute, settingsSection, viewMode])
 
   // Record the committed destination before paint so an immediate keyboard/back-button action
   // cannot observe the new screen while history still points at the previous screen. A passive
@@ -429,6 +464,7 @@ function AppContent() {
     const currentState: NavigationState = {
       viewMode,
       subroute: viewMode === 'devices' ? navigationSubroute : null,
+      settingsSection: viewMode === 'settings' ? settingsSection : null,
       selectedSessionId,
       selectedMemoryId,
       selectedEntityId,
@@ -440,6 +476,7 @@ function AppContent() {
       lastState &&
       lastState.viewMode === currentState.viewMode &&
       lastState.subroute === currentState.subroute &&
+      lastState.settingsSection === currentState.settingsSection &&
       lastState.selectedSessionId === currentState.selectedSessionId &&
       lastState.selectedMemoryId === currentState.selectedMemoryId &&
       lastState.selectedEntityId === currentState.selectedEntityId &&
@@ -458,6 +495,7 @@ function AppContent() {
   }, [
     viewMode,
     navigationSubroute,
+    settingsSection,
     selectedSessionId,
     selectedMemoryId,
     selectedEntityId,
@@ -522,6 +560,7 @@ function AppContent() {
       if (previousState) {
         setViewMode(previousState.viewMode)
         setNavigationSubroute(previousState.subroute)
+        setSettingsSection(previousState.settingsSection)
         setSelectedSessionId(previousState.selectedSessionId)
         setSelectedMemoryId(previousState.selectedMemoryId)
         setSelectedEntityId(previousState.selectedEntityId)
@@ -543,6 +582,7 @@ function AppContent() {
         // Apply the state
         setViewMode(nextState.viewMode)
         setNavigationSubroute(nextState.subroute)
+        setSettingsSection(nextState.settingsSection)
         setSelectedSessionId(nextState.selectedSessionId)
         setSelectedMemoryId(nextState.selectedMemoryId)
         setSelectedEntityId(nextState.selectedEntityId)
@@ -671,7 +711,8 @@ function AppContent() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === '[') {
         e.preventDefault()
-        navigateBack()
+        if (modelSettingsOpen) setModelSettingsOpen(false)
+        else navigateBack()
       } else if ((e.metaKey || e.ctrlKey) && e.key === ']') {
         e.preventDefault()
         navigateForward()
@@ -679,7 +720,7 @@ function AppContent() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [navigateBack, navigateForward])
+  }, [modelSettingsOpen, navigateBack, navigateForward])
 
   // Original sidebar order preserved. Pro tabs pull their icon/label from the
   // static catalogue and are marked locked in the free build (open the
@@ -757,6 +798,8 @@ function AppContent() {
   // One way in to a screen, used by the sidebar and by the command palette: switching screens also
   // drops whatever row was selected in the old one, so a stale detail pane never rides along.
   const goToView = (view: ViewMode): void => {
+    setNavigationSubroute(null)
+    setSettingsSection(null)
     setViewMode(view)
     setSelectedSessionId(null)
     setSelectedMemoryId(null)
@@ -972,7 +1015,15 @@ function AppContent() {
             <div className="flex flex-col gap-1 border-t border-neutral-200 pt-2 dark:border-neutral-800">
               <ModelStatusDot
                 open={sidebarOpen}
-                onClick={() => (sidebarOpen ? setViewMode('settings') : setSidebarOpen(true))}
+                onClick={() => {
+                  if (!sidebarOpen) {
+                    setSidebarOpen(true)
+                    return
+                  }
+                  setNavigationSubroute(null)
+                  setSettingsSection(null)
+                  setViewMode('settings')
+                }}
               />
               <NavThemeToggle expanded={sidebarOpen} />
               {bottomNav.map(renderNavItem)}
@@ -1072,8 +1123,8 @@ function AppContent() {
                   ) : viewMode === 'settings' ? (
                     <Settings
                       key={settingsNavigationKey}
-                      initialSection={settingsSection}
-                      onInitialSectionConsumed={() => setSettingsSection(null)}
+                      activeSection={settingsSection}
+                      onSectionChange={setSettingsSection}
                     />
                   ) : proFeatureComingSoon(viewMode, currentPlatform(), isPro) ? (
                     <UpgradeScreen variant="coming-soon" feature={getProFeature(viewMode)} />
@@ -1117,6 +1168,13 @@ function AppContent() {
           </div>
         </div>
       </div>
+      {modelSettingsOpen && (
+        <SettingsPanel
+          key={modelSettingsTab}
+          initialTab={modelSettingsTab}
+          onClose={() => setModelSettingsOpen(false)}
+        />
+      )}
     </div>
   )
 }

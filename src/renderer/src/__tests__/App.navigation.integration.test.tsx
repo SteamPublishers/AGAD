@@ -131,6 +131,54 @@ describe('<App/> desktop navigation integration', () => {
     expect(proOn).toHaveBeenCalledWith('notification:open-target', expect.any(Function))
   })
 
+  it('opens active-model settings over the originating screen and closes it with Cmd+[', async () => {
+    window.history.replaceState(null, '', '/models')
+    let llmSettings = {
+      ctxSize: 65536,
+      effectiveCtxSize: 32768,
+      modelMaxCtx: 262144
+    }
+    const setLlmSettings = vi.fn(async (patch: Partial<typeof llmSettings>) => {
+      llmSettings = { ...llmSettings, ...patch, effectiveCtxSize: patch.ctxSize ?? 32768 }
+    })
+    installAppBoundary({
+      getModelCatalog: async () => ({
+        kinds: ['vision'],
+        models: [
+          {
+            id: 'local/qwen',
+            name: 'Qwen 3.5 2B',
+            kind: 'vision',
+            files: [{ name: 'qwen.gguf', url: 'https://example.test/qwen.gguf', sizeBytes: 2e9 }]
+          }
+        ]
+      }),
+      getInstalledModels: async () => ['local/qwen'],
+      getActiveModelIds: async () => ['local/qwen'],
+      getActiveModel: async () => 'local/qwen',
+      getLlmSettings: async () => llmSettings,
+      setLlmSettings
+    })
+    render(<App />)
+    await waitFor(() => expect(window.location.pathname).toBe('/models'))
+    act(() => {
+      window.dispatchEvent(new CustomEvent('og:open-model-settings-panel'))
+    })
+
+    expect(await screen.findByRole('dialog', { name: 'Model settings' })).toBeTruthy()
+    expect(window.location.pathname).toBe('/models')
+    expect(await screen.findByText('Qwen 3.5 2B')).toBeTruthy()
+    expect(screen.getByText('64K')).toBeTruthy()
+    expect(screen.getByText('32K')).toBeTruthy()
+    expect(screen.getByText('16K')).toBeTruthy()
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', metaKey: true, bubbles: true }))
+    })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Model settings' })).toBeNull())
+    expect(window.location.pathname).toBe('/models')
+  })
+
   it('routes permission recovery into the existing Setup & health detail', async () => {
     const user = userEvent.setup()
     installAppBoundary({
@@ -156,6 +204,7 @@ describe('<App/> desktop navigation integration', () => {
     })
 
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeTruthy()
+    expect(window.location.pathname).toBe('/settings/permissions')
     expect(await screen.findByText('System permissions')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Screen Recording' })).toBeTruthy()
     expect(screen.getByText('Permission needed')).toBeTruthy()
@@ -163,6 +212,7 @@ describe('<App/> desktop navigation integration', () => {
 
     await user.click(screen.getByText('Setup & health'))
     await waitFor(() => expect(screen.queryByText('System permissions')).toBeNull())
+    expect(window.location.pathname).toBe('/settings')
 
     act(() => {
       window.dispatchEvent(
