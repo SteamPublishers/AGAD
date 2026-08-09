@@ -148,6 +148,22 @@ export function cancelDownload(modelId: string): boolean {
   return cancelled
 }
 
+/** A download refused before it ever reached the queue is still an OUTCOME the watchers must see.
+ *  The refusal used to be returned to the caller only, so the status registry kept whatever the UI
+ *  had assumed and the card sat on a spinner forever. Publishing 'failed' the same way a mid-transfer
+ *  failure does means every client — the screen, a headless poller, the registry — learns the same
+ *  thing from one place, whether the download died at byte zero or at the last one. */
+function publishRefusal(
+  modelId: string,
+  error: string,
+  onProgress?: ProgressCb
+): { success: false; error: string } {
+  const p: DownloadProgress = { modelId, status: 'failed', percent: 0, error }
+  lastProgress.set(modelId, p)
+  onProgress?.(p)
+  return { success: false, error }
+}
+
 /** Download a catalog entry or any Hugging Face repo id. Progress via callback
  *  AND a status registry (so a headless poller can read it). */
 export async function downloadModel(
@@ -159,14 +175,14 @@ export async function downloadModel(
       modelId,
       reason: 'application_shutdown'
     })
-    return { success: false, error: DOWNLOAD_INTERRUPTED_ERROR }
+    return publishRefusal(modelId, DOWNLOAD_INTERRUPTED_ERROR, onProgress)
   }
   const { CATALOG, resolveHuggingFaceModel } = await import('@offgrid/models')
   const inCatalog = CATALOG.find((m) => m.id === modelId)
   const entry = inCatalog ?? (await resolveHuggingFaceModel(modelId))
   if (!entry) {
     writeDiagnosticLog('models.download', 'request.rejected', { modelId, reason: 'unknown_model' })
-    return { success: false, error: 'unknown model' }
+    return publishRefusal(modelId, 'unknown model', onProgress)
   }
   writeDiagnosticLog('models.download', 'request.accepted', {
     modelId,
