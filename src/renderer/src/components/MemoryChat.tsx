@@ -3130,9 +3130,16 @@ export function MemoryChat({
                       })()}
                       <div
                         className={
+                          // An assistant turn with no answer draws no bubble - not while it is
+                          // streaming, and not when it finishes that way either. A reply that is
+                          // ALL reasoning ends up here: the thinking has its own block above, and
+                          // this box would be an empty rounded rectangle underneath it. The image
+                          // and the retry card live inside this box, so a turn carrying one keeps
+                          // its bubble even with no text.
                           message.role === 'assistant' &&
-                          message.streaming &&
-                          !message.content.trim()
+                          !message.content.trim() &&
+                          !message.image &&
+                          !message.imageMemoryRetry
                             ? 'hidden'
                             : `rounded-md px-3.5 py-2.5 text-sm leading-relaxed ${
                                 // While editing, expand to a full, usable width instead
