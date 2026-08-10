@@ -1129,3 +1129,35 @@ rest of this document: a port is either serving or it is not, and only the serve
 
 Found while landing the generated-image sync fixes; NOT caused by them (they cannot close a socket),
 though that was argued from the failure mechanism rather than proved against the base commit.
+
+---
+
+## Deliveries outlive the device, and inflate every count the user reads
+
+2,246 of the delivery rows on this Mac point at a `device_id` that is not in `sync_paired_devices`
+at all. They can never succeed, and they are counted:
+
+| device_id | in paired table | rows |
+|---|---|---|
+| `6e1c3b7150fb1f088b52a4c2e99eda78` | no | 2,077 (1,559 skipped · 367 failed · 150 queued · 95 sent · 2 rejected) |
+| `8Lj2tUzzpBQ1zJEPHGfrSw` | no | 119 (78 sent · 18 dismissed · 16 rejected · 5 skipped · 2 queued) |
+
+A device is forgotten and its deliveries stay. So "158 queued" and the failure total describe work
+aimed at machines this Mac no longer has any relationship with, and no retry can ever clear them.
+The delivery is parented by a device, so forgetting the device must settle its deliveries - the same
+lifecycle rule as everywhere else in this document.
+
+**Second, smaller finding.** Those two ids are not the same SHAPE. A device id here is 32 hex chars
+and a membership id is 11; `8Lj2tUzzpBQ1zJEPHGfrSw` is 22 base64url chars, which decodes to 16 bytes -
+the same width a device id encodes as hex, but not equal to any id this Mac holds. So the column has
+carried more than one id encoding over its life. Worth confirming before any migration keys on the
+column, because a comparison between the two forms silently fails.
+
+**This also corrects two entries in the previous session's handoff.**
+
+1. `service.listPaired()` does NOT return 1. It reads `sync_paired_devices`, which holds all three
+   devices. `pro:sync:share-file` resolves destinations from it, so destinations were never narrowed
+   to the offline Windows machine. The "all 1 paired device" count came from the RENDERER being
+   handed `saved` instead of the whole mesh, and that is already fixed on this branch.
+2. The failures are not one offline machine. They are spread: Windows 1,928 · iPhone 480 ·
+   a forgotten device 367. And the phones do receive - iPhone 103 sent, Nord 12 sent.
