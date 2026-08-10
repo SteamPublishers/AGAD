@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createSharedFileDescriptor } from '@offgrid/sync'
@@ -74,6 +75,23 @@ export function shareGeneratedImage(imagePath: string, shownIn?: ChatHome): bool
   }
   emitSharedFileMutation({ kind: 'put', filePath: imagePath, file: descriptor })
   return true
+}
+
+/**
+ * Describe an image, giving it an identity first if it has never had one.
+ *
+ * For the images already on disk before the sidecar carried a syncId. The alternative - and what the
+ * backfill used to do - is to mint a fresh id on the spot without writing it down, so the same
+ * picture gets a different name on every scan and no peer can tell it from a new image. Assigning
+ * once and recording it means the name survives.
+ */
+export function describeGeneratedImageEnsuringIdentity(
+  imagePath: string
+): SharedFileDescriptor | null {
+  if (!readGeneratedImageSidecar(imagePath).syncId) {
+    writeGeneratedImageSidecar(imagePath, { syncId: randomUUID() })
+  }
+  return describeGeneratedImage(imagePath)
 }
 
 /**
