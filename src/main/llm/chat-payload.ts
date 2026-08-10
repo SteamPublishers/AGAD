@@ -64,3 +64,39 @@ export function thinkingPayload(thinking: boolean): {
   }
   return { chat_template_kwargs: { enable_thinking: false } }
 }
+
+/** What a client asked for, or undefined when it said nothing about thinking. */
+export function requestedThinking(body: Record<string, unknown>): boolean | undefined {
+  const kwargs = body.chat_template_kwargs
+  if (typeof kwargs !== 'object' || kwargs === null) return undefined
+  const asked = (kwargs as Record<string, unknown>).enable_thinking
+  return typeof asked === 'boolean' ? asked : undefined
+}
+
+/**
+ * Answer a client's thinking request the way this server answers its own.
+ *
+ * Turning thinking on for the loaded model takes TWO things: the template switch, and
+ * `reasoning_format` so llama.cpp separates the reasoning out instead of burying it. Only this
+ * process knows the second one, because it is a property of the model server it runs, not of the
+ * request. A client that sends the switch alone gets a model that reasons into nowhere: the phone
+ * asked for thinking, the reply came back with an empty reasoning field, and the toggle looked
+ * broken from the one side that could not see why.
+ *
+ * So a client says WHETHER it wants thinking, and this decides HOW. A request that says nothing is
+ * left exactly as it is, and keeps the model's own default.
+ *
+ * Returns whether the body changed.
+ */
+export function applyThinkingPayload(body: Record<string, unknown>): boolean {
+  const asked = requestedThinking(body)
+  if (asked === undefined) return false
+  const resolved = thinkingPayload(asked)
+  body.chat_template_kwargs = resolved.chat_template_kwargs
+  if (resolved.reasoning_format !== undefined) {
+    body.reasoning_format = resolved.reasoning_format
+  } else {
+    delete body.reasoning_format
+  }
+  return true
+}

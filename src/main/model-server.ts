@@ -53,6 +53,7 @@ import {
 import { errBody, errMeta } from './model-server/errors'
 import { isAsync, matchPollRoute } from './model-server/async-request'
 import { sanitizeChatMessages } from './model-server/chat-messages'
+import { applyThinkingPayload } from './llm/chat-payload'
 import { parseMultipart } from './model-server/multipart'
 import { tagLlmEntries, modelEntry, ollamaMirror } from './model-server/models-list'
 import { buildGatewayModalities, type GatewayModalities } from './model-server/health'
@@ -464,6 +465,10 @@ async function handleChat(
     // Gemma 4 (and others) reject system messages that aren't at position 0.
     // Consolidate them before forwarding so any client's ordering works.
     if (sanitizeChatMessages(body)) changed = true
+    // A client says WHETHER it wants thinking; this server decides HOW, because the second half
+    // of the answer (reasoning_format) is a property of the model server running here, not of the
+    // request. Without this a phone could ask for thinking and get a reply with nothing in it.
+    if (applyThinkingPayload(body)) changed = true
     if (changed) forward = Buffer.from(JSON.stringify(body))
   } catch {
     // Image fetch failed — forward the original valid request unchanged so the
