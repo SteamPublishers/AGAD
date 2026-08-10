@@ -17,6 +17,12 @@ export interface GeneratedImageSidecar {
   syncId?: string
   conversationId?: string
   projectId?: string | null
+  /** The message this image hangs under, once the chat has persisted one. */
+  messageId?: string
+  /** When the image was made, in the one wire format. */
+  createdAt?: string
+  width?: number
+  height?: number
   /** Canonical generation parameters, as they travel on the wire. */
   metadataJson?: string
 }
@@ -43,6 +49,10 @@ export function readGeneratedImageSidecar(imagePath: string): GeneratedImageSide
       ...(typeof record.projectId === 'string' || record.projectId === null
         ? { projectId: record.projectId as string | null }
         : {}),
+      ...(typeof record.messageId === 'string' ? { messageId: record.messageId } : {}),
+      ...(typeof record.createdAt === 'string' ? { createdAt: record.createdAt } : {}),
+      ...(typeof record.width === 'number' ? { width: record.width } : {}),
+      ...(typeof record.height === 'number' ? { height: record.height } : {}),
       ...(typeof record.metadataJson === 'string' ? { metadataJson: record.metadataJson } : {})
     }
   } catch {

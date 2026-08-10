@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import fs from 'node:fs'
-import path from 'node:path'
-import { canonicalSharedFileMetadataJson, createSharedFileDescriptor } from '@offgrid/sync'
+import { canonicalSharedFileMetadataJson } from '@offgrid/sync'
 import {
   type ImageGenerationJobContract,
   type ImageGenerationProgressContract,
@@ -11,10 +9,10 @@ import {
   cancelImageGen,
   generateImage,
   saveGeneratedImageScope,
-  type GeneratedImageScope,
   type ImageGenOutput
 } from '../imagegen'
-import { emitSharedFileMutation } from '../sync-shared-file'
+import type { GeneratedImageSidecar } from './gallery-sidecar'
+import { shareGeneratedImage } from './generated-image-share'
 
 export type ImageGenerationJobRequest = ImageGenerationRequestContract & {
   conversationId?: string
@@ -34,13 +32,16 @@ export interface ImageGenerationRuntime {
   ): Promise<ImageGenOutput>
   cancel(): boolean
   /** The scope, not the whole request: the sidecar owns these facts and nothing else here. */
-  saveScope(path: string, scope: GeneratedImageScope): void
+  saveScope(path: string, facts: GeneratedImageSidecar): void
+  /** Offer the finished image to the mesh, described from the sidecar. */
+  share(path: string): boolean
 }
 
 const nativeImageGenerationRuntime: ImageGenerationRuntime = {
   generate: (request, onProgress) => generateImage(request, onProgress),
   cancel: () => cancelImageGen(),
-  saveScope: (path, scope) => saveGeneratedImageScope(path, scope)
+  saveScope: (path, facts) => saveGeneratedImageScope(path, facts),
+  share: (path) => shareGeneratedImage(path)
 }
 
 const idleSnapshot = (): ImageGenerationJobContract => ({
@@ -119,7 +120,15 @@ export class ImageGenerationJobService {
           this.runtime.saveScope(result.path, {
             syncId: id,
             ...(request.conversationId ? { conversationId: request.conversationId } : {}),
-            projectId: request.projectId ?? null
+            projectId: request.projectId ?? null,
+            createdAt: new Date(this.snapshot.startedAt ?? Date.now()).toISOString(),
+            ...(request.width ? { width: request.width } : {}),
+            ...(request.height ? { height: request.height } : {}),
+            metadataJson: canonicalSharedFileMetadataJson({
+              model: result.model,
+              prompt: request.prompt,
+              seed: result.seed
+            })
           })
         } catch (scopeError) {
           console.error(
@@ -138,36 +147,10 @@ export class ImageGenerationJobService {
         progress: null,
         finishedAt: Date.now()
       }
-      if (result.path) {
-        const stat = await fs.promises.stat(result.path)
-        // Built by the ONE builder, as the phone builds it. A literal is checked by nothing until
-        // the far side reads it, and a peer's refusal arrives as silence, so the sender goes on
-        // believing it sent the picture.
-        const descriptor = createSharedFileDescriptor({
-          syncId: id,
-          kind: 'generated_media',
-          name: path.basename(result.path),
-          mimeType: 'image/png',
-          fileSize: stat.size,
-          createdAt: new Date(this.snapshot.startedAt ?? Date.now()).toISOString(),
-          ...(request.conversationId ? { conversationId: request.conversationId } : {}),
-          ...(request.width ? { width: request.width } : {}),
-          ...(request.height ? { height: request.height } : {}),
-          metadataJson: canonicalSharedFileMetadataJson({
-            model: result.model,
-            prompt: request.prompt,
-            seed: result.seed
-          })
-        })
-        if (descriptor) {
-          emitSharedFileMutation({ kind: 'put', filePath: result.path, file: descriptor })
-        } else {
-          // Said out loud. Refusing in silence is indistinguishable from an image nobody generated.
-          console.error(
-            `[image-job] ${JSON.stringify({ event: 'describe-failed', id, path: result.path })}`
-          )
-        }
-      }
+      // Described from the sidecar just written, by the one function the chat link also calls, so a
+      // picture offered when it is made and the same picture offered once its message exists cannot
+      // be described two different ways.
+      if (result.path) this.runtime.share(result.path)
       this.publish()
       console.log(`[image-job] ${JSON.stringify({ event: 'succeeded', id, path: result.path })}`)
       return { ...result, syncId: id }

@@ -13,7 +13,8 @@ import {
   type ImageGenerationRuntime
 } from '../imagegen/job-service'
 import type { ImageGenerationProgressContract } from '../../shared/image-generation-contract'
-import type { GeneratedImageScope, ImageGenOutput } from '../imagegen'
+import type { ImageGenOutput } from '../imagegen'
+import type { GeneratedImageSidecar } from '../imagegen/gallery-sidecar'
 
 /**
  * A real file on disk for the runtime to claim it produced.
@@ -42,12 +43,14 @@ interface ControlledGeneration {
 function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
   runtime: ImageGenerationRuntime
   generation(): ControlledGeneration
-  savedScopes: { path: string; scope: GeneratedImageScope }[]
+  savedScopes: { path: string; scope: GeneratedImageSidecar }[]
+  sharedPaths: string[]
 } {
   let resolveGeneration: ((output: ImageGenOutput) => void) | null = null
   let rejectGeneration: ((error: unknown) => void) | null = null
   let reportProgress: ((progress: ImageGenerationProgressContract) => void) | null = null
-  const savedScopes: { path: string; scope: GeneratedImageScope }[] = []
+  const savedScopes: { path: string; scope: GeneratedImageSidecar }[] = []
+  const sharedPaths: string[] = []
 
   return {
     runtime: {
@@ -62,6 +65,12 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
       saveScope: (path, scope) => {
         if (saveScopeError) throw saveScopeError
         savedScopes.push({ path, scope })
+      },
+      // Sharing reaches the mesh, so it is a boundary here. What is SHARED is asserted through the
+      // scope the sidecar was given, which is what the description is built from.
+      share: (path) => {
+        sharedPaths.push(path)
+        return true
       }
     },
     generation: () => ({
@@ -69,7 +78,8 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
       succeed: (output) => resolveGeneration?.(output),
       fail: (error) => rejectGeneration?.(error)
     }),
-    savedScopes
+    savedScopes,
+    sharedPaths
   }
 }
 
@@ -125,16 +135,27 @@ describe('main-owned image generation job journeys', () => {
       progress: null,
       error: null
     })
+    // Everything the description is built from, in one place. A fact missing here is a fact the
+    // second description - the one made once the chat has a message - would silently drop.
     expect(boundary.savedScopes).toEqual([
       {
         path: output.path,
         scope: {
           syncId: jobs.status().id,
           conversationId: request.conversationId,
-          projectId: request.projectId
+          projectId: request.projectId,
+          createdAt: expect.any(String),
+          width: request.width,
+          height: request.height,
+          metadataJson: JSON.stringify({
+            model: output.model,
+            prompt: request.prompt,
+            seed: output.seed
+          })
         }
       }
     ])
+    expect(boundary.sharedPaths).toEqual([output.path])
 
     const refreshed: string[] = []
     jobs.onConversationUpdated(() => {

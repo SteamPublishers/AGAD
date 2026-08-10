@@ -14,7 +14,8 @@ import { getSetting } from './database'
 import {
   generatedImageSidecarPath,
   readGeneratedImageSidecar,
-  writeGeneratedImageSidecar
+  writeGeneratedImageSidecar,
+  type GeneratedImageSidecar
 } from './imagegen/gallery-sidecar'
 import { enhancePrompt } from './imagegen/prompt-enhance'
 import type { ManagedRuntime } from './runtime-manager'
@@ -413,9 +414,8 @@ export interface ImageGenProgress {
   phase?: 'sampling' | 'decoding'
 }
 
+/** Which chat or project to narrow the gallery to. A filter, not the facts about an image. */
 export interface GeneratedImageScope {
-  /** What this image is called on the mesh. Assigned once, when the image is made. */
-  syncId?: string
   conversationId?: string
   projectId?: string | null
 }
@@ -426,7 +426,7 @@ export interface GeneratedImageScope {
  * export all depend on the same file boundary. Callers should not manufacture
  * sidecars themselves.
  */
-export function saveGeneratedImageScope(imagePath: string, scope: GeneratedImageScope): void {
+export function saveGeneratedImageScope(imagePath: string, facts: GeneratedImageSidecar): void {
   const dir = path.join(dataDir(), 'generated-images')
   const ownedImage = resolveExistingOwnedPath(dir, imagePath)
   if (!ownedImage || !/\.png$/i.test(ownedImage)) {
@@ -435,11 +435,7 @@ export function saveGeneratedImageScope(imagePath: string, scope: GeneratedImage
 
   // Merged by the sidecar owner, not replaced here. The scope is saved AFTER the image has been
   // given its mesh identity, and the write this replaced dropped that identity on every save.
-  writeGeneratedImageSidecar(ownedImage, {
-    ...(scope.syncId ? { syncId: scope.syncId } : {}),
-    conversationId: scope.conversationId,
-    projectId: scope.projectId ?? null
-  })
+  writeGeneratedImageSidecar(ownedImage, facts)
 }
 
 /** Copy one app-owned generated image to a user-selected destination.
