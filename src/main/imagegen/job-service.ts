@@ -12,7 +12,11 @@ import {
   type ImageGenOutput
 } from '../imagegen'
 import type { GeneratedImageSidecar } from './gallery-sidecar'
-import { shareGeneratedImage } from './generated-image-share'
+import {
+  noteGeneratedImageMessage,
+  shareGeneratedImage,
+  type ChatHome
+} from './generated-image-share'
 
 export type ImageGenerationJobRequest = ImageGenerationRequestContract & {
   conversationId?: string
@@ -35,13 +39,16 @@ export interface ImageGenerationRuntime {
   saveScope(path: string, facts: GeneratedImageSidecar): void
   /** Offer the finished image to the mesh, described from the sidecar. */
   share(path: string): boolean
+  /** Record the message the image hangs under, and offer it again with that link. */
+  noteMessage(path: string, shownIn: ChatHome): boolean
 }
 
 const nativeImageGenerationRuntime: ImageGenerationRuntime = {
   generate: (request, onProgress) => generateImage(request, onProgress),
   cancel: () => cancelImageGen(),
   saveScope: (path, facts) => saveGeneratedImageScope(path, facts),
-  share: (path) => shareGeneratedImage(path)
+  share: (path) => shareGeneratedImage(path),
+  noteMessage: (path, shownIn) => noteGeneratedImageMessage({ ...shownIn, imagePath: path })
 }
 
 const idleSnapshot = (): ImageGenerationJobContract => ({
@@ -188,15 +195,24 @@ export class ImageGenerationJobService {
     return true
   }
 
-  /** Called only after the renderer has persisted the generated assistant message.
-   * A remounted Chat observes this and refreshes the conversation from SQLite. */
-  acknowledgeConversation(conversationId: string): boolean {
+  /**
+   * Called only after the renderer has persisted the generated assistant message.
+   * A remounted Chat observes this and refreshes the conversation from SQLite.
+   *
+   * This is also the first moment the message EXISTS, so it is the only moment the image can be told
+   * which message it hangs under. The picture is offered again with that link, which is what lets a
+   * phone move it out of the gallery and under the message instead of drawing a hole.
+   */
+  acknowledgeConversation(conversationId: string, messageId?: string): boolean {
     if (
       !conversationId ||
       this.snapshot.phase !== 'succeeded' ||
       this.snapshot.conversationId !== conversationId
     )
       return false
+    if (messageId && this.snapshot.outputPath) {
+      this.runtime.noteMessage(this.snapshot.outputPath, { conversationId, messageId })
+    }
     for (const listener of this.conversationListeners) {
       try {
         listener(conversationId)

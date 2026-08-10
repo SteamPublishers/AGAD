@@ -15,6 +15,7 @@ import {
 import type { ImageGenerationProgressContract } from '../../shared/image-generation-contract'
 import type { ImageGenOutput } from '../imagegen'
 import type { GeneratedImageSidecar } from '../imagegen/gallery-sidecar'
+import type { ChatHome } from '../imagegen/generated-image-share'
 
 /**
  * A real file on disk for the runtime to claim it produced.
@@ -45,12 +46,14 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
   generation(): ControlledGeneration
   savedScopes: { path: string; scope: GeneratedImageSidecar }[]
   sharedPaths: string[]
+  notedMessages: { path: string; shownIn: ChatHome }[]
 } {
   let resolveGeneration: ((output: ImageGenOutput) => void) | null = null
   let rejectGeneration: ((error: unknown) => void) | null = null
   let reportProgress: ((progress: ImageGenerationProgressContract) => void) | null = null
   const savedScopes: { path: string; scope: GeneratedImageSidecar }[] = []
   const sharedPaths: string[] = []
+  const notedMessages: { path: string; shownIn: ChatHome }[] = []
 
   return {
     runtime: {
@@ -71,6 +74,10 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
       share: (path) => {
         sharedPaths.push(path)
         return true
+      },
+      noteMessage: (path, shownIn) => {
+        notedMessages.push({ path, shownIn })
+        return true
       }
     },
     generation: () => ({
@@ -79,7 +86,8 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
       fail: (error) => rejectGeneration?.(error)
     }),
     savedScopes,
-    sharedPaths
+    sharedPaths,
+    notedMessages
   }
 }
 

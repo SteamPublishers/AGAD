@@ -1742,10 +1742,13 @@ export function setupIPC() {
     return imageGenerationJobs.cancel()
   })
 
-  ipcMain.handle('imagegen:conversation-persisted', async (_event, conversationId: string) => {
-    const imageGenerationJobs = await imageJobPublisherReady
-    return imageGenerationJobs.acknowledgeConversation(conversationId)
-  })
+  ipcMain.handle(
+    'imagegen:conversation-persisted',
+    async (_event, conversationId: string, messageId?: string) => {
+      const imageGenerationJobs = await imageJobPublisherReady
+      return imageGenerationJobs.acknowledgeConversation(conversationId, messageId)
+    }
+  )
 
   ipcMain.handle(
     'imagegen:list',

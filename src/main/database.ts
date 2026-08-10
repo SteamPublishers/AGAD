@@ -1238,12 +1238,26 @@ export function deleteRagConversation(id: string): boolean {
   return true
 }
 
+/** The stored message: the device-local row id, and the uuid every device knows it by. */
+export interface AddedRagMessage {
+  id: number
+  uuid: string
+}
+
+/**
+ * The uuid is RETURNED, not discarded.
+ *
+ * It is the cross-device identity of the message, and it was minted here and thrown away, so a
+ * caller could not name the message it had just created. Anything that had to point at that message
+ * from elsewhere therefore pointed at something device-local instead - which is how a generated
+ * image came to be named by an absolute path on one Mac.
+ */
 export function addRagMessage(
   conversationId: string,
   role: 'user' | 'assistant',
   content: string,
   context?: unknown
-): number {
+): AddedRagMessage {
   const db = getDB()
   const contextJson = context ? JSON.stringify(context) : null
   const uuid = crypto.randomUUID()
@@ -1271,7 +1285,7 @@ export function addRagMessage(
     entityId: conversationId,
     kind: 'put'
   })
-  return Number(info.lastInsertRowid)
+  return { id: Number(info.lastInsertRowid), uuid }
 }
 
 // Keep the first `keepCount` messages of a conversation (chronological) and

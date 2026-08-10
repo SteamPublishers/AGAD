@@ -149,9 +149,19 @@ type ChatMessage = {
 
 type ChatMode = 'ask' | 'image'
 
-async function announceImageMessagePersisted(conversationId: string): Promise<void> {
+/**
+ * Tell main the generated assistant message is durable, and WHICH message it is.
+ *
+ * The message id is the point. The image was offered to the mesh before the message existed, so the
+ * file record could not say what it hung under, and every peer filed the picture in its gallery and
+ * left the chat empty. Naming the message here is what completes the record.
+ */
+async function announceImageMessagePersisted(
+  conversationId: string,
+  messageId: string
+): Promise<void> {
   try {
-    await window.api.imageGenConversationPersisted?.(conversationId)
+    await window.api.imageGenConversationPersisted?.(conversationId, messageId)
   } catch {
     /* The message is already durable; a later mount still loads it from SQLite. */
   }
@@ -1553,11 +1563,13 @@ export function MemoryChat({
         }
         setConvMessages(convId, (prev) => [...prev, assistantMessage])
         try {
-          await window.api.addRagMessage(convId, 'assistant', `Generated for: ${trimmed}`, {
-            image: img.path,
-            imageMetadata
-          })
-          await announceImageMessagePersisted(convId)
+          const stored = await window.api.addRagMessage(
+            convId,
+            'assistant',
+            `Generated for: ${trimmed}`,
+            { image: img.path, imageMetadata }
+          )
+          await announceImageMessagePersisted(convId, stored.uuid)
         } catch {
           /* ignore */
         }
@@ -1692,11 +1704,11 @@ export function MemoryChat({
               )
             )
             try {
-              await window.api.addRagMessage(convId, 'assistant', answer, {
+              const stored = await window.api.addRagMessage(convId, 'assistant', answer, {
                 ...(toolCtxWithReasoning ?? {}),
                 image: img.path
               })
-              await announceImageMessagePersisted(convId)
+              await announceImageMessagePersisted(convId, stored.uuid)
             } catch {
               /* ignore */
             }
@@ -1793,13 +1805,13 @@ export function MemoryChat({
             )
           )
           try {
-            await window.api.addRagMessage(
+            const stored = await window.api.addRagMessage(
               convId,
               'assistant',
               `Generated: ${imgPrompt.slice(0, 80)}`,
               { image: img.path }
             )
-            await announceImageMessagePersisted(convId)
+            await announceImageMessagePersisted(convId, stored.uuid)
           } catch {
             /* ignore */
           }

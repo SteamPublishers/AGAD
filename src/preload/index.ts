@@ -516,8 +516,8 @@ const offGridApi = {
   imageGenStatus: () => ipcRenderer.invoke('imagegen:status'),
   imageGenJobStatus: () => ipcRenderer.invoke('imagegen:job-status'),
   cancelImageGen: () => ipcRenderer.invoke('imagegen:cancel'),
-  imageGenConversationPersisted: (conversationId: string) =>
-    ipcRenderer.invoke('imagegen:conversation-persisted', conversationId),
+  imageGenConversationPersisted: (conversationId: string, messageId?: string) =>
+    ipcRenderer.invoke('imagegen:conversation-persisted', conversationId, messageId),
   listGeneratedImages: (scope?: { conversationId?: string; projectId?: string | null }) =>
     ipcRenderer.invoke('imagegen:list', scope),
   styleThumbs: () => ipcRenderer.invoke('imagegen:style-thumbs'),
