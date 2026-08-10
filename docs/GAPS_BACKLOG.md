@@ -1104,3 +1104,28 @@ show. Absence is indistinguishable from "there was never a second file".
 
 Independently: `0 failed` next to a logged `request.failed` is its own bug - the failed job is not
 reaching Activity even for the file that DID have a row.
+
+---
+
+## The offline-chat gateway journey cannot reach its own server
+
+`src/main/__tests__/image-runtime-reliability.integration.dbtest.ts > multimodal runtime reliability >
+keeps local chat usable when external network reachability is unavailable` fails with
+`ECONNREFUSED 127.0.0.1:<gatewayPort>`, thrown in 2ms.
+
+Not contention with a neighbouring file: it fails when that file runs alone. The log shows the SAME
+port serving `GET /v1` and `POST /v1/chat/completions` successfully during an earlier test in the
+file, so the listener existed and was torn down between tests. The test then calls
+`startModelServer(gatewayPort)` again and the connect is refused, which says that call does not
+restore a listener once one has been closed on that port.
+
+So the journey under test - chat still answers with no internet - is never exercised at all. It fails
+before the first request. The other six tests in the file pass, including the image-library one.
+
+**Fix shape.** Give the model server one owner of "is there a listener on this port", and make
+`startModelServer` either return the running one or genuinely bind a new one. Today the second call
+appears to no-op against a closed server, which is the same two-answers-for-one-fact shape as the
+rest of this document: a port is either serving or it is not, and only the server can say which.
+
+Found while landing the generated-image sync fixes; NOT caused by them (they cannot close a socket),
+though that was argued from the failure mechanism rather than proved against the base commit.
