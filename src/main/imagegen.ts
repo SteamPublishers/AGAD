@@ -414,6 +414,8 @@ export interface ImageGenProgress {
 }
 
 export interface GeneratedImageScope {
+  /** What this image is called on the mesh. Assigned once, when the image is made. */
+  syncId?: string
   conversationId?: string
   projectId?: string | null
 }
@@ -434,6 +436,7 @@ export function saveGeneratedImageScope(imagePath: string, scope: GeneratedImage
   // Merged by the sidecar owner, not replaced here. The scope is saved AFTER the image has been
   // given its mesh identity, and the write this replaced dropped that identity on every save.
   writeGeneratedImageSidecar(ownedImage, {
+    ...(scope.syncId ? { syncId: scope.syncId } : {}),
     conversationId: scope.conversationId,
     projectId: scope.projectId ?? null
   })

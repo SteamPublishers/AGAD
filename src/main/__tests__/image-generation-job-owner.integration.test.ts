@@ -13,7 +13,7 @@ import {
   type ImageGenerationRuntime
 } from '../imagegen/job-service'
 import type { ImageGenerationProgressContract } from '../../shared/image-generation-contract'
-import type { ImageGenOutput } from '../imagegen'
+import type { GeneratedImageScope, ImageGenOutput } from '../imagegen'
 
 /**
  * A real file on disk for the runtime to claim it produced.
@@ -42,12 +42,12 @@ interface ControlledGeneration {
 function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
   runtime: ImageGenerationRuntime
   generation(): ControlledGeneration
-  savedScopes: { path: string; request: ImageGenerationJobRequest }[]
+  savedScopes: { path: string; scope: GeneratedImageScope }[]
 } {
   let resolveGeneration: ((output: ImageGenOutput) => void) | null = null
   let rejectGeneration: ((error: unknown) => void) | null = null
   let reportProgress: ((progress: ImageGenerationProgressContract) => void) | null = null
-  const savedScopes: { path: string; request: ImageGenerationJobRequest }[] = []
+  const savedScopes: { path: string; scope: GeneratedImageScope }[] = []
 
   return {
     runtime: {
@@ -59,9 +59,9 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
         })
       },
       cancel: () => cancelResult,
-      saveScope: (path, request) => {
+      saveScope: (path, scope) => {
         if (saveScopeError) throw saveScopeError
-        savedScopes.push({ path, request })
+        savedScopes.push({ path, scope })
       }
     },
     generation: () => ({
@@ -115,7 +115,7 @@ describe('main-owned image generation job journeys', () => {
       model: 'Local image model'
     }
     boundary.generation().succeed(output)
-    await expect(generation).resolves.toEqual(output)
+    await expect(generation).resolves.toEqual({ ...output, syncId: jobs.status().id })
 
     expect(firstScreen).not.toContain('succeeded')
     expect(returnedScreen).toContain('succeeded')
@@ -125,7 +125,16 @@ describe('main-owned image generation job journeys', () => {
       progress: null,
       error: null
     })
-    expect(boundary.savedScopes).toEqual([{ path: output.path, request }])
+    expect(boundary.savedScopes).toEqual([
+      {
+        path: output.path,
+        scope: {
+          syncId: jobs.status().id,
+          conversationId: request.conversationId,
+          projectId: request.projectId
+        }
+      }
+    ])
 
     const refreshed: string[] = []
     jobs.onConversationUpdated(() => {
@@ -197,7 +206,7 @@ describe('main-owned image generation job journeys', () => {
 
     boundary.generation().succeed(output)
 
-    await expect(generation).resolves.toEqual(output)
+    await expect(generation).resolves.toEqual({ ...output, syncId: jobs.status().id })
     expect(jobs.status()).toMatchObject({
       phase: 'succeeded',
       outputPath: output.path,
@@ -219,7 +228,7 @@ describe('main-owned image generation job journeys', () => {
     }
 
     boundary.generation().succeed(output)
-    await expect(generation).resolves.toEqual(output)
+    await expect(generation).resolves.toEqual({ ...output, syncId: jobs.status().id })
     expect(jobs.status()).toMatchObject({ phase: 'succeeded', outputPath: '' })
     expect(boundary.savedScopes).toEqual([])
   })

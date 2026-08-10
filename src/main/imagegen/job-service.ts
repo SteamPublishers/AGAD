@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { canonicalSharedFileMetadataJson } from '@offgrid/sync'
+import { canonicalSharedFileMetadataJson, createSharedFileDescriptor } from '@offgrid/sync'
 import {
   type ImageGenerationJobContract,
   type ImageGenerationProgressContract,
@@ -11,6 +11,7 @@ import {
   cancelImageGen,
   generateImage,
   saveGeneratedImageScope,
+  type GeneratedImageScope,
   type ImageGenOutput
 } from '../imagegen'
 import { emitSharedFileMutation } from '../sync-shared-file'
@@ -23,19 +24,23 @@ export type ImageGenerationJobRequest = ImageGenerationRequestContract & {
 type JobListener = (snapshot: ImageGenerationJobContract) => void
 type ConversationListener = (conversationId: string) => void
 
+/** A finished image, and the name it answers to on every device. */
+export type ImageGenerationResult = ImageGenOutput & { syncId: string }
+
 export interface ImageGenerationRuntime {
   generate(
     request: ImageGenerationJobRequest,
     onProgress: (progress: ImageGenerationProgressContract) => void
   ): Promise<ImageGenOutput>
   cancel(): boolean
-  saveScope(path: string, request: ImageGenerationJobRequest): void
+  /** The scope, not the whole request: the sidecar owns these facts and nothing else here. */
+  saveScope(path: string, scope: GeneratedImageScope): void
 }
 
 const nativeImageGenerationRuntime: ImageGenerationRuntime = {
   generate: (request, onProgress) => generateImage(request, onProgress),
   cancel: () => cancelImageGen(),
-  saveScope: (path, request) => saveGeneratedImageScope(path, request)
+  saveScope: (path, scope) => saveGeneratedImageScope(path, scope)
 }
 
 const idleSnapshot = (): ImageGenerationJobContract => ({
@@ -75,7 +80,7 @@ export class ImageGenerationJobService {
     return () => this.conversationListeners.delete(listener)
   }
 
-  async start(request: ImageGenerationJobRequest): Promise<ImageGenOutput> {
+  async start(request: ImageGenerationJobRequest): Promise<ImageGenerationResult> {
     if (this.active) {
       throw new Error('An image is already generating - please wait for it to finish.')
     }
@@ -106,9 +111,16 @@ export class ImageGenerationJobService {
       const result = await this.runtime.generate(request, (progress) =>
         this.updateProgress(id, progress)
       )
-      if (result.path && (request.conversationId || request.projectId)) {
+      // Always, not only inside a chat. The syncId is what this image is called on the mesh, so an
+      // image made from the tool loop or the gateway needs one exactly as much as one made in a
+      // conversation; without it the gallery and the file record name the same picture differently.
+      if (result.path) {
         try {
-          this.runtime.saveScope(result.path, request)
+          this.runtime.saveScope(result.path, {
+            syncId: id,
+            ...(request.conversationId ? { conversationId: request.conversationId } : {}),
+            projectId: request.projectId ?? null
+          })
         } catch (scopeError) {
           console.error(
             `[image-job] ${JSON.stringify({
@@ -128,30 +140,37 @@ export class ImageGenerationJobService {
       }
       if (result.path) {
         const stat = await fs.promises.stat(result.path)
-        emitSharedFileMutation({
-          kind: 'put',
-          filePath: result.path,
-          file: {
-            syncId: id,
-            kind: 'generated_media',
-            name: path.basename(result.path),
-            mimeType: 'image/png',
-            fileSize: stat.size,
-            createdAt: new Date(this.snapshot.startedAt ?? Date.now()).toISOString(),
-            ...(request.conversationId ? { conversationId: request.conversationId } : {}),
-            ...(request.width ? { width: request.width } : {}),
-            ...(request.height ? { height: request.height } : {}),
-            metadataJson: canonicalSharedFileMetadataJson({
-              model: result.model,
-              prompt: request.prompt,
-              seed: result.seed
-            })
-          }
+        // Built by the ONE builder, as the phone builds it. A literal is checked by nothing until
+        // the far side reads it, and a peer's refusal arrives as silence, so the sender goes on
+        // believing it sent the picture.
+        const descriptor = createSharedFileDescriptor({
+          syncId: id,
+          kind: 'generated_media',
+          name: path.basename(result.path),
+          mimeType: 'image/png',
+          fileSize: stat.size,
+          createdAt: new Date(this.snapshot.startedAt ?? Date.now()).toISOString(),
+          ...(request.conversationId ? { conversationId: request.conversationId } : {}),
+          ...(request.width ? { width: request.width } : {}),
+          ...(request.height ? { height: request.height } : {}),
+          metadataJson: canonicalSharedFileMetadataJson({
+            model: result.model,
+            prompt: request.prompt,
+            seed: result.seed
+          })
         })
+        if (descriptor) {
+          emitSharedFileMutation({ kind: 'put', filePath: result.path, file: descriptor })
+        } else {
+          // Said out loud. Refusing in silence is indistinguishable from an image nobody generated.
+          console.error(
+            `[image-job] ${JSON.stringify({ event: 'describe-failed', id, path: result.path })}`
+          )
+        }
       }
       this.publish()
       console.log(`[image-job] ${JSON.stringify({ event: 'succeeded', id, path: result.path })}`)
-      return result
+      return { ...result, syncId: id }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const cancelled = this.snapshot.id === id && this.snapshot.phase === 'cancelled'
