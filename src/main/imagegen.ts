@@ -11,6 +11,11 @@ import { modalityQueue, IMAGE_JOB, CHAT_JOB } from './modality-queue/queue'
 import { getResidencyMode } from './runtime-residency'
 import { llm } from './llm'
 import { getSetting } from './database'
+import {
+  generatedImageSidecarPath,
+  readGeneratedImageSidecar,
+  writeGeneratedImageSidecar
+} from './imagegen/gallery-sidecar'
 import { enhancePrompt } from './imagegen/prompt-enhance'
 import type { ManagedRuntime } from './runtime-manager'
 import {
@@ -110,6 +115,7 @@ export function listGeneratedImages(scope?: GeneratedImageScope): {
   path: string
   name: string
   mtime: number
+  syncId?: string
   conversationId?: string
   projectId?: string | null
 }[] {
@@ -120,17 +126,15 @@ export function listGeneratedImages(scope?: GeneratedImageScope): {
       .filter((f) => /\.png$/i.test(f) && !f.startsWith('preview-'))
       .map((f) => {
         const p = path.join(dir, f)
-        // Optional sidecar with chat/project scope, written by the ipc handler.
-        let meta: { conversationId?: string; projectId?: string | null } = {}
-        try {
-          meta = JSON.parse(fs.readFileSync(`${p}.json`, 'utf8'))
-        } catch {
-          /* no sidecar */
-        }
+        // The sidecar is the one owner of what is known about an image besides its bytes, including
+        // the syncId that names it on the mesh. Read through that module so this scan and the sync
+        // receiver cannot disagree about the shape.
+        const meta = readGeneratedImageSidecar(p)
         return {
           path: p,
           name: f,
           mtime: fs.statSync(p).mtimeMs,
+          syncId: meta.syncId,
           conversationId: meta.conversationId,
           projectId: meta.projectId ?? null
         }
@@ -151,7 +155,7 @@ export function deleteGeneratedImage(p: string): boolean {
     const ownedImage = resolveExistingOwnedPath(dir, p)
     if (!ownedImage || !/\.png$/i.test(ownedImage)) return false
     fs.unlinkSync(ownedImage)
-    fs.rmSync(`${ownedImage}.json`, { force: true })
+    fs.rmSync(generatedImageSidecarPath(ownedImage), { force: true })
     return true
   } catch {
     return false
@@ -427,20 +431,12 @@ export function saveGeneratedImageScope(imagePath: string, scope: GeneratedImage
     throw new Error('Generated image is outside the app image library.')
   }
 
-  const sidecar = `${ownedImage}.json`
-  const temporarySidecar = `${sidecar}.tmp`
-  try {
-    fs.writeFileSync(
-      temporarySidecar,
-      JSON.stringify({
-        conversationId: scope.conversationId,
-        projectId: scope.projectId ?? null
-      })
-    )
-    fs.renameSync(temporarySidecar, sidecar)
-  } finally {
-    fs.rmSync(temporarySidecar, { force: true })
-  }
+  // Merged by the sidecar owner, not replaced here. The scope is saved AFTER the image has been
+  // given its mesh identity, and the write this replaced dropped that identity on every save.
+  writeGeneratedImageSidecar(ownedImage, {
+    conversationId: scope.conversationId,
+    projectId: scope.projectId ?? null
+  })
 }
 
 /** Copy one app-owned generated image to a user-selected destination.
