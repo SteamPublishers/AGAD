@@ -19,6 +19,7 @@ import { classifyLlamaError, modelPortConflictReason } from './llama-error'
 import type { ManagedRuntime } from './runtime-manager'
 import { LLAMA_SERVER_PORT } from '../shared/ports'
 import { DEFAULT_CTX_SIZE } from '../shared/llm-defaults'
+import { acceleratorForEngine, type EngineAccelerator } from '../shared/engine-accelerator'
 import {
   applyModePreset,
   samplingPayload,
@@ -56,7 +57,7 @@ export interface LlmSettings {
   // Launch-time (require a server respawn to take effect):
   kvCacheType?: KvCacheType // quantize the KV cache to cut memory (needs flash-attn)
   flashAttn?: boolean // FlashAttention: faster + lower memory; required for quantized KV
-  gpuLayers?: number // -ngl: layers offloaded to GPU (Metal). 99 = all.
+  gpuLayers?: number // -ngl: layers offloaded to the GPU. 99 = all.
   threads?: number // CPU threads for inference
   batchSize?: number // -b: prompt batch size
 }
@@ -87,6 +88,11 @@ export class LLMService {
   private modelMaxCtx: number | null = null
   private modelMaxCtxFor = ''
   private initialized = false
+  // Which engine binary the last spawn used. Windows ships a Vulkan build and a CPU-only
+  // fallback, so the path is the only record of which one actually took the model. Read
+  // ONLY through activeAccelerator(), which gates it on `initialized` — that flag stays the
+  // single authority on whether an engine is up, rather than a second flag kept in step.
+  private activeEnginePath = ''
   // A model selection is durable as soon as the manager writes active-model.json, but
   // replacing llama-server while it is answering destroys the user's in-flight turn.
   // LLMService owns that process, so it also owns the handoff: admitted generations
@@ -267,6 +273,17 @@ export class LLMService {
     return this.safeCtxSize(this.ctxSize)
   }
 
+  /** The accelerator the RUNNING engine offloads to, or null when none is up (or when the
+   *  platform ships no engine of ours to name). The UI renders this instead of assuming
+   *  Metal, which is what made a Windows box claim a Metal GPU. */
+  activeAccelerator(): EngineAccelerator | null {
+    if (!this.initialized) return null
+    return acceleratorForEngine({
+      platform: process.platform,
+      serverPath: this.activeEnginePath
+    })
+  }
+
   getSettings(): LlmSettings {
     return {
       temperature: this.temperature,
@@ -284,10 +301,16 @@ export class LLMService {
       batchSize: this.batchSize,
       performanceMode: this.performanceMode,
       // Report the EFFECTIVE (clamped) context so the UI can show what's really used, plus the
-      // model's trained maximum so the UI can offer the slider up to it (not a hardcoded cap).
+      // model's trained maximum so the UI can offer the slider up to it (not a hardcoded cap),
+      // plus the accelerator the running engine chose so the UI never has to guess one.
       effectiveCtxSize: this.safeCtxSize(this.ctxSize),
-      modelMaxCtx: this.trainedContext()
-    } as LlmSettings & { effectiveCtxSize: number; modelMaxCtx: number | null }
+      modelMaxCtx: this.trainedContext(),
+      gpuAccelerator: this.activeAccelerator()
+    } as LlmSettings & {
+      effectiveCtxSize: number
+      modelMaxCtx: number | null
+      gpuAccelerator: EngineAccelerator | null
+    }
   }
 
   /** The exact argv handed to `llama-server` for the CURRENT settings — the terminal
@@ -716,6 +739,7 @@ export class LLMService {
     // deliberate and auto-recovery is skipped.
     this.intentionalStop = false
     this.server = proc
+    this.activeEnginePath = serverPath
     this.stderrTail = []
     let abandoned = false // set when we give up on this proc so its close handler is inert
     // True until waitForReady() confirms THIS engine. A close while probing is a failed

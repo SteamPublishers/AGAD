@@ -6,6 +6,7 @@ import {
   MAX_TOKENS_AUTO,
   MIN_CAPTURE_CTX_SIZE
 } from '@offgrid/core/shared/llm-defaults'
+import { gpuLayersHint, type EngineAccelerator } from '@offgrid/core/shared/engine-accelerator'
 import {
   contextWindowOptions,
   contextWindowHint,
@@ -38,6 +39,7 @@ type LlmSettings = {
   batchSize?: number
   effectiveCtxSize?: number // reported by the backend (RAM-clamped); read-only
   modelMaxCtx?: number | null // the model's TRAINED window (GGUF); read-only, bounds the picker
+  gpuAccelerator?: EngineAccelerator | null // the engine the backend actually spawned; read-only
 }
 type Connector = {
   id: number
@@ -461,7 +463,7 @@ export function SettingsPanel({
               <Row
                 label="GPU layers"
                 value={String(s.gpuLayers ?? 99)}
-                hint="Layers offloaded to the GPU (Metal). 99 = all. Lower only if you hit GPU-memory issues."
+                hint={gpuLayersHint(s.gpuAccelerator ?? null)}
               >
                 <input
                   type="range"
