@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { shouldQueue, enqueue, dequeue, queuedCount, clearQueue } from '@renderer/lib/chat-queue'
 import { buildSendHistory } from '@renderer/lib/chat-history'
 import { waitingLabel } from '@renderer/lib/chat-labels'
-import { timeAgo } from '@renderer/lib/time'
+import { parseSqliteUtc, timeAgo } from '@renderer/lib/time'
 import { writeClipboardWithFallback } from '@renderer/lib/clipboard-write'
 import { motion, AnimatePresence } from 'motion/react'
 import { toSpeakableText } from '@renderer/lib/speakable'
@@ -2738,16 +2738,17 @@ export function MemoryChat({
                   { label: 'This week', items: [] },
                   { label: 'Older', items: [] }
                 ]
-                // Ordered HERE, by the same field the row prints. The query already sorts by
-                // updated_at, but a conversation whose timestamp is bumped in place after a new
-                // message keeps its old position in the array, so the list showed "5h ago" above
-                // "just now". Sorting where the value is rendered means the position and the words
-                // cannot disagree, whatever happened to the array since it was fetched.
+                // Read through parseSqliteUtc, the SAME parser the row's label uses. These
+                // timestamps are UTC with no zone marker, and `new Date('2026-08-10 14:00:00')`
+                // reads a space-separated string as LOCAL - so the position said one thing and the
+                // words said another, off by the whole timezone offset. In IST that put "just now"
+                // below "5h ago" and dropped this morning's chats into Yesterday.
                 const ordered = [...filtered].sort(
-                  (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                  (a, b) =>
+                    parseSqliteUtc(b.updated_at).getTime() - parseSqliteUtc(a.updated_at).getTime()
                 )
                 for (const c of ordered) {
-                  const t = new Date(c.updated_at).getTime()
+                  const t = parseSqliteUtc(c.updated_at).getTime()
                   if (t >= startToday) groups[0]!.items.push(c)
                   else if (t >= startToday - 86400000) groups[1]!.items.push(c)
                   else if (t >= startToday - 6 * 86400000) groups[2]!.items.push(c)
