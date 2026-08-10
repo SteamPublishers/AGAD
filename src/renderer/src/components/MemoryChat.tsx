@@ -2738,7 +2738,15 @@ export function MemoryChat({
                   { label: 'This week', items: [] },
                   { label: 'Older', items: [] }
                 ]
-                for (const c of filtered) {
+                // Ordered HERE, by the same field the row prints. The query already sorts by
+                // updated_at, but a conversation whose timestamp is bumped in place after a new
+                // message keeps its old position in the array, so the list showed "5h ago" above
+                // "just now". Sorting where the value is rendered means the position and the words
+                // cannot disagree, whatever happened to the array since it was fetched.
+                const ordered = [...filtered].sort(
+                  (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                )
+                for (const c of ordered) {
                   const t = new Date(c.updated_at).getTime()
                   if (t >= startToday) groups[0]!.items.push(c)
                   else if (t >= startToday - 86400000) groups[1]!.items.push(c)
