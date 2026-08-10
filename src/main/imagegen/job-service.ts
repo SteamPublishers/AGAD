@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { canonicalSharedFileMetadataJson } from '@offgrid/sync'
+import { generatedImageMetadataJson } from '@offgrid/sync'
+import type { ChatHome } from '@offgrid/sync'
 import {
   type ImageGenerationJobContract,
   type ImageGenerationProgressContract,
@@ -12,11 +13,7 @@ import {
   type ImageGenOutput
 } from '../imagegen'
 import type { GeneratedImageSidecar } from './gallery-sidecar'
-import {
-  noteGeneratedImageMessage,
-  shareGeneratedImage,
-  type ChatHome
-} from './generated-image-share'
+import { noteGeneratedImageMessage, shareGeneratedImage } from './generated-image-share'
 
 export type ImageGenerationJobRequest = ImageGenerationRequestContract & {
   conversationId?: string
@@ -131,10 +128,17 @@ export class ImageGenerationJobService {
             createdAt: new Date(this.snapshot.startedAt ?? Date.now()).toISOString(),
             ...(request.width ? { width: request.width } : {}),
             ...(request.height ? { height: request.height } : {}),
-            metadataJson: canonicalSharedFileMetadataJson({
-              model: result.model,
+            // The shared names, so the phone reads what this Mac wrote. It wrote `model` and the
+            // phone reads `modelId`, so every image made here arrived with its model reading
+            // "synced" and its steps reading 0.
+            metadataJson: generatedImageMetadataJson({
               prompt: request.prompt,
-              seed: result.seed
+              ...(request.negativePrompt === undefined
+                ? {}
+                : { negativePrompt: request.negativePrompt }),
+              ...(request.steps === undefined ? {} : { steps: request.steps }),
+              seed: result.seed,
+              modelId: result.model
             })
           })
         } catch (scopeError) {

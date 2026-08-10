@@ -1,60 +1,46 @@
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createSharedFileDescriptor } from '@offgrid/sync'
-import type { SharedFileDescriptor } from '@offgrid/sync'
+import { describeGeneratedImage, readGeneratedImageMetadata } from '@offgrid/sync'
+import type { ChatHome, SharedFileDescriptor } from '@offgrid/sync'
 import { emitSharedFileMutation } from '../sync-shared-file'
 import { readGeneratedImageSidecar, writeGeneratedImageSidecar } from './gallery-sidecar'
 
 /**
- * Where a generated image is shown in the chat, when it is shown there as well as in the gallery.
+ * Gather what this Mac knows about a generated image, then let the shared rule describe it.
  *
- * The same shape the phone uses (`ChatHome`), because it is the same fact. A synced message carries
- * no attachments of its own, so this is the only way the far side can put the image back under the
- * message that produced it.
+ * The split is the point. Reading a sidecar beside a PNG is this platform's business; deciding what
+ * a generated image looks like on the wire is not. That decision lived here AND on the phone, and the
+ * two copies had already disagreed about the name of the model field.
  */
-export interface ChatHome {
-  conversationId: string
-  messageId: string
-}
-
-/**
- * Describe a generated image for the mesh, from the sidecar that owns its facts.
- *
- * One builder, one description, both call sites: the image is described when it is made, and
- * described again when the chat has persisted the message it belongs under. Rebuilding from the
- * sidecar rather than from whatever the caller happens to hold is what stops the second description
- * from quietly dropping the width, the seed, or the time the first one carried.
- */
-export function describeGeneratedImage(
+export function describeOwnGeneratedImage(
   imagePath: string,
   shownIn?: ChatHome
 ): SharedFileDescriptor | null {
   const facts = readGeneratedImageSidecar(imagePath)
   if (!facts.syncId) return null
   const stat = fs.statSync(imagePath)
-  return createSharedFileDescriptor({
-    syncId: facts.syncId,
-    kind: 'generated_media',
-    name: path.basename(imagePath),
-    mimeType: 'image/png',
-    fileSize: stat.size,
-    createdAt: facts.createdAt ?? new Date(stat.mtimeMs).toISOString(),
-    ...(shownIn ? { messageId: shownIn.messageId } : {}),
-    ...(shownIn?.conversationId ?? facts.conversationId
-      ? { conversationId: shownIn?.conversationId ?? facts.conversationId }
-      : {}),
-    ...(facts.width === undefined ? {} : { width: facts.width }),
-    ...(facts.height === undefined ? {} : { height: facts.height }),
-    ...(facts.metadataJson === undefined ? {} : { metadataJson: facts.metadataJson })
-  })
+  const metadata = readGeneratedImageMetadata(facts.metadataJson)
+  return describeGeneratedImage(
+    {
+      syncId: facts.syncId,
+      name: path.basename(imagePath),
+      fileSize: stat.size,
+      createdAt: facts.createdAt ?? new Date(stat.mtimeMs).toISOString(),
+      ...(facts.conversationId ? { conversationId: facts.conversationId } : {}),
+      ...(facts.width === undefined ? {} : { width: facts.width }),
+      ...(facts.height === undefined ? {} : { height: facts.height }),
+      ...(metadata === undefined ? {} : { metadata })
+    },
+    shownIn
+  )
 }
 
 /** Offer a generated image to the mesh. Returns whether it could be described at all. */
 export function shareGeneratedImage(imagePath: string, shownIn?: ChatHome): boolean {
   let descriptor: SharedFileDescriptor | null = null
   try {
-    descriptor = describeGeneratedImage(imagePath, shownIn)
+    descriptor = describeOwnGeneratedImage(imagePath, shownIn)
   } catch (error) {
     // A gallery entry can be deleted while this runs. Still said out loud: this also covers a file
     // that could not be read, which is worth knowing about.
@@ -91,7 +77,7 @@ export function describeGeneratedImageEnsuringIdentity(
   if (!readGeneratedImageSidecar(imagePath).syncId) {
     writeGeneratedImageSidecar(imagePath, { syncId: randomUUID() })
   }
-  return describeGeneratedImage(imagePath)
+  return describeOwnGeneratedImage(imagePath)
 }
 
 /**

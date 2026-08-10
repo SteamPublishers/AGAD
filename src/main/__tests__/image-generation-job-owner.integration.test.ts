@@ -15,7 +15,7 @@ import {
 import type { ImageGenerationProgressContract } from '../../shared/image-generation-contract'
 import type { ImageGenOutput } from '../imagegen'
 import type { GeneratedImageSidecar } from '../imagegen/gallery-sidecar'
-import type { ChatHome } from '../imagegen/generated-image-share'
+import { generatedImageMetadataJson, type ChatHome } from '@offgrid/sync'
 
 /**
  * A real file on disk for the runtime to claim it produced.
@@ -155,10 +155,14 @@ describe('main-owned image generation job journeys', () => {
           createdAt: expect.any(String),
           width: request.width,
           height: request.height,
-          metadataJson: JSON.stringify({
-            model: output.model,
+          // Built by the shared writer, not spelled out here. A literal in the test would let the
+          // wire's field names drift on one platform without a single assertion noticing - which is
+          // exactly what happened: the Mac wrote `model` and the phone only ever read `modelId`.
+          metadataJson: generatedImageMetadataJson({
             prompt: request.prompt,
-            seed: output.seed
+            steps: request.steps,
+            seed: output.seed,
+            modelId: output.model
           })
         }
       }
