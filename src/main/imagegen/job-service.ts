@@ -9,6 +9,7 @@ import {
 import {
   cancelImageGen,
   generateImage,
+  preserveGeneratedImageSource,
   saveGeneratedImageScope,
   type ImageGenOutput
 } from '../imagegen'
@@ -38,6 +39,8 @@ export interface ImageGenerationRuntime {
   share(path: string): boolean
   /** Record the message the image hangs under, and offer it again with that link. */
   noteMessage(path: string, shownIn: ChatHome): boolean
+  /** Keep the app's own copy of the image this generation was based on. */
+  preserveSource(syncId: string, sourcePath: string): string | null
 }
 
 const nativeImageGenerationRuntime: ImageGenerationRuntime = {
@@ -45,7 +48,8 @@ const nativeImageGenerationRuntime: ImageGenerationRuntime = {
   cancel: () => cancelImageGen(),
   saveScope: (path, facts) => saveGeneratedImageScope(path, facts),
   share: (path) => shareGeneratedImage(path),
-  noteMessage: (path, shownIn) => noteGeneratedImageMessage({ ...shownIn, imagePath: path })
+  noteMessage: (path, shownIn) => noteGeneratedImageMessage({ ...shownIn, imagePath: path }),
+  preserveSource: (syncId, sourcePath) => preserveGeneratedImageSource(syncId, sourcePath)
 }
 
 const idleSnapshot = (): ImageGenerationJobContract => ({
@@ -119,10 +123,16 @@ export class ImageGenerationJobService {
       // Always, not only inside a chat. The syncId is what this image is called on the mesh, so an
       // image made from the tool loop or the gateway needs one exactly as much as one made in a
       // conversation; without it the gallery and the file record name the same picture differently.
+      // Kept BEFORE the facts are written, so the record names a copy this app owns rather than a
+      // path on the user's disk that can be moved the moment the generation ends.
+      const keptSource = request.initImage
+        ? this.runtime.preserveSource(id, request.initImage)
+        : null
       if (result.path) {
         try {
           this.runtime.saveScope(result.path, {
             syncId: id,
+            ...(keptSource ? { initImage: keptSource } : {}),
             ...(request.conversationId ? { conversationId: request.conversationId } : {}),
             projectId: request.projectId ?? null,
             createdAt: new Date(this.snapshot.startedAt ?? Date.now()).toISOString(),

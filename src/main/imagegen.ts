@@ -438,6 +438,42 @@ export function saveGeneratedImageScope(imagePath: string, facts: GeneratedImage
   writeGeneratedImageSidecar(ownedImage, facts)
 }
 
+/**
+ * Keep the app's own copy of the image a generation was based on.
+ *
+ * The user picks an init image from their own disk, and nothing kept it: the path was handed to the
+ * generator, used, and forgotten. So the moment that file moved or was deleted there was no record of
+ * what an img2img turn was made from - "convert this into light mode" with nothing to show for the
+ * thing being converted.
+ *
+ * Copies live in a `sources` subdirectory so the gallery scan, which reads PNG files in the directory
+ * itself, does not list an input as though the user had generated it. Returns the copy's path, or null
+ * when the source cannot be read - a generation is not worth failing over its provenance.
+ */
+export function preserveGeneratedImageSource(syncId: string, sourcePath: string): string | null {
+  try {
+    const directory = path.join(dataDir(), 'generated-images', 'sources')
+    fs.mkdirSync(directory, { recursive: true })
+    const extension = path.extname(sourcePath).toLowerCase() || '.png'
+    const kept = path.join(directory, `${syncId}${extension}`)
+    const temporary = `${kept}.part`
+    try {
+      fs.copyFileSync(sourcePath, temporary)
+      fs.renameSync(temporary, kept)
+    } finally {
+      fs.rmSync(temporary, { force: true })
+    }
+    return kept
+  } catch (error) {
+    console.error(
+      `[imagegen] could not keep the init image: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    )
+    return null
+  }
+}
+
 /** Copy one app-owned generated image to a user-selected destination.
  *
  * The copy is promoted atomically so a full destination volume cannot replace

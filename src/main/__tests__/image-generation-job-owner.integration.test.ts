@@ -47,6 +47,7 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
   savedScopes: { path: string; scope: GeneratedImageSidecar }[]
   sharedPaths: string[]
   notedMessages: { path: string; shownIn: ChatHome }[]
+  preservedSources: { syncId: string; sourcePath: string }[]
 } {
   let resolveGeneration: ((output: ImageGenOutput) => void) | null = null
   let rejectGeneration: ((error: unknown) => void) | null = null
@@ -54,6 +55,7 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
   const savedScopes: { path: string; scope: GeneratedImageSidecar }[] = []
   const sharedPaths: string[] = []
   const notedMessages: { path: string; shownIn: ChatHome }[] = []
+  const preservedSources: { syncId: string; sourcePath: string }[] = []
 
   return {
     runtime: {
@@ -78,6 +80,10 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
       noteMessage: (path, shownIn) => {
         notedMessages.push({ path, shownIn })
         return true
+      },
+      preserveSource: (syncId, sourcePath) => {
+        preservedSources.push({ syncId, sourcePath })
+        return `${sourcePath}.kept`
       }
     },
     generation: () => ({
@@ -87,7 +93,8 @@ function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
     }),
     savedScopes,
     sharedPaths,
-    notedMessages
+    notedMessages,
+    preservedSources
   }
 }
 

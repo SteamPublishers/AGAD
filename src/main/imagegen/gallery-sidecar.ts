@@ -19,6 +19,14 @@ export interface GeneratedImageSidecar {
   projectId?: string | null
   /** The message this image hangs under, once the chat has persisted one. */
   messageId?: string
+  /**
+   * The app's own copy of the image this one was generated FROM, for an img2img turn.
+   *
+   * A copy, not the path the user picked. The picked file is theirs - on a Desktop, in a Downloads
+   * folder - and it can be moved or deleted the moment the generation finishes, which left no record
+   * at all of what "convert this into light mode" was converting.
+   */
+  initImage?: string
   /** When the image was made, in the one wire format. */
   createdAt?: string
   width?: number
@@ -50,6 +58,7 @@ export function readGeneratedImageSidecar(imagePath: string): GeneratedImageSide
         ? { projectId: record.projectId as string | null }
         : {}),
       ...(typeof record.messageId === 'string' ? { messageId: record.messageId } : {}),
+      ...(typeof record.initImage === 'string' ? { initImage: record.initImage } : {}),
       ...(typeof record.createdAt === 'string' ? { createdAt: record.createdAt } : {}),
       ...(typeof record.width === 'number' ? { width: record.width } : {}),
       ...(typeof record.height === 'number' ? { height: record.height } : {}),
