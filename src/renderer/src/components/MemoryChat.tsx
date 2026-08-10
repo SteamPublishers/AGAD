@@ -36,6 +36,10 @@ import {
   readReasoning,
   readResponseCutoff
 } from '@renderer/lib/message-persistence'
+import {
+  readGeneratedImageReference,
+  withGeneratedImageReference
+} from '../../../shared/generated-image-reference'
 import type { RagConversationContract, ResponseCutoffContract } from '../../../shared/ipc-contracts'
 import {
   parseImageMemoryGuardError,
@@ -301,6 +305,7 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
     if (turn.role === 'assistant' && !turn.content.trim() && turn.reasoning === undefined) {
       return []
     }
+    const imageReference = readGeneratedImageReference(ctx)
     return [
       {
         id: turn.id,
@@ -319,8 +324,10 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
         reasoningLabel: turn.reasoningLabel,
         generationTimeMs: turn.role === 'tool' ? turn.tools[0]?.durationMs : turn.durationMs,
         provenance: turn.provenance,
-        image: ctx?.image ? `ogcapture://${ctx.image}` : undefined,
-        imagePath: ctx?.image,
+        // Read through the one reader, so a row that names its image on the mesh and a row that
+        // only remembers a path both render, and neither is decoded here.
+        image: imageReference ? `ogcapture://${imageReference.path}` : undefined,
+        imagePath: imageReference?.path,
         imageMetadata: ctx?.imageMetadata,
         // Attachments persisted on the user turn (clickable chips survive reload).
         attachments: Array.isArray(ctx?.attachments) ? ctx.attachments : undefined
@@ -1567,7 +1574,7 @@ export function MemoryChat({
             convId,
             'assistant',
             `Generated for: ${trimmed}`,
-            { image: img.path, imageMetadata }
+            withGeneratedImageReference({ imageMetadata }, { id: img.syncId, path: img.path })
           )
           await announceImageMessagePersisted(convId, stored.uuid)
         } catch {
@@ -1704,10 +1711,15 @@ export function MemoryChat({
               )
             )
             try {
-              const stored = await window.api.addRagMessage(convId, 'assistant', answer, {
-                ...(toolCtxWithReasoning ?? {}),
-                image: img.path
-              })
+              const stored = await window.api.addRagMessage(
+                convId,
+                'assistant',
+                answer,
+                withGeneratedImageReference(toolCtxWithReasoning ?? {}, {
+                  id: img.syncId,
+                  path: img.path
+                })
+              )
               await announceImageMessagePersisted(convId, stored.uuid)
             } catch {
               /* ignore */
@@ -1809,7 +1821,7 @@ export function MemoryChat({
               convId,
               'assistant',
               `Generated: ${imgPrompt.slice(0, 80)}`,
-              { image: img.path }
+              withGeneratedImageReference(undefined, { id: img.syncId, path: img.path })
             )
             await announceImageMessagePersisted(convId, stored.uuid)
           } catch {
