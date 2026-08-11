@@ -201,8 +201,16 @@ jobs:
       # main process and the vite build emits the sourcemaps that map it back to src/**.ts; both are gated on this
       # variable, so a normal run and every shipped artifact are byte-identical to before.
       #
-      # Free to run here: this repo is public, so the runner minutes cost nothing.
+      # OFF BY DEFAULT since 2026-08-11. It was advisory, so it never gated anything, and it spent up to
+      # 28 minutes of every run to say so. The suite now runs on a real macOS display through
+      # `scripts/e2e-on-box.sh`, which is where its failures are actionable: the specs added on 2026-08-09
+      # pass there and fail here, because a Linux runner cannot satisfy a fixture that needs Pro's
+      # macOS-only native layer.
+      #
+      # Set the repository variable OFFGRID_CI_E2E=1 to turn it back on - no code change needed. Do not
+      # make it blocking on this runner; read the note above first.
       - name: E2E (Playwright, xvfb)
+        if: ${{ vars.OFFGRID_CI_E2E == '1' }}
         timeout-minutes: 28
         continue-on-error: true
         env:
@@ -216,7 +224,7 @@ jobs:
       # denominators are whole-file and must not set a threshold - see shared/scripts/merge-line-coverage.mjs,
       # which accepts it as --coarse and lets it contribute covered lines only.
       - name: Convert e2e coverage
-        if: always()
+        if: ${{ always() && vars.OFFGRID_CI_E2E == '1' }}
         continue-on-error: true
         run: |
           if [ -d coverage-e2e-raw ] && [ -n "$(ls -A coverage-e2e-raw 2>/dev/null)" ]; then
@@ -226,14 +234,14 @@ jobs:
             echo "no e2e coverage captured (the suite may not have launched)"
           fi
       - name: Upload e2e coverage
-        if: always()
+        if: ${{ always() && vars.OFFGRID_CI_E2E == '1' }}
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4
         with:
           name: e2e-coverage
           path: coverage-e2e/
           if-no-files-found: ignore
       - name: Upload e2e screenshots
-        if: always()
+        if: ${{ always() && vars.OFFGRID_CI_E2E == '1' }}
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4
         with:
           name: e2e-screenshots
