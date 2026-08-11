@@ -453,6 +453,9 @@ jobs:
           path: _shared
           persist-credentials: false
       - name: Put shared beside this checkout
+        # Git Bash, explicitly: a windows runner runs `run:` under PowerShell, which parsed this
+        # block as a .ps1 and failed before the first command.
+        shell: bash
         run: |
           if [ ! -d _shared ]; then
             echo "::error::off-grid-ai/shared was not checked out - @offgrid/sync cannot resolve. Check CI_CROSS_REPO_TOKEN."
