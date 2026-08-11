@@ -78,9 +78,23 @@ export function classifyServerError(
         'A connected tool’s schema couldn’t be turned into a valid grammar for the local model. Disable the most recently added connector and try again.'
     }
   }
-  // 503 is llama-server's "model is still loading" — the one status that genuinely clears on
-  // its own. Every other 4xx/5xx means the server read this request and refused it.
-  const kind: ModelServerFailureKind = statusCode === 503 ? 'unavailable' : 'rejected'
+  // The server could not READ our request. A lone surrogate from Accessibility text makes the JSON
+  // body unparseable to nlohmann, and a prompt whose media markers do not match its images cannot
+  // be tokenized. Both are deterministic: the identical bytes fail identically, forever.
+  if (/json\.exception|parse error|failed to tokenize/i.test(detail)) {
+    return {
+      kind: 'rejected',
+      message: `LLM Server Error: ${statusCode ?? '?'}${detail ? ` ${detail}` : ''}`
+    }
+  }
+  // A 4xx means the server understood the request and refused it. Anything else — 502, 503, 504, a
+  // bare 500 — is the server failing to service it, which is the definition of an outage.
+  //
+  // Deliberately generous: an outage misread as a refusal loses a frame permanently, while a
+  // refusal misread as an outage costs at most the bounded retry budget. Before that budget
+  // existed the generous reading was dangerous. Now it is the safe one.
+  const refused = statusCode !== undefined && statusCode >= 400 && statusCode < 500
+  const kind: ModelServerFailureKind = refused ? 'rejected' : 'unavailable'
   return { kind, message: `LLM Server Error: ${statusCode ?? '?'}${detail ? ` ${detail}` : ''}` }
 }
 
