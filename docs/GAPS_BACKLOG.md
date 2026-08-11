@@ -1161,3 +1161,22 @@ column, because a comparison between the two forms silently fails.
    handed `saved` instead of the whole mesh, and that is already fixed on this branch.
 2. The failures are not one offline machine. They are spread: Windows 1,928 · iPhone 480 ·
    a forgotten device 367. And the phones do receive - iPhone 103 sent, Nord 12 sent.
+
+---
+
+## A knowledge-document test outlives its own temp directory
+
+`pro/main/sync/__tests__/knowledge-document-sync-service.test.ts` fails in a full-directory run with
+`ENOENT: mkdir '/var/.../offgrid-knowledge-sync-XXXX/stage'`, and passes on its own. ENOENT on mkdir
+means the PARENT is gone, so the root the test made has already been removed while the service is still
+working in it - async work started by a test and not awaited by it, cleaned up underneath.
+
+Not a collision with its sibling: `knowledge-document-transfer.test.ts` shares the `offgrid-knowledge-`
+prefix but removes only its own root, by path.
+
+Two tests in the same directory therefore pass or fail depending on timing, which makes the suite a
+weak signal exactly where it should be strongest. The fix is for the test to await what it started, or
+for the service to expose a settled point to wait on.
+
+Found while landing the peer-link adoption. Not caused by it: nothing in that change touches
+knowledge-document sync, and the service under test builds no orchestrator.
