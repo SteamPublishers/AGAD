@@ -13,7 +13,7 @@ import {
   createToolMarkupFilter,
   type AssembledToolCall
 } from './sse-stream'
-import { modelRequestOptions, describeServerError } from './http-post'
+import { modelRequestOptions, serverResponseError } from './http-post'
 
 export interface StreamResult {
   content: string
@@ -115,7 +115,7 @@ export function streamCompletion(
         res.on('end', () => {
           cleanup()
           if (!timedOut && !aborted) {
-            reject(new Error(describeServerError(res.statusCode, err)))
+            reject(serverResponseError(res.statusCode, err))
           }
         })
         return
