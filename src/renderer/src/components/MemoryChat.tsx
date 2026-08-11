@@ -1438,20 +1438,6 @@ export function MemoryChat({
     // conversation the user previously stopped can generate again.
     cancelledRef.current.delete(convId)
     markGenerating(convId, true)
-    if (!regen) {
-      const userMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'user',
-        content: trimmed,
-        attachments: atts.map((a) => ({ name: a.name, kind: a.kind, text: a.text, path: a.path })),
-        audioUrl: opts?.voiceClip?.url,
-        audioDuration: opts?.voiceClip?.duration
-      }
-      setConvMessages(convId, (prev) => [...prev, userMessage])
-    }
-    setInput('')
-    setLoading(true)
-
     // The image this turn is BASED on is an attachment on this turn, and saying so is the whole fix:
     // it then travels, renders, and survives a reload by the same path every other attachment uses.
     // Kept in app storage first, because the user's own copy can move or be deleted the moment the
@@ -1474,6 +1460,27 @@ export function MemoryChat({
           path: keptInit.path
         }
       : undefined
+
+    if (!regen) {
+      const userMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: trimmed,
+        attachments: [
+          ...atts.map((a) => ({ name: a.name, kind: a.kind, text: a.text, path: a.path })),
+          // Drawn now, not only after a reload. Persisting it without this left the turn looking as
+          // though nothing had been attached until the conversation was loaded again.
+          ...(initAttachment
+            ? [{ name: initAttachment.name, kind: initAttachment.kind, path: initAttachment.path }]
+            : [])
+        ],
+        audioUrl: opts?.voiceClip?.url,
+        audioDuration: opts?.voiceClip?.duration
+      }
+      setConvMessages(convId, (prev) => [...prev, userMessage])
+    }
+    setInput('')
+    setLoading(true)
 
     // Persist user message (skip on regen — it's already in the thread). Stash
     // the attachments in the message context so the clickable chips survive reload.
