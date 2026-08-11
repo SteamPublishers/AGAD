@@ -23,7 +23,12 @@ export default defineConfig({
     exclude: ['node_modules/**', 'out/**', 'e2e/**'],
     // Every file leaves the model port free for the next one - see the harness for why that has to be
     // suite-wide rather than each file's own business.
-    setupFiles: ['src/main/__tests__/harness/db-teardown.ts'],
+    setupFiles: [
+      'src/main/__tests__/harness/db-teardown.ts',
+      // The UI journeys in this suite render real Radix components, which construct a
+      // ResizeObserver in a layout effect. Inert in the node-environment files.
+      'src/renderer/src/__tests__/dom-globals.setup.ts'
+    ],
     // These 266 journey tests were measuring nothing, and the default config counts on them: it
     // EXCLUDES src/main/database.ts, src/main/rag/store.ts, prompt-store and runtime-residency with the
     // note "covered by the tests in *.dbtest.ts via npm run test:db". That claim was never checked,
