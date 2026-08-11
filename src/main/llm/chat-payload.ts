@@ -7,6 +7,7 @@
 // takes ALREADY-decoded image data (base64 + mime) so it is fully pure.
 
 import { mimeForExt } from '../mime'
+import { toWellFormedText } from './well-formed-text'
 
 export type ContentPart =
   | { type: 'text'; text: string }
@@ -29,7 +30,9 @@ export function imageMime(imgPath: string): string {
 /** Build the OpenAI-style multimodal content array: the text part first, then one
  *  image_url data-URI part per decoded image (in order). */
 export function buildContentParts(message: string, images: DecodedImage[]): ContentPart[] {
-  const content: ContentPart[] = [{ type: 'text', text: message }]
+  // Repair unpaired surrogates HERE, at the one place every request body is assembled: a lone
+  // surrogate anywhere in the text makes the whole body unparseable to the model server.
+  const content: ContentPart[] = [{ type: 'text', text: toWellFormedText(message) }]
   for (const img of images) {
     content.push({ type: 'image_url', image_url: { url: `data:${img.mime};base64,${img.base64}` } })
   }
@@ -47,7 +50,9 @@ export function buildMessages(
   const messages: { role: 'system' | 'user'; content: string | ContentPart[] }[] = [
     { role: 'user', content: buildContentParts(message, images) }
   ]
-  if (systemPrompt.trim()) messages.unshift({ role: 'system', content: systemPrompt })
+  if (systemPrompt.trim()) {
+    messages.unshift({ role: 'system', content: toWellFormedText(systemPrompt) })
+  }
   return messages
 }
 
