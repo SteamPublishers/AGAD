@@ -447,6 +447,81 @@ only and assign the finalization outcome to a separately identified case.
 
 ---
 
+### SYN-001 (P2) - The offline-chat gateway journey cannot reach its own server
+
+`src/main/__tests__/image-runtime-reliability.integration.dbtest.ts > multimodal runtime reliability >
+keeps local chat usable when external network reachability is unavailable` fails with
+`ECONNREFUSED 127.0.0.1:<gatewayPort>`, thrown in 2ms.
+
+Not contention with a neighbouring file: it fails when that file runs alone. The log shows the SAME
+port serving `GET /v1` and `POST /v1/chat/completions` successfully during an earlier test in the
+file, so the listener existed and was torn down between tests. The test then calls
+`startModelServer(gatewayPort)` again and the connect is refused, which says that call does not
+restore a listener once one has been closed on that port.
+
+So the journey under test - chat still answers with no internet - is never exercised at all. It fails
+before the first request. The other six tests in the file pass, including the image-library one.
+
+**Fix shape.** Give the model server one owner of "is there a listener on this port", and make
+`startModelServer` either return the running one or genuinely bind a new one. Today the second call
+appears to no-op against a closed server, which is the same two-answers-for-one-fact shape as the
+rest of this document: a port is either serving or it is not, and only the server can say which.
+
+Found while landing the generated-image sync fixes; NOT caused by them (they cannot close a socket),
+though that was argued from the failure mechanism rather than proved against the base commit.
+
+---
+
+### SYN-002 (P1) - Deliveries outlive the device, and inflate every count the user reads
+
+2,246 of the delivery rows on this Mac point at a `device_id` that is not in `sync_paired_devices`
+at all. They can never succeed, and they are counted:
+
+| device_id | in paired table | rows |
+|---|---|---|
+| `6e1c3b7150fb1f088b52a4c2e99eda78` | no | 2,077 (1,559 skipped · 367 failed · 150 queued · 95 sent · 2 rejected) |
+| `8Lj2tUzzpBQ1zJEPHGfrSw` | no | 119 (78 sent · 18 dismissed · 16 rejected · 5 skipped · 2 queued) |
+
+A device is forgotten and its deliveries stay. So "158 queued" and the failure total describe work
+aimed at machines this Mac no longer has any relationship with, and no retry can ever clear them.
+The delivery is parented by a device, so forgetting the device must settle its deliveries - the same
+lifecycle rule as everywhere else in this document.
+
+**Second, smaller finding.** Those two ids are not the same SHAPE. A device id here is 32 hex chars
+and a membership id is 11; `8Lj2tUzzpBQ1zJEPHGfrSw` is 22 base64url chars, which decodes to 16 bytes -
+the same width a device id encodes as hex, but not equal to any id this Mac holds. So the column has
+carried more than one id encoding over its life. Worth confirming before any migration keys on the
+column, because a comparison between the two forms silently fails.
+
+**This also corrects two entries in the previous session's handoff.**
+
+1. `service.listPaired()` does NOT return 1. It reads `sync_paired_devices`, which holds all three
+   devices. `pro:sync:share-file` resolves destinations from it, so destinations were never narrowed
+   to the offline Windows machine. The "all 1 paired device" count came from the RENDERER being
+   handed `saved` instead of the whole mesh, and that is already fixed on this branch.
+2. The failures are not one offline machine. They are spread: Windows 1,928 · iPhone 480 ·
+   a forgotten device 367. And the phones do receive - iPhone 103 sent, Nord 12 sent.
+
+---
+
+### SYN-003 (P2) - A knowledge-document test outlives its own temp directory
+
+`pro/main/sync/__tests__/knowledge-document-sync-service.test.ts` fails in a full-directory run with
+`ENOENT: mkdir '/var/.../offgrid-knowledge-sync-XXXX/stage'`, and passes on its own. ENOENT on mkdir
+means the PARENT is gone, so the root the test made has already been removed while the service is still
+working in it - async work started by a test and not awaited by it, cleaned up underneath.
+
+Not a collision with its sibling: `knowledge-document-transfer.test.ts` shares the `offgrid-knowledge-`
+prefix but removes only its own root, by path.
+
+Two tests in the same directory therefore pass or fail depending on timing, which makes the suite a
+weak signal exactly where it should be strongest. The fix is for the test to await what it started, or
+for the service to expose a settled point to wait on.
+
+Found while landing the peer-link adoption. Not caused by it: nothing in that change touches
+knowledge-document sync, and the service under test builds no orchestrator.
+---
+
 ## RESOLVED
 
 ### DEF-007 (P0) - Secure notes are masked until deliberate reveal/copy - CLOSED 2026-08-09
@@ -1106,77 +1181,3 @@ Independently: `0 failed` next to a logged `request.failed` is its own bug - the
 reaching Activity even for the file that DID have a row.
 
 ---
-
-## The offline-chat gateway journey cannot reach its own server
-
-`src/main/__tests__/image-runtime-reliability.integration.dbtest.ts > multimodal runtime reliability >
-keeps local chat usable when external network reachability is unavailable` fails with
-`ECONNREFUSED 127.0.0.1:<gatewayPort>`, thrown in 2ms.
-
-Not contention with a neighbouring file: it fails when that file runs alone. The log shows the SAME
-port serving `GET /v1` and `POST /v1/chat/completions` successfully during an earlier test in the
-file, so the listener existed and was torn down between tests. The test then calls
-`startModelServer(gatewayPort)` again and the connect is refused, which says that call does not
-restore a listener once one has been closed on that port.
-
-So the journey under test - chat still answers with no internet - is never exercised at all. It fails
-before the first request. The other six tests in the file pass, including the image-library one.
-
-**Fix shape.** Give the model server one owner of "is there a listener on this port", and make
-`startModelServer` either return the running one or genuinely bind a new one. Today the second call
-appears to no-op against a closed server, which is the same two-answers-for-one-fact shape as the
-rest of this document: a port is either serving or it is not, and only the server can say which.
-
-Found while landing the generated-image sync fixes; NOT caused by them (they cannot close a socket),
-though that was argued from the failure mechanism rather than proved against the base commit.
-
----
-
-## Deliveries outlive the device, and inflate every count the user reads
-
-2,246 of the delivery rows on this Mac point at a `device_id` that is not in `sync_paired_devices`
-at all. They can never succeed, and they are counted:
-
-| device_id | in paired table | rows |
-|---|---|---|
-| `6e1c3b7150fb1f088b52a4c2e99eda78` | no | 2,077 (1,559 skipped · 367 failed · 150 queued · 95 sent · 2 rejected) |
-| `8Lj2tUzzpBQ1zJEPHGfrSw` | no | 119 (78 sent · 18 dismissed · 16 rejected · 5 skipped · 2 queued) |
-
-A device is forgotten and its deliveries stay. So "158 queued" and the failure total describe work
-aimed at machines this Mac no longer has any relationship with, and no retry can ever clear them.
-The delivery is parented by a device, so forgetting the device must settle its deliveries - the same
-lifecycle rule as everywhere else in this document.
-
-**Second, smaller finding.** Those two ids are not the same SHAPE. A device id here is 32 hex chars
-and a membership id is 11; `8Lj2tUzzpBQ1zJEPHGfrSw` is 22 base64url chars, which decodes to 16 bytes -
-the same width a device id encodes as hex, but not equal to any id this Mac holds. So the column has
-carried more than one id encoding over its life. Worth confirming before any migration keys on the
-column, because a comparison between the two forms silently fails.
-
-**This also corrects two entries in the previous session's handoff.**
-
-1. `service.listPaired()` does NOT return 1. It reads `sync_paired_devices`, which holds all three
-   devices. `pro:sync:share-file` resolves destinations from it, so destinations were never narrowed
-   to the offline Windows machine. The "all 1 paired device" count came from the RENDERER being
-   handed `saved` instead of the whole mesh, and that is already fixed on this branch.
-2. The failures are not one offline machine. They are spread: Windows 1,928 · iPhone 480 ·
-   a forgotten device 367. And the phones do receive - iPhone 103 sent, Nord 12 sent.
-
----
-
-## A knowledge-document test outlives its own temp directory
-
-`pro/main/sync/__tests__/knowledge-document-sync-service.test.ts` fails in a full-directory run with
-`ENOENT: mkdir '/var/.../offgrid-knowledge-sync-XXXX/stage'`, and passes on its own. ENOENT on mkdir
-means the PARENT is gone, so the root the test made has already been removed while the service is still
-working in it - async work started by a test and not awaited by it, cleaned up underneath.
-
-Not a collision with its sibling: `knowledge-document-transfer.test.ts` shares the `offgrid-knowledge-`
-prefix but removes only its own root, by path.
-
-Two tests in the same directory therefore pass or fail depending on timing, which makes the suite a
-weak signal exactly where it should be strongest. The fix is for the test to await what it started, or
-for the service to expose a settled point to wait on.
-
-Found while landing the peer-link adoption. Not caused by it: nothing in that change touches
-knowledge-document sync, and the service under test builds no orchestrator.
