@@ -109,13 +109,17 @@ describe('rag_messages.uuid migration', () => {
     const { getDB, addRagMessage } = await import('../database')
     const db = getDB()
 
-    const id = addRagMessage('conv-old', 'user', 'a brand new message')
-    const row = db.prepare('SELECT uuid, content FROM rag_messages WHERE id = ?').get(id) as {
+    const stored = addRagMessage('conv-old', 'user', 'a brand new message')
+    const row = db
+      .prepare('SELECT uuid, content FROM rag_messages WHERE id = ?')
+      .get(stored.id) as {
       uuid: string | null
       content: string
     }
     expect(row.content).toBe('a brand new message')
     expect(row.uuid, 'new messages must carry a uuid or they cannot sync').toBeTruthy()
+    // The writer hands the uuid back, so a caller can point at the message it just made.
+    expect(stored.uuid).toBe(row.uuid)
   })
 
   it('is idempotent — running the migration again neither throws nor rewrites uuids', async () => {
