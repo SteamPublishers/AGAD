@@ -573,6 +573,11 @@ const offGridApi = {
     return unsubscribe('imagegen:conversation-updated', sub)
   },
   pickImageForGen: () => ipcRenderer.invoke('imagegen:pick-image'),
+  keepInitImage: (sourcePath: string) =>
+    ipcRenderer.invoke('imagegen:keep-init-image', sourcePath) as Promise<{
+      id: string
+      path: string
+    } | null>,
   generateImage: (
     params: ImageGenerationRequestContract & {
       conversationId?: string

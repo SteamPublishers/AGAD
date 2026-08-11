@@ -1452,6 +1452,29 @@ export function MemoryChat({
     setInput('')
     setLoading(true)
 
+    // The image this turn is BASED on is an attachment on this turn, and saying so is the whole fix:
+    // it then travels, renders, and survives a reload by the same path every other attachment uses.
+    // Kept in app storage first, because the user's own copy can move or be deleted the moment the
+    // turn ends and its path means nothing on another device. The generation is pointed at the kept
+    // copy too, so there is one file and not two.
+    let keptInit: { id: string; path: string } | null = null
+    if (imgInit) {
+      try {
+        keptInit = await window.api.keepInitImage(imgInit)
+      } catch (e) {
+        // Not worth failing the turn over: the image still generates, it just has no before-picture.
+        console.error('Could not keep the init image', e)
+      }
+    }
+    const initAttachment = keptInit
+      ? {
+          id: keptInit.id,
+          name: keptInit.path.split('/').pop() || 'init image',
+          kind: 'image' as const,
+          path: keptInit.path
+        }
+      : undefined
+
     // Persist user message (skip on regen — it's already in the thread). Stash
     // the attachments in the message context so the clickable chips survive reload.
     try {
@@ -1466,11 +1489,14 @@ export function MemoryChat({
           fileSize: a.fileSize,
           createdAt: a.createdAt
         }))
+        // Appended, never folded into `atts`: those are what the MODEL is given, and the init image is
+        // an input to the image runtime rather than text for the language model to read.
+        const persisted = initAttachment ? [...attMeta, initAttachment] : attMeta
         await window.api.addRagMessage(
           convId,
           'user',
           trimmed,
-          attMeta.length ? { attachments: attMeta } : undefined
+          persisted.length ? { attachments: persisted } : undefined
         )
       }
     } catch (e) {
@@ -1540,7 +1566,8 @@ export function MemoryChat({
         cfgScale: imgCfgScale,
         seed: Number.isNaN(seedNum) ? -1 : seedNum,
         model: imgModel || undefined,
-        initImage: imgInit || undefined,
+        // The kept copy, so the record of what this was made from cannot outlive the file it names.
+        initImage: keptInit?.path ?? imgInit ?? undefined,
         strength: imgInit ? imgStrength : undefined
       }
       try {

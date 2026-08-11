@@ -2039,6 +2039,21 @@ export function setupIPC() {
     }
   })
 
+  /**
+   * Keep the image a generation will be based on, and give it a name the mesh can use.
+   *
+   * The user picks an init image from their own disk. Referring to it there is not enough for two
+   * reasons: the file can move or be deleted the moment the turn ends, and its path means nothing on
+   * any other device. So it is copied into the app's own storage and given a uuid, which is what lets
+   * it travel as an ordinary attachment on the message that used it.
+   */
+  ipcMain.handle('imagegen:keep-init-image', async (_e, sourcePath: string) => {
+    const { preserveGeneratedImageSource } = await import('./imagegen')
+    const id = crypto.randomUUID()
+    const kept = preserveGeneratedImageSource(id, sourcePath)
+    return kept ? { id, path: kept } : null
+  })
+
   ipcMain.handle('imagegen:pick-image', async (e) => {
     const { dialog } = await import('electron')
     const win = BrowserWindow.fromWebContents(e.sender) ?? undefined

@@ -450,7 +450,10 @@ export function saveGeneratedImageScope(imagePath: string, facts: GeneratedImage
  * itself, does not list an input as though the user had generated it. Returns the copy's path, or null
  * when the source cannot be read - a generation is not worth failing over its provenance.
  */
-export function preserveGeneratedImageSource(syncId: string, sourcePath: string): string | null {
+export function preserveGeneratedImageSource(
+  syncId: string,
+  sourcePath: string
+): string | null {
   try {
     const directory = path.join(dataDir(), 'generated-images', 'sources')
     fs.mkdirSync(directory, { recursive: true })
