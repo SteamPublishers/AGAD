@@ -11,13 +11,13 @@ set -euo pipefail
 # official llama.cpp release binaries are now minos 26. The only reliable fix is
 # to build it ourselves with the target pinned. Run in CI before packaging.
 #
-#   LLAMA_REF=b10369 MACOS_DEPLOYMENT_TARGET=13.0 scripts/build-llama.sh   (override; default in llama-ref.txt)
+#   LLAMA_REF=b10369 MACOS_DEPLOYMENT_TARGET=13.0 scripts/build-llama.sh   (override; default is package.json offgrid.llamaRef)
 
-# ONE owner for the version, read by this script and by fetch-win-binaries.ps1. It was hardcoded in both,
-# which is a single fact with two homes: the macOS source build and the Windows binary fetch have to be the
-# same llama.cpp or grammar and tool-call handling differ between the platforms of one release.
-LLAMA_REF_FILE="$(cd "$(dirname "$0")" && pwd)/llama-ref.txt"
-LLAMA_REF="${LLAMA_REF:-$(tr -d '[:space:]' < "$LLAMA_REF_FILE")}"
+# ONE owner for the version: package.json, where every other version in this repo already lives. It was
+# hardcoded here AND in fetch-win-binaries.ps1 AND passed again by two callers - one fact with four homes.
+# The macOS source build and the Windows binary fetch must be the same llama.cpp, or grammar and native
+# tool-call handling differ between the platforms of a single release.
+LLAMA_REF="${LLAMA_REF:-$(node -p "require('$(cd "$(dirname "$0")/.." && pwd)/package.json').offgrid.llamaRef")}"
 TARGET="${MACOS_DEPLOYMENT_TARGET:-13.0}"             # runs on macOS 13+
 ROOT="${OFFGRID_BUILD_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 DEST="$ROOT/resources/bin/llama"

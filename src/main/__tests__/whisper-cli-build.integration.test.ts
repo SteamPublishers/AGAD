@@ -191,7 +191,7 @@ describe('pinned Whisper CLI build and staging', () => {
   it('keeps release and local builds on the same pinned native-engine scripts', () => {
     const release = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/release.yml'), 'utf8')
     const local = fs.readFileSync(path.join(REPO_ROOT, 'scripts/build-mac-local.sh'), 'utf8')
-    // No LLAMA_REF here on purpose. The version has one owner - scripts/llama-ref.txt - and a caller that
+    // No LLAMA_REF here on purpose. The version has one owner - package.json `offgrid.llamaRef` - and a caller that
     // passes its own would silently build a different engine than the Windows fetch pulls, which is the
     // drift this test exists to catch.
     const llamaBuild = 'MACOS_DEPLOYMENT_TARGET=13.0 bash scripts/build-llama.sh'
