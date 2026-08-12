@@ -249,6 +249,34 @@ type Attachment = {
   error?: string
 }
 
+/**
+ * The attachments of a persisted user turn, as a send can use them.
+ *
+ * A turn's attachments had two homes: the composer's transient `attachments` state, cleared the
+ * moment the turn was sent, and the row persisted in the message context. Only the first was ever
+ * read on the way to the model, so Resend / Regenerate / Edit replayed the TEXT of a turn and
+ * silently dropped its images - the model then answered "I don't see an image attached" for a
+ * message that visibly had one. The persisted row is the durable home (the files live under
+ * uploads/), so every replay path rebuilds from it and the composer state is only ever the source
+ * for the FIRST send.
+ *
+ * Status is 'ready' by construction: a turn only reaches the database once its attachments were.
+ * The stored row keeps what a replay needs (name, kind, text, path) and not the composer-only
+ * fields, so the id is rebuilt from the path - stable across replays of the same turn.
+ */
+type StoredAttachment = { name: string; kind: string; text?: string; path?: string }
+
+function attachmentsOf(message: { attachments?: StoredAttachment[] }): Attachment[] {
+  return (message.attachments ?? []).map((a, i) => ({
+    id: `stored-${i}-${a.path ?? a.name}`,
+    name: a.name,
+    kind: a.kind as Attachment['kind'],
+    text: a.text ?? '',
+    path: a.path,
+    status: 'ready' as const
+  }))
+}
+
 type Conversation = RagConversationContract
 
 type ProjectLite = { id: string; name: string }
@@ -2413,7 +2441,9 @@ export function MemoryChat({
           // the chat doesn't show old answers stacked.
           setMessages((prev) => prev.slice(0, i + 1))
           if (activeConversationId) void window.api.truncateRagMessages(activeConversationId, i + 1)
-          void sendMessage(content, { regen: true })
+          // The turn's own attachments, not the composer's - the composer was cleared when this
+          // turn was first sent, so regenerating without them re-asks the question WITHOUT its image.
+          void sendMessage(content, { regen: true, atts: attachmentsOf(mi) })
           return
         }
       }
@@ -2434,12 +2464,34 @@ export function MemoryChat({
       )
       // Persist the edit: drop the old user row + everything after, re-add the
       // edited message, then regenerate the answer onto it.
+      //
+      // The re-added row carries the ORIGINAL turn's attachments. Editing the words of a message
+      // does not detach its image, and rewriting the row without them deleted the only durable
+      // record of it - so the chip vanished from the thread and every later regenerate lost it too.
       const cid = activeConversationId
+      const edited = messages[idx]
+      const keptAtts = edited ? attachmentsOf(edited) : []
       if (cid)
-        void window.api
-          .truncateRagMessages(cid, idx)
-          .then(() => window.api.addRagMessage(cid, 'user', text))
-      void sendMessage(text, { regen: true })
+        void window.api.truncateRagMessages(cid, idx).then(() =>
+          window.api.addRagMessage(
+            cid,
+            'user',
+            text,
+            keptAtts.length
+              ? {
+                  attachments: keptAtts.map(
+                    (a): StoredAttachment => ({
+                      name: a.name,
+                      kind: a.kind,
+                      text: a.text,
+                      path: a.path
+                    })
+                  )
+                }
+              : undefined
+          )
+        )
+      void sendMessage(text, { regen: true, atts: keptAtts })
     },
     [editText, messages, activeConversationId]
   )
