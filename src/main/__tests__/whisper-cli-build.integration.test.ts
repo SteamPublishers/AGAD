@@ -191,13 +191,19 @@ describe('pinned Whisper CLI build and staging', () => {
   it('keeps release and local builds on the same pinned native-engine scripts', () => {
     const release = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/release.yml'), 'utf8')
     const local = fs.readFileSync(path.join(REPO_ROOT, 'scripts/build-mac-local.sh'), 'utf8')
-    const llamaBuild = 'MACOS_DEPLOYMENT_TARGET=13.0 LLAMA_REF=b9838 bash scripts/build-llama.sh'
+    // No LLAMA_REF here on purpose. The version has one owner - scripts/llama-ref.txt - and a caller that
+    // passes its own would silently build a different engine than the Windows fetch pulls, which is the
+    // drift this test exists to catch.
+    const llamaBuild = 'MACOS_DEPLOYMENT_TARGET=13.0 bash scripts/build-llama.sh'
     const whisperBuild =
       'MACOS_DEPLOYMENT_TARGET=13.0 WHISPER_REF=v1.7.4 bash scripts/build-whisper-cli.sh'
 
     for (const source of [release, local]) {
       expect(source).toContain(llamaBuild)
       expect(source).toContain(whisperBuild)
+    }
+    for (const source of [release, local]) {
+      expect(source).not.toMatch(/LLAMA_REF=/)
     }
     expect(local).toContain('bash scripts/fetch-parakeet.sh')
     expect(local).toContain('node scripts/probe-packaged-helpers.mjs "$app_dir"')
