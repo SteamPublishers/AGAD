@@ -1,5 +1,5 @@
-import { M as ModelEntry, a as ModelKind, b as ModelRecommendationTier, c as ModelFile, D as DownloadBridge, d as ModelStore, e as DownloadProgress } from './types-CZMZpuKL.mjs';
-export { f as DownloadStatus, I as ImageGenMode, g as ImageGenProvider, h as ImageGenRequest, i as ImageGenResult, s as supportsMode, v as validateImageGenRequest } from './types-CZMZpuKL.mjs';
+import { M as ModelEntry, a as ModelKind, b as ModelRecommendationTier, c as ModelFile, D as DownloadBridge, d as ModelStore, e as DownloadProgress } from './types-BE6n2TE0.mjs';
+export { f as DownloadStatus, I as ImageGenMode, g as ImageGenProvider, h as ImageGenRequest, i as ImageGenResult, s as supportsMode, v as validateImageGenRequest } from './types-BE6n2TE0.mjs';
 
 declare const RECOMMENDATION_TIERS: ModelRecommendationTier[];
 declare function recommendForRam(ramGb: number): ModelRecommendationTier;

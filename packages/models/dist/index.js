@@ -319,6 +319,72 @@ var RAW_CATALOG = [
       }
     ]
   },
+  {
+    // Meta's agentic model, 2026-08-10. Multimodal by design: the perception encoder is not an optional
+    // extra here, so it ships as the mmproj file the way every vision-capable entry does.
+    //
+    // Requires llama.cpp b10353 or newer for the `muse-glimmer` architecture - this repo pins the engine in
+    // package.json `offgrid.llamaRef`, currently b10369. An older engine refuses the model outright.
+    id: "unsloth/Muse-Glimmer-30B-GGUF",
+    name: "Muse Glimmer 30B",
+    kind: "text",
+    org: "Meta",
+    description: "Agentic, multimodal \u2014 Meta's local agent model; 24GB+ machines",
+    params: 30,
+    // Meta's own floor: "under 20 GB" at 4-bit, fitting "a 24 GB or 32 GB envelope". Weights 15.9GB plus a
+    // 1.4GB encoder leaves little room on 24GB, which is why this is not offered below it.
+    minRamGb: 24,
+    quant: "Q4_K_XL",
+    isNew: true,
+    tags: ["Challenger"],
+    releaseDate: "2026-08-10",
+    files: [
+      {
+        name: "Muse-Glimmer-30B-UD-Q4_K_XL.gguf",
+        url: resolve("unsloth/Muse-Glimmer-30B-GGUF", "Muse-Glimmer-30B-UD-Q4_K_XL.gguf"),
+        sizeBytes: 15878222368,
+        role: "primary"
+      },
+      {
+        // The K-quant encoder, matching the weights' quantisation rather than the 3.8GB BF16 one: an
+        // encoder larger than a fifth of the model buys nothing on a machine already at its ceiling.
+        name: "mmproj-Muse-Glimmer-30B-kquant.gguf",
+        url: resolve("unsloth/Muse-Glimmer-30B-GGUF", "mmproj-kquant.gguf"),
+        sizeBytes: 1400328928,
+        role: "mmproj"
+      }
+    ]
+  },
+  {
+    // NVIDIA's Nemotron 3.5 Lightning, 2026-08-11. A 30B mixture-of-experts with ~3B active, so it is fast
+    // for its size - but the FILE is the whole model, and 25.4GB is the constraint, not the active count.
+    // Text only: no perception encoder in this repo.
+    //
+    // Needs the `nemotron_h_moe` architecture, present from the same engine pin as above.
+    id: "ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+    name: "Nemotron 3.5 Lightning 30B",
+    kind: "text",
+    org: "NVIDIA",
+    description: "Mixture-of-experts \u2014 30B total, ~3B active; fast on 32GB+ machines",
+    params: 30,
+    // 25.4GB of weights cannot sit inside a 24GB envelope with a context window beside it.
+    minRamGb: 32,
+    quant: "Q4_K_M",
+    isNew: true,
+    tags: ["Challenger"],
+    releaseDate: "2026-08-11",
+    files: [
+      {
+        name: "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_K_M.gguf",
+        url: resolve(
+          "ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+          "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_K_M.gguf"
+        ),
+        sizeBytes: 25430738944,
+        role: "primary"
+      }
+    ]
+  },
   // --- vision (multimodal LLM) ---
   {
     id: "unsloth/gemma-4-E4B-it-GGUF",
