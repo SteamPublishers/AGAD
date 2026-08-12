@@ -27,7 +27,8 @@ import {
   buildLaunchArgs,
   type PresetField
 } from './llm/settings-math'
-import { buildMessages, imageMime, thinkingPayload, type DecodedImage } from './llm/chat-payload'
+import { buildMessages, thinkingPayload } from './llm/chat-payload'
+import { readImages } from './llm/read-images'
 import { isValidGgufFile } from './models/gguf'
 import { readGgufContextLength } from './models/gguf-metadata'
 import { pickFreePort, isPortFree } from './free-port'
@@ -366,17 +367,6 @@ export class LLMService {
   /** Read each image off disk and decode to base64 + mime (the one impure step of
    *  payload building). A file that can't be read is logged and skipped so a broken
    *  path never fails the whole request. */
-  private decodeImages(images: string[]): DecodedImage[] {
-    const out: DecodedImage[] = []
-    for (const imgPath of images) {
-      try {
-        out.push({ base64: fs.readFileSync(imgPath).toString('base64'), mime: imageMime(imgPath) })
-      } catch (readErr) {
-        console.error(`[LLMService] Failed to read image ${imgPath}:`, readErr)
-      }
-    }
-    return out
-  }
 
   /** Update inference settings; respawns the server if any launch-time arg changed
    *  (context, KV-cache type, flash-attn, GPU layers, threads, batch). */
@@ -960,7 +950,7 @@ export class LLMService {
 
       return await this.chatMutex.runExclusive(async () => {
         try {
-          const messages = buildMessages(message, this.decodeImages(images), this.systemPrompt)
+          const messages = buildMessages(message, readImages(images), this.systemPrompt)
           const payload: Record<string, unknown> = {
             messages: messages,
             max_tokens: maxTokensForWire(resolveMaxTokens(maxTokens, this.maxTokens)),
@@ -1024,7 +1014,7 @@ export class LLMService {
       this.assertImageInputSupported(images)
       await this.ensureReady()
 
-      const messages = buildMessages(message, this.decodeImages(images), this.systemPrompt)
+      const messages = buildMessages(message, readImages(images), this.systemPrompt)
       const resolvedMaxTokens = resolveMaxTokens(maxTokens, this.maxTokens)
       const payload: Record<string, unknown> = {
         messages,

@@ -6,15 +6,14 @@
 // and loop until it answers. Built-in tools only (no network) for now — web
 // search + MCP connectors plug in here later.
 
-import fs from 'fs'
 import { llm } from './llm'
 import { SEARCH_KB_TOOL, makeSearchKnowledgeBaseHandler } from '@offgrid/rag'
 import { isMemoryToolAllowed } from './tools/memory-scope'
 import { parseToolCallsFromText } from './tools/tool-call-parse'
 import { getSetting, saveSetting } from './database'
-import { buildUserContent } from './tool-content'
+import { buildContentParts } from './llm/chat-payload'
+import { readImages } from './llm/read-images'
 import { stripTags, htmlToText, decodeDdgHref } from './tools-parsers'
-import { mimeFromExt } from './model-server/data-url'
 import { evaluateArithmetic } from './calculator'
 
 // Per-tool enable/disable, persisted as a list of disabled tool names.
@@ -543,26 +542,12 @@ export async function toolChat(
   // of truth (the renderer's flag is fetched once per mount and can be stale). A
   // text-only model given image_url parts either ignores them (silent wrong answer)
   // or errors, so drop the attachments when there's no vision projector.
-  const imageDataUrls: string[] = []
-  if (opts.images?.length && llm.hasVision()) {
-    for (const p of opts.images) {
-      try {
-        const base64 = fs.readFileSync(p).toString('base64')
-        // Route through the shared ext->MIME map (image/png fallback) so a .webp
-        // attachment is labelled image/webp, not the old png-or-jpeg guess that
-        // mislabelled webp as image/jpeg (which the vision model may reject).
-        const mime = mimeFromExt(p.split('.').pop() ?? '')
-        imageDataUrls.push(`data:${mime};base64,${base64}`)
-      } catch (e) {
-        console.error('[tools] failed to read image', p, e)
-      }
-    }
-  }
+  const decodedImages = opts.images?.length && llm.hasVision() ? readImages(opts.images) : []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [
     { role: 'system', content: sys },
     ...history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: buildUserContent(query, imageDataUrls) }
+    { role: 'user', content: buildContentParts(query, decodedImages) }
   ]
   const toolCalls: ToolCall[] = []
   const unified: UnifiedSource[] = []

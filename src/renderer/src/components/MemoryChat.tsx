@@ -2478,9 +2478,11 @@ export function MemoryChat({
         try {
           const buf = await file.arrayBuffer()
           const res = await window.api.processFile(buf, file.name)
-          // Images are "ready" if we have the file path (even with no caption), so the
-          // actual image still gets sent to the vision model.
-          const ok = !!res.text || (res.kind === 'image' && !!res.path)
+          // An image is ready once its file is saved - it carries no text at all, because the
+          // image itself goes to the vision model and captioning it here was removed (it ran the
+          // model synchronously and left the chip stuck on "Reading…"). Everything else is ready
+          // once it has extracted text.
+          const ok = res.kind === 'image' ? !!res.path : !!res.text
           setAttachments((prev) =>
             prev.map((a) =>
               a.id === id
