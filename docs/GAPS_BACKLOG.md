@@ -1181,3 +1181,31 @@ Independently: `0 failed` next to a logged `request.failed` is its own bug - the
 reaching Activity even for the file that DID have a row.
 
 ---
+
+## MTP is a mobile feature, and it should be a `@offgrid/models` one
+
+**Status:** open. Filed 2026-08-12. Deliberately NOT in the current PR - it is a package extraction,
+not a fix, and folding it in would bloat a release branch that is about sync feedback.
+
+**The gap.** MTP support exists on mobile and does not exist on desktop. Both apps consume the same
+model layer, so a capability that lives in one app's screens is a rule with one home and two
+audiences - the shape this repo keeps finding at the root of its bugs.
+
+**Why it is a shared-package problem, not a desktop one.** Copying the mobile implementation across
+would make it a rule with TWO homes, which is worse than having it once. The model layer is the owner:
+whether a model needs MTP, which artefacts it implies, and how a device advertises support are all
+properties of the MODEL, and every surface should be asking `@offgrid/models` rather than each app
+deciding for itself. Desktop then gets it by consuming the package, and so does any future surface.
+
+**Fix shape.**
+
+1. Move the MTP capability rule into `shared/packages/models` - one definition of what MTP is and which
+   models require it, keyed off the catalog entry, with no app-specific branching inside it.
+2. Mobile stops deciding and starts asking. Its current behaviour is the reference for what the rule
+   must produce, so it is the regression check that the extraction changed nothing.
+3. Desktop consumes the same rule. No `if (platform)` in either app: a platform that cannot serve MTP
+   reports that through the same interface, it does not get a special case at the call site.
+
+**Watch for:** the mobile implementation almost certainly carries assumptions that are really about the
+phone runtime rather than about MTP. Those belong on the platform adapter, not in the shared rule - and
+the tell is any code in the extracted package that names a platform.
