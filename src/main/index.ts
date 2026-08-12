@@ -24,7 +24,7 @@ import { preloadPath } from './preload-path'
 import { rendererHtmlPath } from './renderer-path'
 import { startModelServer, stopModelServer } from './model-server'
 import { startMediaServer, stopMediaServer, mediaUrlFor } from './media-server'
-import { serveCaptureFile } from './ogcapture-serve'
+import { capturePathFromUrl, serveCaptureFile } from './ogcapture-serve'
 import { serveArtifactPreview } from './artifact-preview'
 import { ipcMain } from 'electron'
 import { loadProEntitlementProvider, loadProFeaturesMain } from './bootstrap/loadProFeaturesMain'
@@ -299,7 +299,9 @@ app.whenReady().then(async () => {
   const ogCaptureRoots = localMediaRoots(app.getPath('userData'))
   protocol.handle('ogcapture', async (request) => {
     try {
-      const requestedPath = decodeURIComponent(request.url.slice('ogcapture://'.length))
+      // Parsed, not sliced: a Windows drive letter lands in the URL's host and loses its colon, so
+      // slicing produced `C/Users/…` and every preview 404'd on that platform alone.
+      const requestedPath = capturePathFromUrl(request.url)
       return serveCaptureFile(requestedPath, ogCaptureRoots, request.headers.get('Range'))
     } catch {
       return new Response(null, { status: 400 })

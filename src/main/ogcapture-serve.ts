@@ -122,3 +122,28 @@ export async function serveCaptureFile(
     return new Response(null, { status: 404 })
   }
 }
+
+/**
+ * The local path an `ogcapture://` URL names, on either platform.
+ *
+ * Slicing the prefix off the URL string is what broke Windows. A URL is parsed, not cut: the authority
+ * comes before the path, so `ogcapture://C:/Users/oga/x.png` puts the drive letter in the HOST - and the
+ * colon is dropped there - leaving `C/Users/oga/x.png`, which names nothing. macOS never showed it
+ * because its paths start with a slash, so the host is empty and the remainder is already absolute. The
+ * image generated, the file was on disk, and only the preview could not find it.
+ *
+ * Pure, so both dialects can be proved without a protocol handler or a running app.
+ */
+export function capturePathFromUrl(url: string): string {
+  const withoutScheme = url.replace(/^[a-z]+:\/\//i, '');
+  const separator = withoutScheme.indexOf('/');
+  const authority = separator === -1 ? withoutScheme : withoutScheme.slice(0, separator);
+  const rest = separator === -1 ? '' : withoutScheme.slice(separator);
+  // A single-letter authority is a Windows drive, and the colon it lost belongs back on it. Anything
+  // longer is a real host, which this scheme never has, so it is treated as part of the path.
+  const decodedAuthority = decodeURIComponent(authority);
+  const decodedRest = decodeURIComponent(rest);
+  if (/^[a-zA-Z]$/.test(decodedAuthority)) return `${decodedAuthority}:${decodedRest}`;
+  if (decodedAuthority === '') return decodedRest;
+  return `${decodedAuthority}${decodedRest}`;
+}
