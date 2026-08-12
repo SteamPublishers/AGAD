@@ -172,7 +172,12 @@ describe('<ModelsScreen/> — what a download looks like', () => {
     // One percent for the whole download.
     expect(await screen.findByText(/20%/)).toBeTruthy()
     // Bytes at the scale the card above already uses — 6296.4 MB is a number you have to convert.
-    expect(screen.getByText(/1\.3 GB of 6\.1 GB/)).toBeTruthy()
+    //
+    // The feed counts MEBIbytes, so 6296.4 is 6.6 GB, not 6.1. This line used to assert 6.1 because
+    // it divided by 1024 while the meta line above it divided by 1e9 — one file, two units, one
+    // label, which is what made a 25.4GB model report "23.7 GB" while downloading. Both now read
+    // through formatSize, so this assertion finally matches the intent stated above it.
+    expect(screen.getByText(/1\.4 GB of 6\.6 GB/)).toBeTruthy()
     // Which part is moving, without giving it a second percent of its own.
     expect(screen.getByText(/file 1 of 2/)).toBeTruthy()
     // The action row holds the action, on the same line as the status.
