@@ -29,6 +29,7 @@ import {
 } from './llm/settings-math'
 import { buildMessages, thinkingPayload } from './llm/chat-payload'
 import { readImages } from './llm/read-images'
+import { detectThinkingDialect, type ThinkingDialect } from './llm/thinking-dialect'
 import { isValidGgufFile } from './models/gguf'
 import { readGgufContextLength } from './models/gguf-metadata'
 import { pickFreePort, isPortFree } from './free-port'
@@ -897,6 +898,26 @@ export class LLMService {
   // a 200 server with an empty /v1/models. So we additionally require /v1/models
   // to list a model before declaring ready, and we bail immediately if the server
   // process exits (a model that fails to load takes the process down with it).
+  /** Which thinking controls the LOADED model understands. Resolved once per load from the
+   *  template llama-server publishes at /props; 'enable-thinking' until then, which is the
+   *  behaviour every model got before this was resolved at all. */
+  private thinkingDialect: ThinkingDialect = 'enable-thinking'
+
+  /** Read the loaded model's chat template and remember which thinking dialect it speaks.
+   *  Best-effort: a server that will not answer /props leaves the previous default in place
+   *  rather than failing a load over a capability probe. */
+  private async resolveThinkingDialect(): Promise<void> {
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.port}/props`)
+      if (!res.ok) return
+      const body = (await res.json()) as { chat_template?: string }
+      this.thinkingDialect = detectThinkingDialect(body?.chat_template)
+      console.log(`[LLMService] thinking dialect: ${this.thinkingDialect}`)
+    } catch (e) {
+      console.warn('[LLMService] could not read /props for the thinking dialect:', e)
+    }
+  }
+
   private async waitForReady(timeout = 60000): Promise<void> {
     const start = Date.now()
     let healthOk = false
@@ -912,7 +933,10 @@ export class LLMService {
           const res = await fetch(`http://127.0.0.1:${this.port}/v1/models`)
           if (res.ok) {
             const body = await res.json().catch(() => null)
-            if (Array.isArray(body?.data) && body.data.length > 0) return
+            if (Array.isArray(body?.data) && body.data.length > 0) {
+              await this.resolveThinkingDialect()
+              return
+            }
           }
         }
       } catch {
@@ -1025,7 +1049,7 @@ export class LLMService {
         // Thinking control: when on, ask the template to emit reasoning and have
         // llama.cpp split it into reasoning_content (deepseek-style); when off,
         // suppress it so the token budget goes to the answer.
-        ...thinkingPayload(!!opts.thinking)
+        ...thinkingPayload(!!opts.thinking, this.thinkingDialect)
       }
       const body = JSON.stringify(payload)
 
@@ -1069,7 +1093,7 @@ export class LLMService {
         temperature: opts.temperature ?? this.temperature,
         ...this.samplingPayload(),
         stream: true,
-        ...thinkingPayload(!!opts.thinking)
+        ...thinkingPayload(!!opts.thinking, this.thinkingDialect)
       }
       if (opts.tools && opts.tools.length) {
         payload.tools = opts.tools
