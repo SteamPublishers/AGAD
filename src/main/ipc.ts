@@ -93,7 +93,8 @@ async function regenerateMasterMemory(): Promise<string | null> {
 import {
   bindChatStream,
   endChatStream,
-  noteChatStreamDelta
+  noteChatStreamDelta,
+  takeChatStreamMessageId
 } from './chat-stream-state'
 
 const streamControllers = new Map<string, AbortController>()
@@ -1180,7 +1181,12 @@ export function setupIPC() {
   ipcMain.handle(
     'rag:add-message',
     (_, conversationId: string, role: 'user' | 'assistant', content: string, context?: any) => {
-      return addRagMessage(conversationId, role, content, context)
+      // A reply that was streamed is already named, and keeps that name: every paired device has been
+      // rendering it under this id, so the arriving record retires their live preview instead of
+      // standing beside it. Read from the one owner of "what this device is generating", so no caller
+      // has to pass it and none can forget to.
+      const streamed = role === 'assistant' ? takeChatStreamMessageId(conversationId) : undefined
+      return addRagMessage(conversationId, role, content, context, streamed)
     }
   )
 

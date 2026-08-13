@@ -17,7 +17,13 @@ import {
  * Nothing is faked. The hook registry is the app's own, and the only collaborator.
  */
 
-type Snapshot = { conversationId: string; content: string; reasoning: string } | null
+type Snapshot = {
+  conversationId: string
+  content: string
+  reasoning: string
+  /** Minted when the turn is bound, so the record that follows keeps the id its frames carried. */
+  messageId?: string
+} | null
 
 describe('the reply being generated, as published to anything that follows it', () => {
   let published: Snapshot[]
@@ -38,7 +44,14 @@ describe('the reply being generated, as published to anything that follows it', 
 
     // Empty content, not absent: a consumer can show "generating" immediately, rather than waiting for
     // the first token to learn a turn exists at all.
-    expect(published).toEqual([{ conversationId: 'conversation-1', content: '', reasoning: '' }])
+    expect(published).toEqual([
+      {
+        conversationId: 'conversation-1',
+        content: '',
+        reasoning: '',
+        messageId: expect.any(String)
+      }
+    ])
   })
 
   it('publishes the reply so far, not the delta, so a late consumer is never behind', () => {
@@ -51,7 +64,8 @@ describe('the reply being generated, as published to anything that follows it', 
     expect(published.at(-1)).toEqual({
       conversationId: 'conversation-1',
       content: 'Hello world',
-      reasoning: ''
+      reasoning: '',
+      messageId: expect.any(String)
     })
   })
 
@@ -66,7 +80,8 @@ describe('the reply being generated, as published to anything that follows it', 
     expect(published.at(-1)).toEqual({
       conversationId: 'conversation-1',
       content: 'the answer',
-      reasoning: 'let me think — more thought'
+      reasoning: 'let me think — more thought',
+      messageId: expect.any(String)
     })
   })
 
@@ -116,12 +131,14 @@ describe('the reply being generated, as published to anything that follows it', 
     expect(published.at(-2)).toEqual({
       conversationId: 'conversation-1',
       content: 'first',
-      reasoning: ''
+      reasoning: '',
+      messageId: expect.any(String)
     })
     expect(published.at(-1)).toEqual({
       conversationId: 'conversation-2',
       content: 'second',
-      reasoning: ''
+      reasoning: '',
+      messageId: expect.any(String)
     })
     endChatStream('stream-b')
     expect(published.at(-1)).toBeNull()
@@ -131,7 +148,8 @@ describe('the reply being generated, as published to anything that follows it', 
     expect(published.at(-1)).toEqual({
       conversationId: 'conversation-1',
       content: 'first more',
-      reasoning: ''
+      reasoning: '',
+      messageId: expect.any(String)
     })
   })
 
