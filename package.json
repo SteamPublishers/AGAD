@@ -45,6 +45,10 @@
     "knip": "knip --no-gitignore",
     "coverage:all": "bash scripts/coverage-all.sh"
   },
+  "//overrides": "ONE sharp for the whole tree. sharp ships libvips as `libvips-42.dll`, and Windows resolves a DLL by NAME across the process: whichever copy loads first wins for every later binding. embeddings.ts loads @xenova/transformers (sharp 0.32 / libvips 8.14.5) at startup, so our own sharp 0.35 (libvips 8.18.3) then asked that older DLL for symbols it does not export and died with ERR_DLOPEN_FAILED. Every file attachment failed on Windows and only there — macOS binds by path, so three copies coexist. Proven by load order: sharp alone loads; @xenova-then-sharp does not. Deduping to one version is the fix, not load-order juggling.",
+  "overrides": {
+    "sharp": "^0.35.2"
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
