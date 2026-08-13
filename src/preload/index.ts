@@ -155,6 +155,31 @@ const offGridApi = {
     ipcRenderer.on('rag:conversations-changed', subscription)
     return unsubscribe('rag:conversations-changed', subscription)
   },
+  /**
+   * The files a chat is still waiting for, whenever that set changes.
+   *
+   * Announced rather than fetched: the announcement arrives before the bytes, so the only device that
+   * knows a file is on its way is this one, and it knows the moment the control lands. There is no
+   * matching `get`, deliberately - the main process sends the whole set on every change, so a late
+   * subscriber gets the truth on the next arrival rather than reading a snapshot that is already old.
+   */
+  onIncomingSharedFiles: (
+    callback: (
+      files: {
+        syncId: string
+        name: string
+        fileSize: number
+        mimeType: string
+        kind: string
+        conversationId?: string
+        messageId?: string
+      }[]
+    ) => void
+  ) => {
+    const subscription = (_event: unknown, files: never[]): void => callback(files)
+    ipcRenderer.on('pro:sync:incoming-files', subscription)
+    return unsubscribe('pro:sync:incoming-files', subscription)
+  },
   searchRagConversationIds: (query: string) =>
     ipcRenderer.invoke('rag:search-conversation-ids', query),
   setRagConversationProject: (id: string, projectId: string | null) =>

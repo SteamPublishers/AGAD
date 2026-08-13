@@ -64,6 +64,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from '@renderer/components/ui/collapsible'
+import { captureUrlForPath } from '../../../shared/ogcapture-url'
 import {
   Plus,
   Paperclip,
@@ -354,7 +355,7 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
         provenance: turn.provenance,
         // Read through the one reader, so a row that names its image on the mesh and a row that
         // only remembers a path both render, and neither is decoded here.
-        image: imageReference ? `ogcapture://${imageReference.path}` : undefined,
+        image: imageReference ? captureUrlForPath(imageReference.path) : undefined,
         imagePath: imageReference?.path,
         imageMetadata: ctx?.imageMetadata,
         // Attachments persisted on the user turn (clickable chips survive reload).
@@ -542,6 +543,25 @@ export function MemoryChat({
   // re-check periodically (the user can switch models from the Models screen).
   const [chatVision, setChatVision] = useState(true)
   const [attachWarn, setAttachWarn] = useState<string | null>(null)
+  /**
+   * Files a peer has announced for this chat whose bytes have not arrived.
+   *
+   * Held here and never in the message: the wait is true of THIS device only, and a message is synced,
+   * so writing it onto the turn would tell peers that already hold the file to wait for it. The main
+   * process sends the whole set on every change, so this replaces rather than merges.
+   */
+  const [incomingFiles, setIncomingFiles] = useState<IncomingSharedFile[]>([])
+  useEffect(() => {
+    const off = window.api.onIncomingSharedFiles?.((files) => setIncomingFiles(files))
+    return () => off?.()
+  }, [])
+  // Matched on the message's UUID, which is what `id` carries here (`String(m.uuid ?? m.id)`) and is
+  // the only identity a peer can name — the autoincrement row id is local to one device.
+  const incomingFilesFor = useCallback(
+    (messageUuid: string | undefined): IncomingSharedFile[] =>
+      messageUuid ? incomingFiles.filter((file) => file.messageId === messageUuid) : [],
+    [incomingFiles]
+  )
   useEffect(() => {
     const check = (): void => {
       void (window.api as { chatVisionAvailable?: () => Promise<boolean> })
@@ -3023,7 +3043,7 @@ export function MemoryChat({
                           >
                             {thumb ? (
                               <img
-                                src={`ogcapture://${thumb}`}
+                                src={captureUrlForPath(thumb)}
                                 alt={s.name}
                                 className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                               />
@@ -3292,6 +3312,25 @@ export function MemoryChat({
                             </span>
                           </div>
                         ) : null}
+                        {/* Announced by a peer, bytes still coming. Drawn from the announcement, so
+                            the row names the real file instead of leaving the turn looking empty
+                            until it lands — which is what made a synced image look like a lost one. */}
+                        {incomingFilesFor(message.id).map((incoming) => (
+                          <div
+                            key={`incoming-${incoming.syncId}`}
+                            data-testid="incoming-shared-file"
+                            className="mb-2 flex w-fit items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900/40 px-2 py-1"
+                          >
+                            <span className="flex gap-1">
+                              <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:0ms]" />
+                              <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:150ms]" />
+                              <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:300ms]" />
+                            </span>
+                            <span className="max-w-[16rem] truncate text-[10px] text-neutral-400">
+                              {incoming.name}
+                            </span>
+                          </div>
+                        ))}
                         {message.attachments && message.attachments.length > 0 ? (
                           <div className="mb-2 flex flex-wrap gap-1.5">
                             {message.attachments.map((att, i) => {
@@ -3305,7 +3344,7 @@ export function MemoryChat({
                                     if (att.kind === 'image' && att.path) {
                                       closePanels()
                                       setLightbox({
-                                        url: `ogcapture://${att.path}`,
+                                        url: captureUrlForPath(att.path),
                                         path: att.path
                                       })
                                     } else if (att.text || att.path) {
@@ -3905,7 +3944,7 @@ export function MemoryChat({
                                       {/* Screen captures: show the actual frame, click → Replay seeked to that moment */}
                                       {u.kind === 'screen' && u.imagePath ? (
                                         <img
-                                          src={`ogcapture://${u.imagePath}`}
+                                          src={captureUrlForPath(u.imagePath)}
                                           alt=""
                                           className="mb-0.5 h-16 w-full rounded border border-neutral-800 object-cover"
                                         />
@@ -4480,7 +4519,7 @@ export function MemoryChat({
                           <button
                             type="button"
                             onClick={() => {
-                              const url = a.preview || (a.path ? `ogcapture://${a.path}` : '')
+                              const url = a.preview || (a.path ? captureUrlForPath(a.path) : '')
                               if (url) {
                                 closePanels()
                                 setLightbox({ url, path: a.path })
@@ -4490,7 +4529,7 @@ export function MemoryChat({
                             className="relative h-[2.6rem] overflow-hidden rounded-md"
                           >
                             <img
-                              src={a.preview || (a.path ? `ogcapture://${a.path}` : '')}
+                              src={a.preview || (a.path ? captureUrlForPath(a.path) : '')}
                               alt={a.name}
                               className="h-full w-full object-cover"
                             />
@@ -5254,11 +5293,13 @@ export function MemoryChat({
                     {gallery.map((g) => (
                       <button
                         key={g.path}
-                        onClick={() => setLightbox({ url: `ogcapture://${g.path}`, path: g.path })}
+                        onClick={() =>
+                          setLightbox({ url: captureUrlForPath(g.path), path: g.path })
+                        }
                         className="overflow-hidden rounded-md border border-neutral-800 transition-colors hover:border-green-500"
                       >
                         <img
-                          src={`ogcapture://${g.path}`}
+                          src={captureUrlForPath(g.path)}
                           alt=""
                           className="aspect-square w-full object-cover"
                         />
@@ -5283,7 +5324,7 @@ export function MemoryChat({
                             onClick={() =>
                               a.kind === 'image'
                                 ? (closePanels(),
-                                  setLightbox({ url: `ogcapture://${a.code}`, path: a.code }))
+                                  setLightbox({ url: captureUrlForPath(a.code), path: a.code }))
                                 : a.kind === 'text'
                                   ? (closePanels(), setViewer({ title: a.title, text: a.code }))
                                   : openCanvas({ kind: a.kind, code: a.code, title: a.title })
@@ -5292,7 +5333,7 @@ export function MemoryChat({
                           >
                             {a.kind === 'image' ? (
                               <img
-                                src={`ogcapture://${a.code}`}
+                                src={captureUrlForPath(a.code)}
                                 alt=""
                                 className="h-8 w-8 shrink-0 rounded-sm border border-neutral-800 object-cover"
                               />
