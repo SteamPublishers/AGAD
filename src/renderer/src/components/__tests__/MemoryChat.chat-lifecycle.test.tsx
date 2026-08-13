@@ -56,7 +56,11 @@ describe('<MemoryChat/> - chat lifecycle integration (#36-#42, #47-#48)', () => 
 
     boundary.resolve(0, 'Choose plan B because it is reversible.')
 
-    expect(await screen.findByRole('button', { name: /thought process/i })).toBeTruthy()
+    const thoughtProcess = await screen.findByRole('button', { name: /thought process/i })
+    const thoughtProcessLabel = screen.getByText('Thought process')
+    expect(thoughtProcessLabel.classList.contains('whitespace-nowrap')).toBe(true)
+    await user.click(thoughtProcess)
+    expect(await screen.findByText('First compare risk, then reversibility.')).toBeTruthy()
     expect(screen.getByText('Choose plan B because it is reversible.')).toBeTruthy()
     expect(screen.queryByText(/<\/?think>/i)).toBeNull()
   })

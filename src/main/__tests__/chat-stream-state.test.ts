@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { registerHook, HOOKS } from '../bootstrap/hookRegistry'
 import {
   bindChatStream,
+  continueChatStreamWithImage,
+  endChatStreamForConversation,
   noteChatStreamDelta,
+  noteChatStreamImageProgress,
   endChatStream
 } from '../chat-stream-state'
 
@@ -21,6 +24,8 @@ type Snapshot = {
   conversationId: string
   content: string
   reasoning: string
+  phase: 'waiting' | 'thinking' | 'answering' | 'generating_image'
+  progress?: { current: number; total: number }
   /** Minted when the turn is bound, so the record that follows keeps the id its frames carried. */
   messageId?: string
 } | null
@@ -49,6 +54,7 @@ describe('the reply being generated, as published to anything that follows it', 
         conversationId: 'conversation-1',
         content: '',
         reasoning: '',
+        phase: 'waiting',
         messageId: expect.any(String)
       }
     ])
@@ -65,6 +71,7 @@ describe('the reply being generated, as published to anything that follows it', 
       conversationId: 'conversation-1',
       content: 'Hello world',
       reasoning: '',
+      phase: 'answering',
       messageId: expect.any(String)
     })
   })
@@ -81,6 +88,7 @@ describe('the reply being generated, as published to anything that follows it', 
       conversationId: 'conversation-1',
       content: 'the answer',
       reasoning: 'let me think — more thought',
+      phase: 'thinking',
       messageId: expect.any(String)
     })
   })
@@ -93,6 +101,34 @@ describe('the reply being generated, as published to anything that follows it', 
 
     // The end IS an event. A consumer that had to infer it from silence would need a timeout, and would
     // show a phone "still generating" forever whenever a turn failed.
+    expect(published.at(-1)).toBeNull()
+  })
+
+  it('keeps one reply alive while its deferred image is generated', () => {
+    bindChatStream('stream-a', 'conversation-1')
+    noteChatStreamDelta('stream-a', 'I will make that image.', 'content')
+    const messageId = published.at(-1)?.messageId
+
+    expect(continueChatStreamWithImage('stream-a')).toBe(true)
+    expect(published.at(-1)).toEqual({
+      conversationId: 'conversation-1',
+      content: 'I will make that image.',
+      reasoning: '',
+      phase: 'generating_image',
+      messageId
+    })
+
+    expect(noteChatStreamImageProgress('conversation-1', 7, 42)).toBe(true)
+    expect(published.at(-1)).toEqual({
+      conversationId: 'conversation-1',
+      content: 'I will make that image.',
+      reasoning: '',
+      phase: 'generating_image',
+      progress: { current: 7, total: 42 },
+      messageId
+    })
+
+    expect(endChatStreamForConversation('conversation-1')).toBe(true)
     expect(published.at(-1)).toBeNull()
   })
 
@@ -132,12 +168,14 @@ describe('the reply being generated, as published to anything that follows it', 
       conversationId: 'conversation-1',
       content: 'first',
       reasoning: '',
+      phase: 'answering',
       messageId: expect.any(String)
     })
     expect(published.at(-1)).toEqual({
       conversationId: 'conversation-2',
       content: 'second',
       reasoning: '',
+      phase: 'answering',
       messageId: expect.any(String)
     })
     endChatStream('stream-b')
@@ -149,6 +187,7 @@ describe('the reply being generated, as published to anything that follows it', 
       conversationId: 'conversation-1',
       content: 'first more',
       reasoning: '',
+      phase: 'answering',
       messageId: expect.any(String)
     })
   })

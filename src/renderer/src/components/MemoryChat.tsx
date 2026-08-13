@@ -22,6 +22,8 @@ import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { getSlot, SLOTS } from '@/bootstrap/slotRegistry'
+import { ChatLoadingCard } from './ChatLoadingCard'
+import { ChatThinkingBlock } from './ChatThinkingBlock'
 import { ArtifactCanvas, parseArtifact, type Artifact } from './ArtifactCanvas'
 import { VoiceBubble, stopAllVoicePlayback } from './VoiceBubble'
 import { SkillsPanel } from './SkillsPanel'
@@ -3169,40 +3171,12 @@ export function MemoryChat({
                       !message.streaming &&
                       message.reasoning &&
                       message.reasoning.trim() ? (
-                        <Collapsible className="mb-1.5 max-w-[85%]">
-                          <CollapsibleTrigger className="group flex items-center gap-1.5 text-[11px] text-neutral-500 transition-colors hover:text-neutral-300">
-                            <svg
-                              className="h-3 w-3 text-neutral-600"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M9.663 17h4.673M12 3a6 6 0 00-3.6 10.8c.3.225.45.6.45.975V16.5h6.3v-1.725c0-.375.15-.75.45-.975A6 6 0 0012 3z"
-                              />
-                            </svg>
-                            {message.reasoningLabel ?? 'Thought process'}
-                            <svg
-                              className="h-3 w-3 transition-transform group-data-[state=open]:rotate-180"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 9l-7 7-7-7"
-                              />
-                            </svg>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="mt-1 whitespace-pre-wrap border-l-2 border-neutral-800 pl-3 text-xs leading-relaxed text-neutral-500">
-                            {message.reasoning}
-                          </CollapsibleContent>
-                        </Collapsible>
+                        <div className="mb-1.5">
+                          <ChatThinkingBlock
+                            content={message.reasoning}
+                            label={message.reasoningLabel}
+                          />
+                        </div>
                       ) : null}
                       {/* Live thinking + tool activity, ABOVE the answer bubble: reasoning
                         first (Thinking…), then the current tool-call step (Running <tool>…). */}
@@ -3214,27 +3188,7 @@ export function MemoryChat({
                             <span className="animate-bounce">●</span>
                           </span>
                           {message.reasoning && message.reasoning.trim() ? (
-                            <Collapsible defaultOpen className="max-w-[85%]">
-                              <CollapsibleTrigger className="group flex items-center gap-1.5 text-[11px] text-neutral-500 transition-colors hover:text-neutral-300">
-                                <span>Thinking…</span>
-                                <svg
-                                  className="h-3 w-3 transition-transform group-data-[state=open]:rotate-180"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M19 9l-7 7-7-7"
-                                  />
-                                </svg>
-                              </CollapsibleTrigger>
-                              <CollapsibleContent className="mt-1 whitespace-pre-wrap border-l-2 border-neutral-800 pl-3 text-xs leading-relaxed text-neutral-500">
-                                {message.reasoning}
-                              </CollapsibleContent>
-                            </Collapsible>
+                            <ChatThinkingBlock content={message.reasoning} live />
                           ) : null}
                           {activityLabel(message.activity) ? (
                             <span className="text-[11px] text-neutral-500">
@@ -4163,16 +4117,9 @@ export function MemoryChat({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900/40 px-3.5 py-2.5">
-                        <span className="flex gap-1">
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-green-500 [animation-delay:0ms]" />
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-green-500 [animation-delay:150ms]" />
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-green-500 [animation-delay:300ms]" />
-                        </span>
-                        <span className="text-xs text-neutral-500">
-                          {waitingLabel({ noMemory, hasProject: !!activeProjectId })}
-                        </span>
-                      </div>
+                      <ChatLoadingCard
+                        label={waitingLabel({ noMemory, hasProject: !!activeProjectId })}
+                      />
                     )}
                   </div>
                 ) : null}

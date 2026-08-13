@@ -11,11 +11,14 @@
 // because ending IS a snapshot.
 
 import { callHook, HOOKS } from './bootstrap/hookRegistry'
+import type { ChatStreamPhase, ChatStreamProgress } from '@offgrid/sync'
 
 interface ActiveStream {
   conversationId: string
   content: string
   reasoning: string
+  phase: ChatStreamPhase
+  progress?: ChatStreamProgress
   /**
    * The id this reply will be STORED under, when the caller named it before the first token.
    *
@@ -50,13 +53,17 @@ const pendingMessageIds = new Map<string, string>()
  * caller that can forget, and every site that forgot would silently go back to being drawn twice on
  * a paired device.
  */
-export function bindChatStream(streamId: string | undefined, conversationId?: string): void {
+export function bindChatStream(
+  streamId: string | undefined,
+  conversationId?: string,
+  phase: ChatStreamPhase = 'waiting'
+): void {
   if (!streamId || !conversationId) return
   // A new reply supersedes any identity still unclaimed for this conversation - the previous turn was
   // cancelled or failed before it ever became a record, so nothing is going to claim it.
   const messageId = crypto.randomUUID()
   pendingMessageIds.set(conversationId, messageId)
-  active.set(streamId, { conversationId, content: '', reasoning: '', messageId })
+  active.set(streamId, { conversationId, content: '', reasoning: '', phase, messageId })
   publish(streamId)
 }
 
@@ -83,9 +90,99 @@ export function noteChatStreamDelta(
   if (!streamId) return
   const stream = active.get(streamId)
   if (!stream) return
-  if (kind === 'reasoning') stream.reasoning += text
-  else stream.content += text
+  if (kind === 'reasoning') {
+    stream.reasoning += text
+    stream.phase = 'thinking'
+  } else {
+    stream.content += text
+    stream.phase = 'answering'
+  }
+  delete stream.progress
   publish(streamId)
+}
+
+/**
+ * Start or continue the image phase for one conversation.
+ *
+ * Direct image mode has no text stream to bind first. Tool and classifier paths do. This function
+ * hides that difference and preserves the same durable message identity in both cases.
+ */
+export function beginChatImageStream(conversationId: string | null | undefined): boolean {
+  if (!conversationId) return false
+  const existing = [...active.entries()].find(
+    ([, stream]) => stream.conversationId === conversationId
+  )
+  if (existing) {
+    const [streamId, stream] = existing
+    stream.phase = 'generating_image'
+    stream.reasoning = ''
+    delete stream.progress
+    publish(streamId)
+    return true
+  }
+
+  const streamId = `image:${conversationId}`
+  const messageId = pendingMessageIds.get(conversationId) ?? crypto.randomUUID()
+  pendingMessageIds.set(conversationId, messageId)
+  active.set(streamId, {
+    conversationId,
+    content: '',
+    reasoning: '',
+    phase: 'generating_image',
+    messageId
+  })
+  publish(streamId)
+  return true
+}
+
+/**
+ * Keep a tool-using turn open while its deferred image job runs.
+ *
+ * The text model and image model are two phases of ONE reply. Ending the stream between them makes
+ * paired devices remove the first placeholder before the image record exists. This transition keeps
+ * the original durable message id and changes only the live activity shown by peers.
+ */
+export function continueChatStreamWithImage(streamId: string | undefined): boolean {
+  if (!streamId) return false
+  const stream = active.get(streamId)
+  if (!stream) return false
+  stream.reasoning = ''
+  stream.phase = 'generating_image'
+  delete stream.progress
+  publish(streamId)
+  return true
+}
+
+/** Refresh the same live image activity as native generation advances. */
+export function noteChatStreamImageProgress(
+  conversationId: string | null | undefined,
+  step?: number,
+  total?: number
+): boolean {
+  if (!conversationId) return false
+  const entry = [...active.entries()].find(
+    ([, stream]) => stream.conversationId === conversationId && stream.phase === 'generating_image'
+  )
+  if (!entry) return false
+  const [streamId, stream] = entry
+  if (step !== undefined && total !== undefined && total > 0) {
+    stream.progress = { current: Math.min(Math.max(step, 0), total), total }
+  } else {
+    delete stream.progress
+  }
+  publish(streamId)
+  return true
+}
+
+/** End the deferred image phase when its native job succeeds, fails, or is cancelled. */
+export function endChatStreamForConversation(conversationId: string | null | undefined): boolean {
+  if (!conversationId) return false
+  const streamId = [...active.entries()].find(
+    ([, stream]) => stream.conversationId === conversationId
+  )?.[0]
+  if (!streamId) return false
+  endChatStream(streamId)
+  return true
 }
 
 /**
@@ -105,6 +202,8 @@ function publish(streamId: string): void {
     conversationId: stream.conversationId,
     content: stream.content,
     reasoning: stream.reasoning,
+    phase: stream.phase,
+    ...(stream.progress ? { progress: stream.progress } : {}),
     messageId: stream.messageId
   })
 }
