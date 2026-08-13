@@ -612,6 +612,46 @@ describe('<MemoryChat/> image and vision release journeys', () => {
     })
   })
 
+  it('renders a synced image attachment inline and opens the existing lightbox', async () => {
+    const conv = conversation('c-synced-image', 'Synced image')
+    installApi({
+      active: FULL,
+      models: [FULL],
+      conversations: [conv],
+      messages: {
+        [conv.id]: [
+          {
+            uuid: 'message-image-1',
+            role: 'assistant',
+            content: 'Generated image for: "Draw a dog"',
+            context: JSON.stringify({
+              attachments: [
+                {
+                  id: 'image-1',
+                  name: 'dog.png',
+                  kind: 'image',
+                  path: '/received/dog.png'
+                }
+              ]
+            })
+          }
+        ]
+      }
+    })
+    const user = userEvent.setup()
+    renderChat({ conversationId: conv.id })
+
+    const image = await screen.findByAltText('dog.png')
+    expect(image.getAttribute('src')).toBe('ogcapture:///received/dog.png')
+    expect(screen.queryByText('image')).toBeNull()
+
+    await user.click(image)
+    expect(screen.getByRole('dialog', { name: 'Generated image preview' })).toBeTruthy()
+    expect(screen.getByAltText('Generated preview').getAttribute('src')).toBe(
+      'ogcapture:///received/dog.png'
+    )
+  })
+
   it('shows live progress, renders one generated image, and opens and saves it (#61, #67)', async () => {
     const turn = deferred<ImageResult>()
     const boundary = installApi({

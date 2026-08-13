@@ -382,6 +382,34 @@ function ImageMetadata({
   )
 }
 
+function ChatImagePreview({
+  src,
+  path,
+  alt = 'Generated',
+  metadata,
+  className,
+  onOpen
+}: {
+  src: string
+  path?: string
+  alt?: string
+  metadata?: ImageGenerationMetadata
+  className: string
+  onOpen: (image: { url: string; path?: string }) => void
+}): React.JSX.Element {
+  return (
+    <div>
+      <img
+        src={src}
+        alt={alt}
+        onClick={() => onOpen({ url: src, path })}
+        className={className}
+      />
+      <ImageMetadata metadata={metadata} />
+    </div>
+  )
+}
+
 // Core (free) suggestions — generic chat/build/image. Pro adds memory-aware ones.
 const ASK_EXAMPLES = [
   'Explain how RAG works, simply',
@@ -3128,20 +3156,13 @@ export function MemoryChat({
                         // Generated image in voice mode: show the image, no audio bubble.
                         if (message.image) {
                           return (
-                            <div>
-                              <img
-                                src={message.image}
-                                alt="Generated"
-                                onClick={() =>
-                                  setLightbox({
-                                    url: message.image as string,
-                                    path: message.imagePath
-                                  })
-                                }
-                                className="max-w-[20rem] cursor-zoom-in rounded-md border border-neutral-800 transition-opacity hover:opacity-90"
-                              />
-                              <ImageMetadata metadata={message.imageMetadata} />
-                            </div>
+                            <ChatImagePreview
+                              src={message.image}
+                              path={message.imagePath}
+                              metadata={message.imageMetadata}
+                              className="max-w-[20rem] cursor-zoom-in rounded-md border border-neutral-800 transition-opacity hover:opacity-90"
+                              onOpen={setLightbox}
+                            />
                           )
                         }
                         const transcript = messageToSpeakable(
@@ -3288,6 +3309,19 @@ export function MemoryChat({
                         {message.attachments && message.attachments.length > 0 ? (
                           <div className="mb-2 flex flex-wrap gap-1.5">
                             {message.attachments.map((att, i) => {
+                              if (att.kind === 'image' && att.path) {
+                                const src = captureUrlForPath(att.path)
+                                return (
+                                  <ChatImagePreview
+                                    key={`${att.path}-${i}`}
+                                    src={src}
+                                    path={att.path}
+                                    alt={att.name || 'Shared image'}
+                                    className="max-h-[28rem] max-w-full cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
+                                    onOpen={setLightbox}
+                                  />
+                                )
+                              }
                               const viewable = !!att.text || (att.kind === 'image' && !!att.path)
                               return (
                                 <button
@@ -3507,20 +3541,13 @@ export function MemoryChat({
                           )
                         })()}
                         {message.image ? (
-                          <div>
-                            <img
-                              src={message.image}
-                              alt="Generated"
-                              onClick={() =>
-                                setLightbox({
-                                  url: message.image as string,
-                                  path: message.imagePath
-                                })
-                              }
-                              className="mt-2 max-w-full cursor-zoom-in rounded-md border border-neutral-800 transition-opacity hover:opacity-90"
-                            />
-                            <ImageMetadata metadata={message.imageMetadata} />
-                          </div>
+                          <ChatImagePreview
+                            src={message.image}
+                            path={message.imagePath}
+                            metadata={message.imageMetadata}
+                            className="mt-2 max-w-full cursor-zoom-in rounded-md border border-neutral-800 transition-opacity hover:opacity-90"
+                            onOpen={setLightbox}
+                          />
                         ) : null}
                       </div>
 
