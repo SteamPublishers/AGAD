@@ -92,13 +92,18 @@ import {
   WarningCircle
 } from '@phosphor-icons/react'
 
+type RagMemory = { id: number; content?: string; text?: string }
+type RagSummary = { session_id: string; summary?: string; title?: string; app_name?: string }
+type RagEntity = { id: number; name?: string }
+type RagEntityFact = { fact?: string } | string
+
 type RagContext = {
   masterMemory?: string | null
-  memories?: any[]
-  messages?: any[]
-  summaries?: any[]
-  entities?: any[]
-  entityFacts?: any[]
+  memories?: RagMemory[]
+  messages?: unknown[]
+  summaries?: RagSummary[]
+  entities?: RagEntity[]
+  entityFacts?: RagEntityFact[]
   unified?: {
     kind: string
     title: string
@@ -159,6 +164,20 @@ type ChatMessage = {
 }
 
 type ChatMode = 'ask' | 'image'
+
+type ImageProgress = {
+  step: number
+  total: number
+  secPerStep: number
+  preview?: string
+  phase?: 'sampling' | 'decoding'
+}
+
+function imageProgressLabel(progress: ImageProgress | null): string {
+  if (!progress) return 'Loading model…'
+  const phase = progress.phase === 'decoding' ? 'Decoding' : 'Step'
+  return `${phase} ${progress.step}/${progress.total}`
+}
 
 /**
  * Tell main the generated assistant message is durable, and WHICH message it is.
@@ -308,104 +327,156 @@ type Conversation = RagConversationContract
 type ProjectLite = { id: string; name: string }
 
 interface MemoryChatProps {
-  onNavigateToMemory?: (memoryId: number) => void
-  onNavigateToChat?: (sessionId: string) => void
-  onNavigateToEntity?: (entityId: number) => void
+  readonly onNavigateToMemory?: (memoryId: number) => void
+  readonly onNavigateToChat?: (sessionId: string) => void
+  readonly onNavigateToEntity?: (entityId: number) => void
   /** Open the Projects screen focused on this chat's linked project. */
-  onOpenProject?: (projectId: string) => void
+  readonly onOpenProject?: (projectId: string) => void
   /** Open the Replay screen seeked to a capture's moment (epoch ms). */
-  onSeekReplay?: (ts: number) => void
+  readonly onSeekReplay?: (ts: number) => void
   /** Open a specific conversation, or start a new one scoped to a project. */
-  openTarget?: { conversationId?: string; projectId?: string; openGallery?: boolean } | null
-  onTargetConsumed?: () => void
+  readonly openTarget?: Readonly<{
+    conversationId?: string
+    projectId?: string
+    openGallery?: boolean
+  }> | null
+  readonly onTargetConsumed?: () => void
 }
 
-function mapRagMessages(raw: any[]): ChatMessage[] {
-  return raw.flatMap<ChatMessage>((m: any) => {
-    let ctx: RagContext | undefined
-    if (m.context && typeof m.context === 'string') {
-      try {
-        ctx = JSON.parse(m.context) as RagContext
-      } catch {
-        ctx = undefined
-      }
-    } else if (m.context && typeof m.context === 'object') {
-      ctx = m.context as RagContext
+function parseRagContext(context: unknown): RagContext | undefined {
+  if (typeof context === 'string') {
+    try {
+      return JSON.parse(context) as RagContext
+    } catch {
+      return undefined
     }
-    const provenance =
-      typeof m.origin_device_id === 'string' && typeof m.origin_device_name === 'string'
-        ? {
-            originDeviceId: m.origin_device_id,
-            originDeviceName: m.origin_device_name
-          }
-        : undefined
-    // Shared correctly excludes this temporary row from the portable ANSWER projection. Desktop
-    // still needs the local database row as lifecycle UI until the same UUID is rewritten as the
-    // durable Enhanced prompt disclosure. Admit only this exact producer-owned sentence here.
-    if (m.role === 'assistant' && isPromptEnhancementContent(m.content)) {
-      const id = String(m.uuid ?? m.id ?? '')
-      return id ? [{ id, role: 'assistant', content: m.content, provenance }] : []
+  }
+  return context && typeof context === 'object' ? (context as RagContext) : undefined
+}
+
+type RawRagMessage = {
+  uuid?: unknown
+  id?: unknown
+  role: SyncedMessageRole
+  content: string
+  context?: unknown
+  created_at?: string
+  origin_device_id?: unknown
+  origin_device_name?: unknown
+}
+
+function readRagProvenance(message: RawRagMessage): ChatMessage['provenance'] {
+  if (
+    typeof message.origin_device_id !== 'string' ||
+    typeof message.origin_device_name !== 'string'
+  ) {
+    return undefined
+  }
+  return {
+    originDeviceId: message.origin_device_id,
+    originDeviceName: message.origin_device_name
+  }
+}
+
+function promptEnhancementMessage(
+  message: RawRagMessage,
+  provenance: ChatMessage['provenance']
+): ChatMessage | undefined {
+  if (message.role !== 'assistant' || !isPromptEnhancementContent(message.content)) return undefined
+  const id = String(message.uuid ?? message.id ?? '')
+  return id ? { id, role: 'assistant', content: message.content, provenance } : undefined
+}
+
+function shouldHideProjectedTurn(turn: ReturnType<typeof projectSyncedMessageTurn>): boolean {
+  return Boolean(
+    turn &&
+    turn.role === 'assistant' &&
+    !(turn.answer ?? turn.content).trim() &&
+    turn.reasoning === undefined
+  )
+}
+
+type ProjectedTurn = NonNullable<ReturnType<typeof projectSyncedMessageTurn>>
+
+function projectedTurnContent(turn: ProjectedTurn): string {
+  if (turn.role !== 'assistant') return turn.content
+  return turn.answer ?? turn.content
+}
+
+function projectedTurnTools(turn: ProjectedTurn): Partial<ChatMessage> {
+  if (turn.role === 'assistant') {
+    return {
+      toolCalls: turn.tools.length > 0 ? turn.tools : undefined,
+      generationTimeMs: turn.durationMs
     }
-    const turn = projectSyncedMessageTurn({
-      id: String(m.uuid ?? m.id),
-      role: m.role,
-      content: m.content,
-      context: m.context,
-      createdAt: m.created_at,
-      provenance
-    })
-    if (!turn) return []
-    // Mobile tool turns can persist a delimiter-only intermediate assistant row before the
-    // tool result and final answer. It carries no thought content and must not become a visible
-    // "<think> </think>" bubble on Desktop.
-    // A turn with nothing in it is not a bubble. Mobile's tool loop persists a delimiter-only
-    // assistant row before the tool result and the final answer; it used to arrive as the literal
-    // "<think></think>" and was matched as that string. The shared projection now splits inline
-    // reasoning out, so the same row arrives empty instead - test emptiness, which covers both and
-    // any other way a turn can carry nothing.
-    if (
-      turn.role === 'assistant' &&
-      !(turn.answer ?? turn.content).trim() &&
-      turn.reasoning === undefined
-    ) {
-      return []
+  }
+  if (turn.role === 'tool') {
+    return {
+      toolName: turn.tools[0]?.name,
+      toolCallId: turn.tools[0]?.id,
+      generationTimeMs: turn.tools[0]?.durationMs
     }
-    const imageReference = readGeneratedImageReference(ctx)
-    return [
-      {
-        id: turn.id,
-        role: turn.role,
-        // The cleaned view: `content` stays verbatim for hosts that store it back.
-        content: turn.role === 'assistant' ? (turn.answer ?? turn.content) : turn.content,
-        context: ctx,
-        // Reasoning rides in the context blob so the "Thinking" block survives reload.
-        reasoning: turn.reasoning ?? readReasoning(ctx),
-        cutoff: readResponseCutoff(ctx),
-        toolCalls: turn.role === 'assistant' && turn.tools.length > 0 ? turn.tools : undefined,
-        toolName: turn.role === 'tool' ? turn.tools[0]?.name : undefined,
-        toolCallId: turn.role === 'tool' ? turn.tools[0]?.id : undefined,
-        turnStatus: turn.status,
-        notice: turn.notice,
-        reasoningLabel: turn.reasoningLabel,
-        generationTimeMs: turn.role === 'tool' ? turn.tools[0]?.durationMs : turn.durationMs,
-        provenance: turn.provenance,
-        // Read through the one reader, so a row that names its image on the mesh and a row that
-        // only remembers a path both render, and neither is decoded here.
-        image: imageReference ? captureUrlForPath(imageReference.path) : undefined,
-        imagePath: imageReference?.path,
-        imageMetadata: ctx?.imageMetadata,
-        // Attachments persisted on the user turn (clickable chips survive reload).
-        attachments: Array.isArray(ctx?.attachments) ? ctx.attachments : undefined
-      }
-    ]
+  }
+  return { generationTimeMs: turn.durationMs }
+}
+
+function projectChatMessage(turn: ProjectedTurn, context?: RagContext): ChatMessage {
+  const imageReference = readGeneratedImageReference(context)
+  return {
+    id: turn.id,
+    role: turn.role,
+    content: projectedTurnContent(turn),
+    context,
+    reasoning: turn.reasoning ?? readReasoning(context),
+    cutoff: readResponseCutoff(context),
+    ...projectedTurnTools(turn),
+    turnStatus: turn.status,
+    notice: turn.notice,
+    reasoningLabel: turn.reasoningLabel,
+    provenance: turn.provenance,
+    image: imageReference ? captureUrlForPath(imageReference.path) : undefined,
+    imagePath: imageReference?.path,
+    imageMetadata: context?.imageMetadata,
+    attachments: Array.isArray(context?.attachments) ? context.attachments : undefined
+  }
+}
+
+function mapRagMessage(message: RawRagMessage): ChatMessage[] {
+  const context = parseRagContext(message.context)
+  const provenance = readRagProvenance(message)
+  // Shared excludes this temporary row from the portable answer projection. Desktop still needs
+  // the local row until the same UUID becomes the durable Enhanced prompt disclosure.
+  const promptEnhancement = promptEnhancementMessage(message, provenance)
+  if (promptEnhancement) return [promptEnhancement]
+  const turn = projectSyncedMessageTurn({
+    id: String(message.uuid ?? message.id),
+    role: message.role,
+    content: message.content,
+    context: message.context,
+    createdAt: message.created_at,
+    provenance
   })
+  if (!turn || shouldHideProjectedTurn(turn)) return []
+  // Mobile tool turns can persist a delimiter-only intermediate assistant row before the
+  // tool result and final answer. It carries no thought content and must not become a visible
+  // "<think> </think>" bubble on Desktop.
+  // A turn with nothing in it is not a bubble. Mobile's tool loop persists a delimiter-only
+  // assistant row before the tool result and the final answer; it used to arrive as the literal
+  // "<think></think>" and was matched as that string. The shared projection now splits inline
+  // reasoning out, so the same row arrives empty instead - test emptiness, which covers both and
+  // any other way a turn can carry nothing.
+  return [projectChatMessage(turn, context)]
+}
+
+function mapRagMessages(raw: RawRagMessage[]): ChatMessage[] {
+  return raw.flatMap<ChatMessage>(mapRagMessage)
 }
 
 function ImageMetadata({
   metadata
-}: {
+}: Readonly<{
   metadata?: ImageGenerationMetadata
-}): React.JSX.Element | null {
+}>): React.JSX.Element | null {
   if (!metadata) return null
   return (
     <p aria-label="Image generation metadata" className="mt-1.5 text-[10px] text-neutral-600">
@@ -423,20 +494,1268 @@ function ChatImagePreview({
   metadata,
   className,
   onOpen
-}: {
+}: Readonly<{
   src: string
   path?: string
   alt?: string
   metadata?: ImageGenerationMetadata
   className: string
   onOpen: (image: { url: string; path?: string }) => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <div>
-      <img src={src} alt={alt} onClick={() => onOpen({ url: src, path })} className={className} />
+      <button
+        type="button"
+        aria-label={`Open ${alt}`}
+        onClick={() => onOpen({ url: src, path })}
+        className="block max-w-full"
+      >
+        <img src={src} alt={alt} className={className} />
+      </button>
       <ImageMetadata metadata={metadata} />
     </div>
   )
+}
+
+type StoredMessageAttachment = NonNullable<ChatMessage['attachments']>[number]
+type OpenImage = { url: string; path?: string }
+
+function isSupportingMessage(message: ChatMessage): boolean {
+  return isSupportingChatContext({
+    answer: message.content,
+    reasoning: message.reasoning,
+    reasoningLabel: message.reasoningLabel
+  })
+}
+
+function selectedMessageContent(message: ChatMessage): string {
+  if (!message.variants || message.variantIndex == null) return message.content
+  return message.variants[message.variantIndex] ?? message.content
+}
+
+function renderedMessageContent(message: ChatMessage): string {
+  const selected = selectedMessageContent(message)
+  if (message.role !== 'assistant') return preprocessChatMarkdown(selected)
+  return preprocessChatMarkdown(
+    selected
+      .replace(ASK_FENCE, '')
+      .replace(/\[S(\d+)\]/g, '[S$1](cite:$1)')
+      .trim()
+  )
+}
+
+function standardMessageRowClass(message: ChatMessage): string {
+  const margin = isSupportingMessage(message) ? 'mb-2' : 'mb-5'
+  const alignment = message.role === 'user' ? 'items-end' : 'items-start'
+  return `${margin} flex flex-col ${alignment}`
+}
+
+function standardMessageBubbleClass(message: ChatMessage, editing: boolean): string {
+  const emptyAssistant =
+    message.role === 'assistant' &&
+    !message.content.trim() &&
+    !message.image &&
+    !message.imageMemoryRetry
+  if (emptyAssistant) return 'hidden'
+  const width = editing || message.image ? 'w-full max-w-2xl' : 'max-w-[85%]'
+  const color =
+    message.role === 'user'
+      ? 'bg-neutral-800 text-neutral-100'
+      : 'border border-neutral-800 bg-neutral-900/40 text-neutral-200'
+  return `rounded-md px-3.5 py-2.5 text-sm leading-relaxed ${width} ${color}`
+}
+
+function contextResultCount(context: RagContext): number {
+  return (
+    (context.sources?.length ?? 0) +
+    (context.memories?.length ?? 0) +
+    (context.summaries?.length ?? 0) +
+    (context.entities?.length ?? 0) +
+    (context.entityFacts?.length ?? 0) +
+    (context.unified?.length ?? 0)
+  )
+}
+
+function NoticeMessageRow({ message }: Readonly<{ message: ChatMessage }>): React.JSX.Element {
+  return (
+    <div className="mb-4 flex justify-center">
+      <span className="px-3 text-center text-[11px] leading-relaxed text-neutral-500">
+        {noticeText(message.content)}
+      </span>
+    </div>
+  )
+}
+
+function PromptEnhancementMessageRow({
+  message
+}: Readonly<{ message: ChatMessage }>): React.JSX.Element {
+  return (
+    <div className="mb-5 flex flex-col items-start" data-testid="prompt-enhancement-status">
+      <ChatLoadingCard label={message.content.trim()} />
+    </div>
+  )
+}
+
+function ToolMessageRow({
+  message,
+  nextMessageRole
+}: Readonly<{
+  message: ChatMessage
+  nextMessageRole?: SyncedMessageRole
+}>): React.JSX.Element {
+  const margin = nextMessageRole === 'tool' ? 'mb-2' : 'mb-5'
+  return (
+    <div
+      className={`${margin} flex flex-col items-start`}
+      data-testid={`chat-tool-message-${message.id}`}
+    >
+      <ChatToolRows
+        tools={[
+          {
+            name: message.toolName || 'Tool result',
+            result: message.content,
+            status: message.turnStatus === 'failed' ? 'failed' : 'completed',
+            ...(message.generationTimeMs === undefined
+              ? {}
+              : { durationMs: message.generationTimeMs })
+          }
+        ]}
+      />
+    </div>
+  )
+}
+
+function VoiceMessageRow({
+  message,
+  autoPlay,
+  onCopy,
+  onOpenImage,
+  onRegenerate
+}: Readonly<{
+  message: ChatMessage
+  autoPlay: boolean
+  onCopy: (text: string, key?: string) => void
+  onOpenImage: (image: OpenImage) => void
+  onRegenerate: (messageId: string) => void
+}>): React.JSX.Element {
+  const alignment = message.role === 'user' ? 'items-end' : 'items-start'
+  let body: React.JSX.Element
+  if (message.role === 'user') {
+    body = (
+      <VoiceBubble
+        messageId={message.id}
+        isUser
+        transcript={messageToSpeakable(message.content)}
+        audioUrl={message.audioUrl}
+        durationSeconds={message.audioDuration}
+        synthesize={(text) => window.api.speak(text)}
+        onCopy={onCopy}
+      />
+    )
+  } else if (isSupportingMessage(message)) {
+    body = <ChatThinkingBlock content={message.reasoning ?? ''} label={message.reasoningLabel} />
+  } else if (message.image) {
+    body = (
+      <ChatImagePreview
+        src={message.image}
+        path={message.imagePath}
+        metadata={message.imageMetadata}
+        className="max-w-[20rem] cursor-zoom-in rounded-md border border-neutral-800 transition-opacity hover:opacity-90"
+        onOpen={onOpenImage}
+      />
+    )
+  } else {
+    body = (
+      <VoiceBubble
+        messageId={message.id}
+        transcript={messageToSpeakable(selectedMessageContent(message))}
+        isLoading={Boolean(message.streaming)}
+        autoPlay={autoPlay}
+        synthesize={(text) => window.api.speak(text)}
+        onCopy={onCopy}
+        onRetry={() => onRegenerate(message.id)}
+      />
+    )
+  }
+  return <div className={`mb-4 flex flex-col ${alignment}`}>{body}</div>
+}
+
+function MessageThinkingHeader({ message }: Readonly<{ message: ChatMessage }>): React.JSX.Element {
+  if (message.role !== 'assistant') return <></>
+  if (message.streaming) {
+    const activity = activityLabel(message.activity)
+    return (
+      <div className="mb-1.5 flex flex-col gap-1.5">
+        <span className="inline-flex gap-1 text-green-500">
+          <span className="animate-bounce [animation-delay:-0.3s]">●</span>
+          <span className="animate-bounce [animation-delay:-0.15s]">●</span>
+          <span className="animate-bounce">●</span>
+        </span>
+        {message.reasoning?.trim() ? <ChatThinkingBlock content={message.reasoning} live /> : null}
+        {activity ? <span className="text-[11px] text-neutral-500">{activity}</span> : null}
+      </div>
+    )
+  }
+  if (!message.reasoning?.trim()) return <></>
+  const supporting = isSupportingMessage(message)
+  return (
+    <div
+      className={
+        supporting
+          ? 'rounded-md border border-neutral-800 bg-neutral-900/40 px-3.5 py-2.5'
+          : 'mb-1.5'
+      }
+      data-testid={supporting ? 'supporting-context-bubble' : undefined}
+    >
+      <ChatThinkingBlock content={message.reasoning} label={message.reasoningLabel} />
+    </div>
+  )
+}
+
+function IncomingFileRows({
+  files
+}: Readonly<{ files: readonly IncomingSharedFile[] }>): React.JSX.Element {
+  return (
+    <>
+      {files.map((incoming) => (
+        <div
+          key={`incoming-${incoming.syncId}`}
+          data-testid="incoming-shared-file"
+          className="mb-2 flex w-fit items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900/40 px-2 py-1"
+        >
+          <span className="flex gap-1">
+            <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:0ms]" />
+            <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:150ms]" />
+            <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:300ms]" />
+          </span>
+          <span className="max-w-[16rem] truncate text-[10px] text-neutral-400">
+            {incoming.name}
+          </span>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function MessageAttachments({
+  attachments,
+  onOpenAttachment,
+  onOpenImage
+}: Readonly<{
+  attachments: readonly StoredMessageAttachment[]
+  onOpenAttachment: (attachment: StoredMessageAttachment) => void
+  onOpenImage: (image: OpenImage) => void
+}>): React.JSX.Element {
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {attachments.map((attachment, index) => {
+        if (attachment.kind === 'image' && attachment.path) {
+          const source = captureUrlForPath(attachment.path)
+          return (
+            <ChatImagePreview
+              key={`${attachment.path}-${index}`}
+              src={source}
+              path={attachment.path}
+              alt={attachment.name || 'Shared image'}
+              className="max-h-[28rem] max-w-full cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
+              onOpen={onOpenImage}
+            />
+          )
+        }
+        const viewable = Boolean(attachment.text || attachment.path)
+        return (
+          <button
+            key={`${attachment.name}-${index}`}
+            type="button"
+            disabled={!viewable}
+            onClick={() => onOpenAttachment(attachment)}
+            title={viewable ? 'Click to view' : undefined}
+            className="flex items-center gap-1 rounded-md bg-neutral-700/60 px-2 py-1 text-[10px] text-neutral-200 transition-colors enabled:cursor-pointer enabled:hover:bg-neutral-600/60"
+          >
+            <Paperclip className="h-3 w-3 text-neutral-400" />
+            <span className="max-w-[12rem] truncate">{attachment.name}</span>
+            <span className="text-neutral-500">{attachment.kind}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function MessageEditor({
+  messageId,
+  text,
+  onChange,
+  onCancel,
+  onSave
+}: Readonly<{
+  messageId: string
+  text: string
+  onChange: (text: string) => void
+  onCancel: () => void
+  onSave: (messageId: string) => void
+}>): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-2">
+      <textarea
+        autoFocus
+        value={text}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            onSave(messageId)
+          }
+          if (event.key === 'Escape') onCancel()
+        }}
+        rows={Math.min(10, text.split('\n').length + 1)}
+        className="w-full resize-none rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 outline-none focus:border-green-500"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onSave(messageId)}
+          className="rounded-md bg-green-600 px-3 py-1 text-xs text-white transition-colors hover:bg-green-500"
+        >
+          Save & submit
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-400 transition-colors hover:text-neutral-200"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+const markdownComponents = chatMarkdownComponents
+
+function makeCiteComponents(
+  unified: RagContext['unified'],
+  navigation: ContextNavigation
+): Components {
+  return {
+    ...markdownComponents,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    a: ({ href, children }: any) => {
+      const match = typeof href === 'string' ? /^cite:(\d+)$/.exec(href) : null
+      if (!match || !unified) {
+        return (
+          <a href={href} target="_blank" rel="noreferrer" className="text-green-500 underline">
+            {children}
+          </a>
+        )
+      }
+      const source = unified[Number.parseInt(match[1]!, 10) - 1]
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            if (source) openUnifiedContext(source, navigation)
+          }}
+          title={
+            source
+              ? `${source.kind} · ${source.surface}${source.title ? ` · ${source.title}` : ''}`
+              : 'source'
+          }
+          className="mx-0.5 inline-flex items-center rounded-sm border border-green-500/40 bg-green-500/10 px-1 align-baseline text-[0.72em] font-semibold text-green-500 transition-colors hover:bg-green-500/20"
+        >
+          {children}
+        </button>
+      )
+    }
+  }
+}
+
+function MessageMarkdown({
+  message,
+  navigation
+}: Readonly<{
+  message: ChatMessage
+  navigation: ContextNavigation
+}>): React.JSX.Element {
+  const components =
+    message.role === 'assistant'
+      ? makeCiteComponents(message.context?.unified, navigation)
+      : markdownComponents
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
+      {renderedMessageContent(message)}
+    </ReactMarkdown>
+  )
+}
+
+function ResponseCutoffNotice({
+  cutoff
+}: Readonly<{ cutoff?: ResponseCutoffContract }>): React.JSX.Element | null {
+  if (!cutoff) return null
+  return (
+    <p
+      role="status"
+      className="mt-2 flex items-start gap-1.5 border-t border-amber-500/20 pt-2 text-[11px] text-amber-400"
+    >
+      <WarningCircle className="mt-0.5 h-3 w-3 shrink-0" weight="fill" />
+      Response stopped at the configured {cutoff.maxTokens.toLocaleString()}-token limit.
+    </p>
+  )
+}
+
+function ImageMemoryRetryAction({
+  message,
+  loading,
+  onRetry
+}: Readonly<{
+  message: ChatMessage
+  loading: boolean
+  onRetry: (retry: NonNullable<ChatMessage['imageMemoryRetry']>) => void
+}>): React.JSX.Element | null {
+  const retry = message.imageMemoryRetry
+  if (!retry) return null
+  return (
+    <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
+      <p className="min-w-0 flex-1 text-[10px] text-muted-foreground">
+        Running this model may make your Mac unresponsive.
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={loading}
+        onClick={() => onRetry(retry)}
+        className="shrink-0 active:scale-95"
+      >
+        Run anyway
+      </Button>
+    </div>
+  )
+}
+
+function ArtifactCard({
+  artifact,
+  onOpen
+}: Readonly<{
+  artifact: Artifact | null
+  onOpen: (artifact: Artifact) => void
+}>): React.JSX.Element | null {
+  if (!artifact) return null
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(artifact)}
+      className="mt-2 flex w-full items-center gap-3 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2.5 text-left transition-colors hover:border-green-500/60"
+    >
+      <span className="flex h-9 w-9 items-center justify-center rounded-md border border-neutral-800 bg-neutral-950 text-green-500">
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+          />
+        </svg>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs text-neutral-200">
+          {artifact.title || `${artifact.kind.toUpperCase()} artifact`}
+        </span>
+        <span className="block text-[11px] text-neutral-500">Click to open in the canvas →</span>
+      </span>
+    </button>
+  )
+}
+
+function AskCard({
+  ask,
+  selected,
+  onSelect,
+  onSubmit
+}: Readonly<{
+  ask: AskBlock | null
+  selected: readonly string[]
+  onSelect: (option: string, selected: boolean) => void
+  onSubmit: () => void
+}>): React.JSX.Element | null {
+  if (!ask) return null
+  return (
+    <div className="mt-2 flex flex-col gap-1.5">
+      <p className="text-xs text-neutral-400">{ask.question}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {ask.options.map((option) => {
+          const active = selected.includes(option)
+          const className = active
+            ? 'border-green-500 text-green-500'
+            : 'border-neutral-700 text-neutral-300 hover:border-green-500 hover:text-green-500'
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onSelect(option, active)}
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${className}`}
+            >
+              {option}
+            </button>
+          )
+        })}
+      </div>
+      {ask.multiSelect && selected.length > 0 ? (
+        <button
+          type="button"
+          onClick={onSubmit}
+          className="mt-1 self-start rounded-md bg-green-600 px-3 py-1 text-xs text-white transition-colors hover:bg-green-500"
+        >
+          Submit ({selected.length})
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function CopyAction({
+  copied,
+  onCopy
+}: Readonly<{ copied: boolean; onCopy: () => void }>): React.JSX.Element {
+  const color = copied ? 'text-green-500' : 'text-neutral-600 hover:text-green-500'
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      className={`flex items-center gap-1 text-[11px] transition-colors ${color}`}
+      title="Copy"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5" weight="bold" />
+      ) : (
+        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M8 16h8M8 12h8m-7 8h6a2 2 0 002-2V6a2 2 0 00-2-2h-3.586a1 1 0 00-.707.293l-2.414 2.414A1 1 0 009 7.414V18a2 2 0 002 2z"
+          />
+        </svg>
+      )}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
+function RegenerateAction({
+  label,
+  title,
+  onRegenerate
+}: Readonly<{
+  label: string
+  title: string
+  onRegenerate: () => void
+}>): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onRegenerate}
+      className="flex items-center gap-1 text-[11px] text-neutral-600 transition-colors hover:text-green-500"
+      title={title}
+    >
+      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+        />
+      </svg>
+      {label}
+    </button>
+  )
+}
+
+function UserMessageActions({
+  copied,
+  onCopy,
+  onEdit,
+  onRegenerate
+}: Readonly<{
+  copied: boolean
+  onCopy: () => void
+  onEdit: () => void
+  onRegenerate: () => void
+}>): React.JSX.Element {
+  return (
+    <div className="mt-1.5 flex items-center gap-3">
+      <CopyAction copied={copied} onCopy={onCopy} />
+      <RegenerateAction
+        label="Resend"
+        title="Regenerate the reply to this message"
+        onRegenerate={onRegenerate}
+      />
+      <button
+        type="button"
+        onClick={onEdit}
+        className="flex items-center gap-1 text-[11px] text-neutral-600 transition-colors hover:text-green-500"
+        title="Edit this message"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+          />
+        </svg>
+        Edit
+      </button>
+    </div>
+  )
+}
+
+type SpeechControlState = 'idle' | 'loading' | 'playing'
+
+function speechControlState(
+  messageId: string,
+  speakingId: string | null,
+  loadingId: string | null
+): SpeechControlState {
+  if (loadingId === messageId) return 'loading'
+  if (speakingId === messageId) return 'playing'
+  return 'idle'
+}
+
+function SpeechAction({
+  state,
+  onSpeak
+}: Readonly<{
+  state: SpeechControlState
+  onSpeak: () => void
+}>): React.JSX.Element {
+  let label = 'Speak'
+  let icon: React.JSX.Element = (
+    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M11 5L6 9H2v6h4l5 4V5z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"
+      />
+    </svg>
+  )
+  if (state === 'loading') {
+    label = 'Generating…'
+    icon = (
+      <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle
+          className="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth="4"
+        />
+        <path
+          className="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+        />
+      </svg>
+    )
+  } else if (state === 'playing') {
+    label = 'Stop'
+    icon = (
+      <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+        <rect x="6" y="5" width="4" height="14" rx="1" />
+        <rect x="14" y="5" width="4" height="14" rx="1" />
+      </svg>
+    )
+  }
+  const color = state === 'idle' ? 'text-neutral-600 hover:text-green-500' : 'text-green-500'
+  return (
+    <button
+      type="button"
+      onClick={onSpeak}
+      className={`flex items-center gap-1 text-[11px] transition-colors ${color}`}
+      title={label}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+function VariantNavigation({
+  message,
+  onSelect
+}: Readonly<{
+  message: ChatMessage
+  onSelect: (direction: -1 | 1) => void
+}>): React.JSX.Element | null {
+  if (!message.variants || message.variants.length <= 1) return null
+  const index = message.variantIndex ?? 0
+  return (
+    <span className="flex items-center gap-1 text-[11px] text-neutral-500">
+      <button
+        type="button"
+        onClick={() => onSelect(-1)}
+        disabled={index <= 0}
+        className="transition-colors hover:text-green-500 disabled:opacity-30"
+      >
+        ‹
+      </button>
+      <span>
+        {index + 1}/{message.variants.length}
+      </span>
+      <button
+        type="button"
+        onClick={() => onSelect(1)}
+        disabled={index >= message.variants.length - 1}
+        className="transition-colors hover:text-green-500 disabled:opacity-30"
+      >
+        ›
+      </button>
+    </span>
+  )
+}
+
+function AssistantMessageActions({
+  message,
+  artifact,
+  copied,
+  speechState,
+  speechError,
+  onCopy,
+  onOpenArtifact,
+  onRegenerate,
+  onSelectVariant,
+  onSpeak
+}: Readonly<{
+  message: ChatMessage
+  artifact: Artifact | null
+  copied: boolean
+  speechState: SpeechControlState
+  speechError?: string
+  onCopy: () => void
+  onOpenArtifact: (artifact: Artifact) => void
+  onRegenerate: () => void
+  onSelectVariant: (direction: -1 | 1) => void
+  onSpeak: () => void
+}>): React.JSX.Element | null {
+  if (message.image || isSupportingMessage(message)) return null
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <SpeechAction state={speechState} onSpeak={onSpeak} />
+      <CopyAction copied={copied} onCopy={onCopy} />
+      <RegenerateAction label="Regenerate" title="Regenerate" onRegenerate={onRegenerate} />
+      <VariantNavigation message={message} onSelect={onSelectVariant} />
+      {artifact ? (
+        <button
+          type="button"
+          onClick={() => onOpenArtifact(artifact)}
+          className="flex items-center gap-1 text-[11px] text-green-500 transition-colors hover:text-emerald-500"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 17V7h10v10M9 17H5a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v2"
+            />
+          </svg>
+          Open canvas
+        </button>
+      ) : null}
+      {speechError ? (
+        <p role="alert" className="basis-full text-[11px] leading-4 text-red-400">
+          {speechError}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+type ContextNavigation = Readonly<{
+  onNavigateToMemory?: (memoryId: number) => void
+  onNavigateToChat?: (sessionId: string) => void
+  onNavigateToEntity?: (entityId: number) => void
+  onSeekReplay?: (timestamp: number) => void
+}>
+
+type UnifiedContextItem = NonNullable<RagContext['unified']>[number]
+
+function openUnifiedContext(item: UnifiedContextItem, navigation: ContextNavigation): void {
+  if (item.kind === 'screen') {
+    navigation.onSeekReplay?.(item.ts)
+    return
+  }
+  if (item.refId == null) return
+  if (item.kind === 'memory') navigation.onNavigateToMemory?.(item.refId)
+  if (item.kind === 'entity') navigation.onNavigateToEntity?.(item.refId)
+  if (item.kind === 'meeting') navigation.onNavigateToChat?.(String(item.refId))
+}
+
+function UnifiedContextSection({
+  items,
+  navigation
+}: Readonly<{
+  items?: readonly UnifiedContextItem[]
+  navigation: ContextNavigation
+}>): React.JSX.Element | null {
+  if (!items?.length) return null
+  return (
+    <div className="mb-3">
+      <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
+        Sources ({items.length}) — cited as [S#]
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-3">
+        {items.map((item, index) => {
+          const title = item.title && item.title !== item.surface ? item.title : item.snippet
+          const replaySuffix = item.kind === 'screen' ? ' · open in Replay →' : ''
+          return (
+            <button
+              key={`${item.kind}-${item.refId ?? item.ts}-${index}`}
+              type="button"
+              onClick={() => openUnifiedContext(item, navigation)}
+              title={`${item.kind} · ${item.surface}${item.title ? ` · ${item.title}` : ''}${replaySuffix}`}
+              className="flex flex-col gap-1 overflow-hidden rounded-md border border-neutral-800 p-2 text-left text-[11px] text-neutral-400 transition-colors hover:border-green-500"
+            >
+              {item.kind === 'screen' && item.imagePath ? (
+                <img
+                  src={captureUrlForPath(item.imagePath)}
+                  alt=""
+                  className="mb-0.5 h-16 w-full rounded border border-neutral-800 object-cover"
+                />
+              ) : null}
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-green-500">[S{index + 1}]</span>
+                <span className="rounded-sm border border-neutral-700 px-1 text-[9px] uppercase tracking-wide text-neutral-500">
+                  {item.kind}
+                </span>
+              </div>
+              <span className="line-clamp-2 text-neutral-300">{title}</span>
+              <span className="truncate text-[10px] text-neutral-600">
+                {item.surface}
+                {replaySuffix}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SourceScoresSection({
+  sources
+}: Readonly<{
+  sources?: readonly NonNullable<RagContext['sources']>[number][]
+}>): React.JSX.Element | null {
+  if (!sources?.length) return null
+  return (
+    <div className="mb-3">
+      <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
+        Sources ({sources.length})
+      </div>
+      <div className="space-y-1">
+        {sources.slice(0, 8).map((source, index) => (
+          <div
+            key={`${source.name}-${index}`}
+            className="flex items-center gap-2 rounded-md border border-neutral-800 p-2 text-[11px] text-neutral-400"
+          >
+            <span className="min-w-0 flex-1 truncate">{source.name}</span>
+            <span className="shrink-0 text-neutral-600">{(source.score * 100).toFixed(0)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MasterMemorySection({
+  content
+}: Readonly<{ content?: string | null }>): React.JSX.Element | null {
+  if (!content) return null
+  return (
+    <div className="mb-3 rounded-md border border-neutral-800 p-3">
+      <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">Master memory</div>
+      <div className="text-neutral-300">
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
+          {preprocessChatMarkdown(content)}
+        </ReactMarkdown>
+      </div>
+    </div>
+  )
+}
+
+function MemoriesContextSection({
+  memories,
+  onNavigate
+}: Readonly<{
+  memories?: readonly RagMemory[]
+  onNavigate?: (memoryId: number) => void
+}>): React.JSX.Element | null {
+  if (!memories?.length) return null
+  return (
+    <div className="mb-3">
+      <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
+        Memories ({memories.length})
+      </div>
+      <div className="space-y-1">
+        {memories.slice(0, 5).map((memory, index) => (
+          <button
+            key={memory.id || index}
+            type="button"
+            onClick={() => onNavigate?.(memory.id)}
+            className="block w-full rounded-md border border-neutral-800 p-2 text-left transition-colors hover:border-neutral-700"
+          >
+            <p className="line-clamp-2 text-[11px] text-neutral-400">
+              {memory.content || memory.text || 'Memory'}
+            </p>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SummariesContextSection({
+  summaries,
+  onNavigate
+}: Readonly<{
+  summaries?: readonly RagSummary[]
+  onNavigate?: (sessionId: string) => void
+}>): React.JSX.Element | null {
+  if (!summaries?.length) return null
+  return (
+    <div className="mb-3">
+      <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
+        Related chats ({summaries.length})
+      </div>
+      <div className="space-y-1">
+        {summaries.slice(0, 5).map((summary, index) => (
+          <button
+            key={summary.session_id || index}
+            type="button"
+            onClick={() => onNavigate?.(summary.session_id)}
+            className="block w-full rounded-md border border-neutral-800 p-2 text-left transition-colors hover:border-neutral-700"
+          >
+            <p className="line-clamp-2 text-[11px] text-neutral-400">
+              {summary.summary || summary.title || 'Chat'}
+            </p>
+            {summary.app_name ? (
+              <span className="mt-1 inline-block text-[10px] text-neutral-600">
+                {summary.app_name}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EntitiesContextSection({
+  entities,
+  onNavigate
+}: Readonly<{
+  entities?: readonly RagEntity[]
+  onNavigate?: (entityId: number) => void
+}>): React.JSX.Element | null {
+  if (!entities?.length) return null
+  return (
+    <div className="mb-3">
+      <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
+        Entities ({entities.length})
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {entities.slice(0, 10).map((entity, index) => (
+          <button
+            key={entity.id || index}
+            type="button"
+            onClick={() => onNavigate?.(entity.id)}
+            className="rounded-md border border-neutral-800 px-2 py-1 text-[11px] text-neutral-400 transition-colors hover:border-green-500 hover:text-green-500"
+          >
+            {entity.name || 'Entity'}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EntityFactsContextSection({
+  facts
+}: Readonly<{ facts?: readonly RagEntityFact[] }>): React.JSX.Element | null {
+  if (!facts?.length) return null
+  return (
+    <div>
+      <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
+        Entity facts ({facts.length})
+      </div>
+      <div className="space-y-1">
+        {facts.slice(0, 5).map((fact, index) => (
+          <div key={index} className="rounded-md border border-neutral-800 p-2">
+            <p className="line-clamp-2 text-[11px] text-neutral-400">
+              {typeof fact === 'string' ? fact : fact.fact}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ContextDisclosure({
+  context,
+  navigation
+}: Readonly<{
+  context?: RagContext
+  navigation: ContextNavigation
+}>): React.JSX.Element | null {
+  if (!context) return null
+  const resultCount = contextResultCount(context)
+  if (resultCount === 0) return null
+  return (
+    <Collapsible className="mt-2 w-full max-w-[90%]">
+      <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-left text-xs text-neutral-400 transition-colors hover:border-neutral-700">
+        <svg
+          className="h-3.5 w-3.5 text-green-500"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <span className="flex-1">Searched your memory — {resultCount} results</span>
+        <svg
+          className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-1.5 max-h-[400px] max-w-full overflow-y-auto rounded-md border border-neutral-800 bg-neutral-900/40 p-4 text-sm">
+        <UnifiedContextSection items={context.unified} navigation={navigation} />
+        <SourceScoresSection sources={context.sources} />
+        <MasterMemorySection content={context.masterMemory} />
+        <MemoriesContextSection
+          memories={context.memories}
+          onNavigate={navigation.onNavigateToMemory}
+        />
+        <SummariesContextSection
+          summaries={context.summaries}
+          onNavigate={navigation.onNavigateToChat}
+        />
+        <EntitiesContextSection
+          entities={context.entities}
+          onNavigate={navigation.onNavigateToEntity}
+        />
+        <EntityFactsContextSection facts={context.entityFacts} />
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+type MessageRowState = Readonly<{
+  autoPlayId: string | null
+  copiedKey: string | null
+  editingId: string | null
+  editText: string
+  loading: boolean
+  speakingId: string | null
+  speakLoadingId: string | null
+  speakError: { id: string; message: string } | null
+  askSelections: Readonly<Record<string, readonly string[]>>
+  incomingFiles: readonly IncomingSharedFile[]
+}>
+
+type AskOptionSelection = Readonly<{
+  message: ChatMessage
+  ask: AskBlock
+  option: string
+  selected: boolean
+}>
+
+type MessageRowActions = Readonly<{
+  copy: (text: string, key?: string) => void
+  regenerate: (messageId: string) => void
+  openImage: (image: OpenImage) => void
+  openAttachment: (attachment: StoredMessageAttachment) => void
+  startEdit: (message: ChatMessage) => void
+  changeEditText: (text: string) => void
+  cancelEdit: () => void
+  saveEdit: (messageId: string) => void
+  retryImageMemory: (retry: NonNullable<ChatMessage['imageMemoryRetry']>) => void
+  openArtifact: (artifact: Artifact) => void
+  selectAskOption: (selection: AskOptionSelection) => void
+  submitAsk: (selected: readonly string[]) => void
+  speak: (messageId: string, content: string) => void
+  selectVariant: (messageId: string, direction: -1 | 1) => void
+}>
+
+type MessageRowProps = Readonly<{
+  message: ChatMessage
+  nextMessageRole?: SyncedMessageRole
+  voiceMode: boolean
+  state: MessageRowState
+  actions: MessageRowActions
+  navigation: ContextNavigation
+}>
+
+function MessageBubble({
+  message,
+  state,
+  actions,
+  navigation
+}: Readonly<{
+  message: ChatMessage
+  state: MessageRowState
+  actions: MessageRowActions
+  navigation: ContextNavigation
+}>): React.JSX.Element {
+  const editing = state.editingId === message.id
+  const artifact = message.role === 'assistant' ? parseArtifact(message.content) : null
+  const ask = message.role === 'assistant' ? parseAsk(message.content) : null
+  const selected = state.askSelections[message.id] ?? []
+  return (
+    <div className={standardMessageBubbleClass(message, editing)}>
+      <IncomingFileRows files={state.incomingFiles} />
+      {message.attachments?.length ? (
+        <MessageAttachments
+          attachments={message.attachments}
+          onOpenAttachment={actions.openAttachment}
+          onOpenImage={actions.openImage}
+        />
+      ) : null}
+      {message.image ? (
+        <ChatImagePreview
+          src={message.image}
+          path={message.imagePath}
+          metadata={message.imageMetadata}
+          className="mb-2 w-full max-w-full cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
+          onOpen={actions.openImage}
+        />
+      ) : null}
+      {editing ? (
+        <MessageEditor
+          messageId={message.id}
+          text={state.editText}
+          onChange={actions.changeEditText}
+          onCancel={actions.cancelEdit}
+          onSave={actions.saveEdit}
+        />
+      ) : (
+        <MessageMarkdown message={message} navigation={navigation} />
+      )}
+      <ResponseCutoffNotice cutoff={message.cutoff} />
+      <ImageMemoryRetryAction
+        message={message}
+        loading={state.loading}
+        onRetry={actions.retryImageMemory}
+      />
+      <ArtifactCard artifact={artifact} onOpen={actions.openArtifact} />
+      <AskCard
+        ask={ask}
+        selected={selected}
+        onSelect={(option, active) => {
+          if (ask) actions.selectAskOption({ message, ask, option, selected: active })
+        }}
+        onSubmit={() => actions.submitAsk(selected)}
+      />
+    </div>
+  )
+}
+
+function StandardMessageRow({
+  message,
+  state,
+  actions,
+  navigation
+}: Omit<MessageRowProps, 'nextMessageRole' | 'voiceMode'>): React.JSX.Element {
+  const artifact = message.role === 'assistant' ? parseArtifact(message.content) : null
+  const copied = state.copiedKey === message.id
+  const speechState = speechControlState(message.id, state.speakingId, state.speakLoadingId)
+  const speechError = state.speakError?.id === message.id ? state.speakError.message : undefined
+  return (
+    <div className={standardMessageRowClass(message)} data-testid={`chat-message-${message.id}`}>
+      <MessageThinkingHeader message={message} />
+      <MessageBubble message={message} state={state} actions={actions} navigation={navigation} />
+      <ChatToolRows tools={message.toolCalls} />
+      {message.role === 'user' ? (
+        <UserMessageActions
+          copied={copied}
+          onCopy={() => actions.copy(message.content, message.id)}
+          onEdit={() => actions.startEdit(message)}
+          onRegenerate={() => actions.regenerate(message.id)}
+        />
+      ) : (
+        <AssistantMessageActions
+          message={message}
+          artifact={artifact}
+          copied={copied}
+          speechState={speechState}
+          speechError={speechError}
+          onCopy={() => actions.copy(message.content, message.id)}
+          onOpenArtifact={actions.openArtifact}
+          onRegenerate={() => actions.regenerate(message.id)}
+          onSelectVariant={(direction) => actions.selectVariant(message.id, direction)}
+          onSpeak={() => actions.speak(message.id, message.content)}
+        />
+      )}
+      {message.role === 'assistant' ? (
+        <ContextDisclosure context={message.context} navigation={navigation} />
+      ) : null}
+    </div>
+  )
+}
+
+function MessageRow({
+  message,
+  nextMessageRole,
+  voiceMode,
+  state,
+  actions,
+  navigation
+}: MessageRowProps): React.JSX.Element {
+  let body: React.JSX.Element
+  if (message.notice) {
+    body = <NoticeMessageRow message={message} />
+  } else if (isPromptEnhancementStatus(message)) {
+    body = <PromptEnhancementMessageRow message={message} />
+  } else if (message.role === 'tool') {
+    body = <ToolMessageRow message={message} nextMessageRole={nextMessageRole} />
+  } else if (voiceMode) {
+    body = (
+      <VoiceMessageRow
+        message={message}
+        autoPlay={state.autoPlayId === message.id}
+        onCopy={actions.copy}
+        onOpenImage={actions.openImage}
+        onRegenerate={actions.regenerate}
+      />
+    )
+  } else {
+    body = (
+      <StandardMessageRow
+        message={message}
+        state={state}
+        actions={actions}
+        navigation={navigation}
+      />
+    )
+  }
+  return body
 }
 
 // Core (free) suggestions — generic chat/build/image. Pro adds memory-aware ones.
@@ -734,13 +2053,7 @@ export function MemoryChat({
   const [activeStyle, setActiveStyle] = useState<string | null>(null)
   const [styleThumbs, setStyleThumbs] = useState<Record<string, string>>({})
   const [genThumbsBusy, setGenThumbsBusy] = useState(false)
-  const [imgProgress, setImgProgress] = useState<{
-    step: number
-    total: number
-    secPerStep: number
-    preview?: string
-    phase?: 'sampling' | 'decoding'
-  } | null>(null)
+  const [imgProgress, setImgProgress] = useState<ImageProgress | null>(null)
   // Which conversation currently owns the in-flight image generation (null = none).
   // Per-conversation so the image progress/warm-up UI shows ONLY in the conversation
   // that started it — a global bool bled the spinner + a Stop that cancels it into
@@ -993,45 +2306,6 @@ export function MemoryChat({
     }
   }, [])
 
-  const markdownComponents = chatMarkdownComponents
-
-  // Citation-aware markdown components: `[S2]` in an answer is rewritten to a
-  // cite: link and rendered as a clickable chip that opens the exact source it
-  // cites (memory / entity / meeting). Falls back to a normal link otherwise.
-  const makeCiteComponents = (unified?: RagContext['unified']): Components =>
-    ({
-      ...markdownComponents,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      a: ({ href, children }: any) => {
-        const m = typeof href === 'string' ? /^cite:(\d+)$/.exec(href) : null
-        if (m && unified) {
-          const u = unified[parseInt(m[1]!, 10) - 1]
-          return (
-            <button
-              type="button"
-              onClick={() => {
-                if (!u) return
-                if (u.kind === 'screen') onSeekReplay?.(u.ts)
-                else if (u.refId == null) return
-                else if (u.kind === 'memory') onNavigateToMemory?.(u.refId)
-                else if (u.kind === 'entity') onNavigateToEntity?.(u.refId)
-                else if (u.kind === 'meeting') onNavigateToChat?.(String(u.refId))
-              }}
-              title={u ? `${u.kind} · ${u.surface}${u.title ? ' · ' + u.title : ''}` : 'source'}
-              className="mx-0.5 inline-flex items-center rounded-sm border border-green-500/40 bg-green-500/10 px-1 align-baseline text-[0.72em] font-semibold text-green-500 transition-colors hover:bg-green-500/20"
-            >
-              {children}
-            </button>
-          )
-        }
-        return (
-          <a href={href} target="_blank" rel="noreferrer" className="text-green-500 underline">
-            {children}
-          </a>
-        )
-      }
-    }) as Components
-
   // Bind the composer's image model to the ONE owner of that state: the active
   // modal model (what the Active-models panel / ModelPicker writes via
   // setActiveModalModel). We READ it from imageGenStatus().active and mirror it
@@ -1043,7 +2317,10 @@ export function MemoryChat({
       const s = await window.api.imageGenStatus?.()
       if (!s) return
       setImageAvailable(!!s.available)
-      const models = s.models || []
+      const rawModels: unknown = s.models
+      const models: string[] = Array.isArray(rawModels)
+        ? rawModels.filter((model: unknown): model is string => typeof model === 'string')
+        : []
       setImgModels(models)
       // Skip the parked/slow Core ML dir (it would otherwise win on an "sdxl" name
       // match and default the composer to a non-distilled model).
@@ -1832,12 +3109,10 @@ export function MemoryChat({
         // which would evict the LLM). Each completed request gets one generated file and one durable
         // assistant image message. A message context has one imageRef by design; putting two results
         // on one row would make the last context write replace the first association.
-        const imageRequests =
-          tr?.imageRequests?.length > 0
-            ? tr.imageRequests
-            : tr?.imageRequest?.prompt
-              ? [tr.imageRequest]
-              : []
+        let imageRequests = tr?.imageRequests ?? []
+        if (imageRequests.length === 0 && tr?.imageRequest?.prompt) {
+          imageRequests = [tr.imageRequest]
+        }
         if (
           imageRequests.length > 0 &&
           window.api.generateImage &&
@@ -2708,7 +3983,9 @@ export function MemoryChat({
     [addFiles]
   )
 
-  const examples = mode === 'image' ? IMAGE_EXAMPLES : isPro ? ASK_EXAMPLES_PRO : ASK_EXAMPLES
+  let examples = ASK_EXAMPLES
+  if (mode === 'image') examples = IMAGE_EXAMPLES
+  else if (isPro) examples = ASK_EXAMPLES_PRO
 
   // Slash-command autocomplete: typing "/" (before any space) lists matching skills.
   const slashQuery =
@@ -2717,6 +3994,74 @@ export function MemoryChat({
       : null
   const skillMatches =
     slashQuery !== null ? skills.filter((s) => s.name.toLowerCase().includes(slashQuery)) : []
+
+  const messageNavigation: ContextNavigation = {
+    onNavigateToMemory,
+    onNavigateToChat,
+    onNavigateToEntity,
+    onSeekReplay
+  }
+  const messageActions: MessageRowActions = {
+    copy: (text, key) => void copyText(text, key),
+    regenerate,
+    openImage: setLightbox,
+    openAttachment: (attachment) => {
+      if (!attachment.text && !attachment.path) return
+      closePanels()
+      if (attachment.kind === 'image' && attachment.path) {
+        setLightbox({ url: captureUrlForPath(attachment.path), path: attachment.path })
+        return
+      }
+      setViewer({
+        title: attachment.kind === 'pasted' ? 'Pasted text' : attachment.name,
+        text: attachment.text || '',
+        path: attachment.path,
+        kind: attachment.kind
+      })
+    },
+    startEdit: (message) => {
+      setEditingId(message.id)
+      setEditText(message.content)
+    },
+    changeEditText: setEditText,
+    cancelEdit: () => setEditingId(null),
+    saveEdit,
+    retryImageMemory: (retry) => {
+      void sendMessage(retry.prompt, {
+        regen: true,
+        conversationId: retry.conversationId,
+        projectIdOverride: retry.projectId,
+        imageRequest: { ...retry.request, allowUnsafeMemoryOverride: true }
+      })
+    },
+    openArtifact: openCanvas,
+    selectAskOption: ({ message, ask, option, selected }) => {
+      if (!ask.multiSelect) {
+        void sendMessage(option)
+        return
+      }
+      setAskSel((previous) => {
+        const current = previous[message.id] ?? []
+        const next = selected
+          ? current.filter((currentOption) => currentOption !== option)
+          : [...current, option]
+        return { ...previous, [message.id]: next }
+      })
+    },
+    submitAsk: (selected) => void sendMessage(selected.join(', ')),
+    speak: speakMessage,
+    selectVariant: (messageId, direction) => {
+      setMessages((previous) =>
+        previous.map((message) => {
+          if (message.id !== messageId || !message.variants?.length) return message
+          const current = message.variantIndex ?? 0
+          const last = message.variants.length - 1
+          return { ...message, variantIndex: Math.max(0, Math.min(last, current + direction)) }
+        })
+      )
+    }
+  }
+
 
   return (
     <div
@@ -3174,1008 +4519,28 @@ export function MemoryChat({
               </div>
             ) : (
               <div className="w-full px-6 py-5">
-                {messages.map((message, messageIndex) =>
-                  /* A runtime notice is not somebody speaking, so it gets no bubble and no side:
-                     a centred muted line in the timeline, the same shape the phone draws. Checked
-                     before voice mode for the same reason the phone checks it first - a notice
-                     reads as a notice whichever way the conversation is being shown. */
-                  message.notice ? (
-                    <div key={message.id} className="mb-4 flex justify-center">
-                      <span className="px-3 text-center text-[11px] leading-relaxed text-neutral-500">
-                        {noticeText(message.content)}
-                      </span>
-                    </div>
-                  ) : isPromptEnhancementStatus(message) ? (
-                    <div
-                      key={message.id}
-                      className="mb-5 flex flex-col items-start"
-                      data-testid="prompt-enhancement-status"
-                    >
-                      <ChatLoadingCard label={message.content.trim()} />
-                    </div>
-                  ) : message.role === 'tool' ? (
-                    <div
-                      key={message.id}
-                      className={`${messages[messageIndex + 1]?.role === 'tool' ? 'mb-2' : 'mb-5'} flex flex-col items-start`}
-                      data-testid={`chat-tool-message-${message.id}`}
-                    >
-                      <ChatToolRows
-                        tools={[
-                          {
-                            name: message.toolName || 'Tool result',
-                            result: message.content,
-                            status: message.turnStatus === 'failed' ? 'failed' : 'completed',
-                            ...(message.generationTimeMs !== undefined
-                              ? { durationMs: message.generationTimeMs }
-                              : {})
-                          }
-                        ]}
-                      />
-                    </div>
-                  ) : voiceMode ? (
-                    <div
-                      key={message.id}
-                      className={`mb-4 flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
-                    >
-                      {(() => {
-                        if (message.role === 'user') {
-                          return (
-                            <VoiceBubble
-                              messageId={message.id}
-                              isUser
-                              transcript={messageToSpeakable(message.content)}
-                              audioUrl={message.audioUrl}
-                              durationSeconds={message.audioDuration}
-                              synthesize={(t) => window.api.speak(t)}
-                              onCopy={copyText}
-                            />
-                          )
-                        }
-                        if (
-                          isSupportingChatContext({
-                            answer: message.content,
-                            reasoning: message.reasoning,
-                            reasoningLabel: message.reasoningLabel
-                          })
-                        ) {
-                          return (
-                            <ChatThinkingBlock
-                              content={message.reasoning ?? ''}
-                              label={message.reasoningLabel}
-                            />
-                          )
-                        }
-                        // Generated image in voice mode: show the image, no audio bubble.
-                        if (message.image) {
-                          return (
-                            <ChatImagePreview
-                              src={message.image}
-                              path={message.imagePath}
-                              metadata={message.imageMetadata}
-                              className="max-w-[20rem] cursor-zoom-in rounded-md border border-neutral-800 transition-opacity hover:opacity-90"
-                              onOpen={setLightbox}
-                            />
-                          )
-                        }
-                        const transcript = messageToSpeakable(
-                          message.variants && message.variantIndex != null
-                            ? message.variants[message.variantIndex]!
-                            : message.content
-                        )
-                        return (
-                          <VoiceBubble
-                            messageId={message.id}
-                            transcript={transcript}
-                            isLoading={!!message.streaming}
-                            autoPlay={autoPlayId === message.id}
-                            synthesize={(t) => window.api.speak(t)}
-                            onCopy={copyText}
-                            onRetry={() => regenerate(message.id)}
-                          />
-                        )
-                      })()}
-                    </div>
-                  ) : (
-                    <div
-                      key={message.id}
-                      className={`${
-                        isSupportingChatContext({
-                          answer: message.content,
-                          reasoning: message.reasoning,
-                          reasoningLabel: message.reasoningLabel
-                        })
-                          ? 'mb-2'
-                          : 'mb-5'
-                      } flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
-                      data-testid={`chat-message-${message.id}`}
-                    >
-                      {message.role === 'assistant' &&
-                      !message.streaming &&
-                      message.reasoning &&
-                      message.reasoning.trim() ? (
-                        <div
-                          className={
-                            isSupportingChatContext({
-                              answer: message.content,
-                              reasoning: message.reasoning,
-                              reasoningLabel: message.reasoningLabel
-                            })
-                              ? 'rounded-md border border-neutral-800 bg-neutral-900/40 px-3.5 py-2.5'
-                              : 'mb-1.5'
-                          }
-                          data-testid={
-                            isSupportingChatContext({
-                              answer: message.content,
-                              reasoning: message.reasoning,
-                              reasoningLabel: message.reasoningLabel
-                            })
-                              ? 'supporting-context-bubble'
-                              : undefined
-                          }
-                        >
-                          <ChatThinkingBlock
-                            content={message.reasoning}
-                            label={message.reasoningLabel}
-                          />
-                        </div>
-                      ) : null}
-                      {/* Live thinking + tool activity, ABOVE the answer bubble: reasoning
-                        first (Thinking…), then the current tool-call step (Running <tool>…). */}
-                      {message.role === 'assistant' && message.streaming ? (
-                        <div className="mb-1.5 flex flex-col gap-1.5">
-                          <span className="inline-flex gap-1 text-green-500">
-                            <span className="animate-bounce [animation-delay:-0.3s]">●</span>
-                            <span className="animate-bounce [animation-delay:-0.15s]">●</span>
-                            <span className="animate-bounce">●</span>
-                          </span>
-                          {message.reasoning && message.reasoning.trim() ? (
-                            <ChatThinkingBlock content={message.reasoning} live />
-                          ) : null}
-                          {activityLabel(message.activity) ? (
-                            <span className="text-[11px] text-neutral-500">
-                              {activityLabel(message.activity)}
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      <div
-                        className={
-                          // An assistant turn with no answer draws no bubble - not while it is
-                          // streaming, and not when it finishes that way either. A reply that is
-                          // ALL reasoning ends up here: the thinking has its own block above, and
-                          // this box would be an empty rounded rectangle underneath it. The image
-                          // and the retry card live inside this box, so a turn carrying one keeps
-                          // its bubble even with no text.
-                          message.role === 'assistant' &&
-                          !message.content.trim() &&
-                          !message.image &&
-                          !message.imageMemoryRetry
-                            ? 'hidden'
-                            : `rounded-md px-3.5 py-2.5 text-sm leading-relaxed ${
-                                // While editing, expand to a full, usable width instead
-                                // of hugging the (often short) message — otherwise the
-                                // textarea + buttons are crammed into a narrow bubble.
-                                editingId === message.id || message.image
-                                  ? 'w-full max-w-2xl'
-                                  : 'max-w-[85%]'
-                              } ${
-                                message.role === 'user'
-                                  ? 'bg-neutral-800 text-neutral-100'
-                                  : 'border border-neutral-800 bg-neutral-900/40 text-neutral-200'
-                              }`
-                        }
-                      >
-                        {/* Announced by a peer, bytes still coming. Drawn from the announcement, so
-                            the row names the real file instead of leaving the turn looking empty
-                            until it lands — which is what made a synced image look like a lost one. */}
-                        {incomingFilesFor(message.id).map((incoming) => (
-                          <div
-                            key={`incoming-${incoming.syncId}`}
-                            data-testid="incoming-shared-file"
-                            className="mb-2 flex w-fit items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900/40 px-2 py-1"
-                          >
-                            <span className="flex gap-1">
-                              <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:0ms]" />
-                              <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:150ms]" />
-                              <span className="h-1 w-1 animate-bounce rounded-full bg-green-500 [animation-delay:300ms]" />
-                            </span>
-                            <span className="max-w-[16rem] truncate text-[10px] text-neutral-400">
-                              {incoming.name}
-                            </span>
-                          </div>
-                        ))}
-                        {message.attachments && message.attachments.length > 0 ? (
-                          <div className="mb-2 flex flex-wrap gap-1.5">
-                            {message.attachments.map((att, i) => {
-                              if (att.kind === 'image' && att.path) {
-                                const src = captureUrlForPath(att.path)
-                                return (
-                                  <ChatImagePreview
-                                    key={`${att.path}-${i}`}
-                                    src={src}
-                                    path={att.path}
-                                    alt={att.name || 'Shared image'}
-                                    className="max-h-[28rem] max-w-full cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
-                                    onOpen={setLightbox}
-                                  />
-                                )
-                              }
-                              const viewable = !!att.text || (att.kind === 'image' && !!att.path)
-                              return (
-                                <button
-                                  key={i}
-                                  type="button"
-                                  disabled={!viewable}
-                                  onClick={() => {
-                                    if (att.kind === 'image' && att.path) {
-                                      closePanels()
-                                      setLightbox({
-                                        url: captureUrlForPath(att.path),
-                                        path: att.path
-                                      })
-                                    } else if (att.text || att.path) {
-                                      closePanels()
-                                      setViewer({
-                                        title: att.kind === 'pasted' ? 'Pasted text' : att.name,
-                                        text: att.text || '',
-                                        path: att.path,
-                                        kind: att.kind
-                                      })
-                                    }
-                                  }}
-                                  title={viewable ? 'Click to view' : undefined}
-                                  className="flex items-center gap-1 rounded-md bg-neutral-700/60 px-2 py-1 text-[10px] text-neutral-200 transition-colors enabled:cursor-pointer enabled:hover:bg-neutral-600/60"
-                                >
-                                  <svg
-                                    className="h-3 w-3 text-neutral-400"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                                    />
-                                  </svg>
-                                  <span className="max-w-[12rem] truncate">{att.name}</span>
-                                  <span className="text-neutral-500">{att.kind}</span>
-                                </button>
-                              )
-                            })}
-                          </div>
-                        ) : null}
-                        {message.image ? (
-                          <ChatImagePreview
-                            src={message.image}
-                            path={message.imagePath}
-                            metadata={message.imageMetadata}
-                            className="mb-2 w-full max-w-full cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
-                            onOpen={setLightbox}
-                          />
-                        ) : null}
-                        {editingId === message.id ? (
-                          <div className="flex flex-col gap-2">
-                            <textarea
-                              autoFocus
-                              value={editText}
-                              onChange={(e) => setEditText(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                  e.preventDefault()
-                                  saveEdit(message.id)
-                                }
-                                if (e.key === 'Escape') setEditingId(null)
-                              }}
-                              rows={Math.min(10, editText.split('\n').length + 1)}
-                              className="w-full resize-none rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 outline-none focus:border-green-500"
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => saveEdit(message.id)}
-                                className="rounded-md bg-green-600 px-3 py-1 text-xs text-white transition-colors hover:bg-green-500"
-                              >
-                                Save & submit
-                              </button>
-                              <button
-                                onClick={() => setEditingId(null)}
-                                className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-400 transition-colors hover:text-neutral-200"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm, remarkBreaks]}
-                            components={
-                              message.role === 'assistant'
-                                ? makeCiteComponents(message.context?.unified)
-                                : markdownComponents
-                            }
-                          >
-                            {preprocessChatMarkdown(
-                              message.role !== 'assistant'
-                                ? message.content
-                                : // Show the selected regenerated variant (if any); keep artifact code
-                                  // inline; hide only the clarifying-question fence.
-                                  (message.variants && message.variantIndex != null
-                                    ? message.variants[message.variantIndex]!
-                                    : message.content
-                                  )
-                                    .replace(ASK_FENCE, '')
-                                    .replace(/\[S(\d+)\]/g, '[S$1](cite:$1)')
-                                    .trim()
-                            )}
-                          </ReactMarkdown>
-                        )}
-                        {message.cutoff ? (
-                          <p
-                            role="status"
-                            className="mt-2 flex items-start gap-1.5 border-t border-amber-500/20 pt-2 text-[11px] text-amber-400"
-                          >
-                            <WarningCircle className="mt-0.5 h-3 w-3 shrink-0" weight="fill" />
-                            Response stopped at the configured{' '}
-                            {message.cutoff.maxTokens.toLocaleString()}-token limit.
-                          </p>
-                        ) : null}
-                        {message.imageMemoryRetry ? (
-                          <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
-                            <p className="min-w-0 flex-1 text-[10px] text-muted-foreground">
-                              Running this model may make your Mac unresponsive.
-                            </p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="xs"
-                              disabled={loading}
-                              onClick={() => {
-                                const retry = message.imageMemoryRetry
-                                if (!retry) return
-                                void sendMessage(retry.prompt, {
-                                  regen: true,
-                                  conversationId: retry.conversationId,
-                                  projectIdOverride: retry.projectId,
-                                  imageRequest: {
-                                    ...retry.request,
-                                    allowUnsafeMemoryOverride: true
-                                  }
-                                })
-                              }}
-                              className="shrink-0 active:scale-95"
-                            >
-                              Run anyway
-                            </Button>
-                          </div>
-                        ) : null}
-                        {(() => {
-                          if (message.role !== 'assistant') return null
-                          const art = parseArtifact(message.content)
-                          if (!art) return null
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => openCanvas(art)}
-                              className="mt-2 flex w-full items-center gap-3 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2.5 text-left transition-colors hover:border-green-500/60"
-                            >
-                              <span className="flex h-9 w-9 items-center justify-center rounded-md border border-neutral-800 bg-neutral-950 text-green-500">
-                                <svg
-                                  className="h-4 w-4"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                  />
-                                </svg>
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-xs text-neutral-200">
-                                  {art.title || `${art.kind.toUpperCase()} artifact`}
-                                </span>
-                                <span className="block text-[11px] text-neutral-500">
-                                  Click to open in the canvas →
-                                </span>
-                              </span>
-                            </button>
-                          )
-                        })()}
-                        {(() => {
-                          if (message.role !== 'assistant') return null
-                          const ask = parseAsk(message.content)
-                          if (!ask) return null
-                          const sel = askSel[message.id] || []
-                          return (
-                            <div className="mt-2 flex flex-col gap-1.5">
-                              <p className="text-xs text-neutral-400">{ask.question}</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {ask.options.map((opt) => {
-                                  const on = sel.includes(opt)
-                                  return (
-                                    <button
-                                      key={opt}
-                                      onClick={() => {
-                                        if (ask.multiSelect) {
-                                          setAskSel((prev) => ({
-                                            ...prev,
-                                            [message.id]: on
-                                              ? sel.filter((o) => o !== opt)
-                                              : [...sel, opt]
-                                          }))
-                                        } else {
-                                          void sendMessage(opt)
-                                        }
-                                      }}
-                                      className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${on ? 'border-green-500 text-green-500' : 'border-neutral-700 text-neutral-300 hover:border-green-500 hover:text-green-500'}`}
-                                    >
-                                      {opt}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                              {ask.multiSelect && sel.length > 0 ? (
-                                <button
-                                  onClick={() => void sendMessage(sel.join(', '))}
-                                  className="mt-1 self-start rounded-md bg-green-600 px-3 py-1 text-xs text-white transition-colors hover:bg-green-500"
-                                >
-                                  Submit ({sel.length})
-                                </button>
-                              ) : null}
-                            </div>
-                          )
-                        })()}
-                      </div>
-
-                      <ChatToolRows tools={message.toolCalls} />
-
-                      {message.role === 'user' ? (
-                        <div className="mt-1.5 flex items-center gap-3">
-                          <button
-                            onClick={() => copyText(message.content, message.id)}
-                            className={`flex items-center gap-1 text-[11px] transition-colors ${copiedKey === message.id ? 'text-green-500' : 'text-neutral-600 hover:text-green-500'}`}
-                            title="Copy"
-                          >
-                            {copiedKey === message.id ? (
-                              <>
-                                <svg
-                                  className="h-3.5 w-3.5"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M5 13l4 4L19 7"
-                                  />
-                                </svg>
-                                Copied
-                              </>
-                            ) : (
-                              <>
-                                <svg
-                                  className="h-3.5 w-3.5"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M8 16h8M8 12h8m-7 8h6a2 2 0 002-2V6a2 2 0 00-2-2h-3.586a1 1 0 00-.707.293l-2.414 2.414A1 1 0 009 7.414V18a2 2 0 002 2z"
-                                  />
-                                </svg>
-                                Copy
-                              </>
-                            )}
-                          </button>
-                          <button
-                            onClick={() => regenerate(message.id)}
-                            className="flex items-center gap-1 text-[11px] text-neutral-600 transition-colors hover:text-green-500"
-                            title="Regenerate the reply to this message"
-                          >
-                            <svg
-                              className="h-3.5 w-3.5"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                              />
-                            </svg>
-                            Resend
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingId(message.id)
-                              setEditText(message.content)
-                            }}
-                            className="flex items-center gap-1 text-[11px] text-neutral-600 transition-colors hover:text-green-500"
-                            title="Edit this message"
-                          >
-                            <svg
-                              className="h-3.5 w-3.5"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                              />
-                            </svg>
-                            Edit
-                          </button>
-                        </div>
-                      ) : null}
-
-                      {message.role === 'assistant' &&
-                      !message.image &&
-                      !isSupportingChatContext({
-                        answer: message.content,
-                        reasoning: message.reasoning,
-                        reasoningLabel: message.reasoningLabel
-                      }) ? (
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <button
-                            onClick={() => speakMessage(message.id, message.content)}
-                            className={`flex items-center gap-1 text-[11px] transition-colors ${speakingId === message.id || speakLoadingId === message.id ? 'text-green-500' : 'text-neutral-600 hover:text-green-500'}`}
-                            title={
-                              speakLoadingId === message.id
-                                ? 'Generating…'
-                                : speakingId === message.id
-                                  ? 'Stop'
-                                  : 'Speak'
-                            }
-                          >
-                            {speakLoadingId === message.id ? (
-                              <svg
-                                className="h-3.5 w-3.5 animate-spin"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                              >
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                />
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                                />
-                              </svg>
-                            ) : speakingId === message.id ? (
-                              <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                <rect x="6" y="5" width="4" height="14" rx="1" />
-                                <rect x="14" y="5" width="4" height="14" rx="1" />
-                              </svg>
-                            ) : (
-                              <svg
-                                className="h-3.5 w-3.5"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M11 5L6 9H2v6h4l5 4V5z"
-                                />
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"
-                                />
-                              </svg>
-                            )}
-                            {speakLoadingId === message.id
-                              ? 'Generating…'
-                              : speakingId === message.id
-                                ? 'Stop'
-                                : 'Speak'}
-                          </button>
-                          <button
-                            onClick={() => copyText(message.content, message.id)}
-                            className={`flex items-center gap-1 text-[11px] transition-colors ${copiedKey === message.id ? 'text-green-500' : 'text-neutral-600 hover:text-green-500'}`}
-                            title="Copy"
-                          >
-                            {copiedKey === message.id ? (
-                              <>
-                                <svg
-                                  className="h-3.5 w-3.5"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M5 13l4 4L19 7"
-                                  />
-                                </svg>
-                                Copied
-                              </>
-                            ) : (
-                              <>
-                                <svg
-                                  className="h-3.5 w-3.5"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M8 16h8M8 12h8m-7 8h6a2 2 0 002-2V6a2 2 0 00-2-2h-3.586a1 1 0 00-.707.293l-2.414 2.414A1 1 0 009 7.414V18a2 2 0 002 2z"
-                                  />
-                                </svg>
-                                Copy
-                              </>
-                            )}
-                          </button>
-                          <button
-                            onClick={() => regenerate(message.id)}
-                            className="flex items-center gap-1 text-[11px] text-neutral-600 transition-colors hover:text-green-500"
-                            title="Regenerate"
-                          >
-                            <svg
-                              className="h-3.5 w-3.5"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                              />
-                            </svg>
-                            Regenerate
-                          </button>
-                          {message.variants && message.variants.length > 1 ? (
-                            <span className="flex items-center gap-1 text-[11px] text-neutral-500">
-                              <button
-                                onClick={() =>
-                                  setMessages((prev) =>
-                                    prev.map((m) =>
-                                      m.id === message.id
-                                        ? {
-                                            ...m,
-                                            variantIndex: Math.max(0, (m.variantIndex ?? 0) - 1)
-                                          }
-                                        : m
-                                    )
-                                  )
-                                }
-                                disabled={(message.variantIndex ?? 0) <= 0}
-                                className="transition-colors hover:text-green-500 disabled:opacity-30"
-                              >
-                                ‹
-                              </button>
-                              <span>
-                                {(message.variantIndex ?? 0) + 1}/{message.variants.length}
-                              </span>
-                              <button
-                                onClick={() =>
-                                  setMessages((prev) =>
-                                    prev.map((m) =>
-                                      m.id === message.id
-                                        ? {
-                                            ...m,
-                                            variantIndex: Math.min(
-                                              (m.variants?.length ?? 1) - 1,
-                                              (m.variantIndex ?? 0) + 1
-                                            )
-                                          }
-                                        : m
-                                    )
-                                  )
-                                }
-                                disabled={
-                                  (message.variantIndex ?? 0) >= message.variants.length - 1
-                                }
-                                className="transition-colors hover:text-green-500 disabled:opacity-30"
-                              >
-                                ›
-                              </button>
-                            </span>
-                          ) : null}
-                          {parseArtifact(message.content) ? (
-                            <button
-                              onClick={() => {
-                                const a = parseArtifact(message.content)
-                                if (a) openCanvas(a)
-                              }}
-                              className="flex items-center gap-1 text-[11px] text-green-500 transition-colors hover:text-emerald-500"
-                            >
-                              <svg
-                                className="h-3.5 w-3.5"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M9 17V7h10v10M9 17H5a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v2"
-                                />
-                              </svg>
-                              Open canvas
-                            </button>
-                          ) : null}
-                          {speakError?.id === message.id ? (
-                            <p
-                              role="alert"
-                              className="basis-full text-[11px] leading-4 text-red-400"
-                            >
-                              {speakError.message}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      {message.role === 'assistant' &&
-                      message.context &&
-                      (message.context.sources?.length || 0) +
-                        (message.context.memories?.length || 0) +
-                        (message.context.summaries?.length || 0) +
-                        (message.context.entities?.length || 0) +
-                        (message.context.entityFacts?.length || 0) +
-                        (message.context.unified?.length || 0) >
-                        0 ? (
-                        <Collapsible className="mt-2 w-full max-w-[90%]">
-                          <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-left text-xs text-neutral-400 transition-colors hover:border-neutral-700">
-                            <svg
-                              className="h-3.5 w-3.5 text-green-500"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
-                            <span className="flex-1">
-                              Searched your memory —{' '}
-                              {(message.context.sources?.length || 0) +
-                                (message.context.memories?.length || 0) +
-                                (message.context.summaries?.length || 0) +
-                                (message.context.entities?.length || 0) +
-                                (message.context.entityFacts?.length || 0) +
-                                (message.context.unified?.length || 0)}{' '}
-                              results
-                            </span>
-                            <svg
-                              className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 9l-7 7-7-7"
-                              />
-                            </svg>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="mt-1.5 max-h-[400px] max-w-full overflow-y-auto rounded-md border border-neutral-800 bg-neutral-900/40 p-4 text-sm">
-                            {message.context.unified && message.context.unified.length > 0 ? (
-                              <div className="mb-3">
-                                <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
-                                  Sources ({message.context.unified.length}) — cited as [S#]
-                                </div>
-                                <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-3">
-                                  {message.context.unified.map((u, idx) => (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      onClick={() => {
-                                        if (u.kind === 'screen') {
-                                          onSeekReplay?.(u.ts)
-                                          return
-                                        }
-                                        if (u.refId == null) return
-                                        if (u.kind === 'memory') onNavigateToMemory?.(u.refId)
-                                        else if (u.kind === 'entity') onNavigateToEntity?.(u.refId)
-                                        else if (u.kind === 'meeting')
-                                          onNavigateToChat?.(String(u.refId))
-                                      }}
-                                      title={`${u.kind} · ${u.surface}${u.title ? ' · ' + u.title : ''}${u.kind === 'screen' ? ' · open in Replay' : ''}`}
-                                      className="flex flex-col gap-1 overflow-hidden rounded-md border border-neutral-800 p-2 text-left text-[11px] text-neutral-400 transition-colors hover:border-green-500"
-                                    >
-                                      {/* Screen captures: show the actual frame, click → Replay seeked to that moment */}
-                                      {u.kind === 'screen' && u.imagePath ? (
-                                        <img
-                                          src={captureUrlForPath(u.imagePath)}
-                                          alt=""
-                                          className="mb-0.5 h-16 w-full rounded border border-neutral-800 object-cover"
-                                        />
-                                      ) : null}
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="font-semibold text-green-500">
-                                          [S{idx + 1}]
-                                        </span>
-                                        <span className="rounded-sm border border-neutral-700 px-1 text-[9px] uppercase tracking-wide text-neutral-500">
-                                          {u.kind}
-                                        </span>
-                                      </div>
-                                      <span className="line-clamp-2 text-neutral-300">
-                                        {u.title && u.title !== u.surface ? u.title : u.snippet}
-                                      </span>
-                                      <span className="truncate text-[10px] text-neutral-600">
-                                        {u.surface}
-                                        {u.kind === 'screen' ? ' · open in Replay →' : ''}
-                                      </span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {message.context.sources && message.context.sources.length > 0 ? (
-                              <div className="mb-3">
-                                <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
-                                  Sources ({message.context.sources.length})
-                                </div>
-                                <div className="space-y-1">
-                                  {message.context.sources.slice(0, 8).map((s, idx) => (
-                                    <div
-                                      key={idx}
-                                      className="flex items-center gap-2 rounded-md border border-neutral-800 p-2 text-[11px] text-neutral-400"
-                                    >
-                                      <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                                      <span className="shrink-0 text-neutral-600">
-                                        {(s.score * 100).toFixed(0)}%
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {message.context.masterMemory ? (
-                              <div className="mb-3 rounded-md border border-neutral-800 p-3">
-                                <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
-                                  Master memory
-                                </div>
-                                <div className="text-neutral-300">
-                                  <ReactMarkdown
-                                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                                    components={markdownComponents}
-                                  >
-                                    {preprocessChatMarkdown(message.context.masterMemory)}
-                                  </ReactMarkdown>
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {message.context.memories && message.context.memories.length > 0 ? (
-                              <div className="mb-3">
-                                <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
-                                  Memories ({message.context.memories.length})
-                                </div>
-                                <div className="space-y-1">
-                                  {message.context.memories
-                                    .slice(0, 5)
-                                    .map((memory: any, idx: number) => (
-                                      <button
-                                        key={memory.id || idx}
-                                        onClick={() => onNavigateToMemory?.(memory.id)}
-                                        className="block w-full rounded-md border border-neutral-800 p-2 text-left transition-colors hover:border-neutral-700"
-                                      >
-                                        <p className="line-clamp-2 text-[11px] text-neutral-400">
-                                          {memory.content || memory.text || 'Memory'}
-                                        </p>
-                                      </button>
-                                    ))}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {message.context.summaries && message.context.summaries.length > 0 ? (
-                              <div className="mb-3">
-                                <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
-                                  Related chats ({message.context.summaries.length})
-                                </div>
-                                <div className="space-y-1">
-                                  {message.context.summaries
-                                    .slice(0, 5)
-                                    .map((summary: any, idx: number) => (
-                                      <button
-                                        key={summary.session_id || idx}
-                                        onClick={() => onNavigateToChat?.(summary.session_id)}
-                                        className="block w-full rounded-md border border-neutral-800 p-2 text-left transition-colors hover:border-neutral-700"
-                                      >
-                                        <p className="line-clamp-2 text-[11px] text-neutral-400">
-                                          {summary.summary || summary.title || 'Chat'}
-                                        </p>
-                                        {summary.app_name && (
-                                          <span className="mt-1 inline-block text-[10px] text-neutral-600">
-                                            {summary.app_name}
-                                          </span>
-                                        )}
-                                      </button>
-                                    ))}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {message.context.entities && message.context.entities.length > 0 ? (
-                              <div className="mb-3">
-                                <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
-                                  Entities ({message.context.entities.length})
-                                </div>
-                                <div className="flex flex-wrap gap-1">
-                                  {message.context.entities
-                                    .slice(0, 10)
-                                    .map((entity: any, idx: number) => (
-                                      <button
-                                        key={entity.id || idx}
-                                        onClick={() => onNavigateToEntity?.(entity.id)}
-                                        className="rounded-md border border-neutral-800 px-2 py-1 text-[11px] text-neutral-400 transition-colors hover:border-green-500 hover:text-green-500"
-                                      >
-                                        {entity.name || 'Entity'}
-                                      </button>
-                                    ))}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {message.context.entityFacts &&
-                            message.context.entityFacts.length > 0 ? (
-                              <div>
-                                <div className="mb-2 text-[10px] uppercase tracking-wide text-neutral-600">
-                                  Entity facts ({message.context.entityFacts.length})
-                                </div>
-                                <div className="space-y-1">
-                                  {message.context.entityFacts
-                                    .slice(0, 5)
-                                    .map((fact: any, idx: number) => (
-                                      <div
-                                        key={idx}
-                                        className="rounded-md border border-neutral-800 p-2"
-                                      >
-                                        <p className="line-clamp-2 text-[11px] text-neutral-400">
-                                          {fact.fact || fact}
-                                        </p>
-                                      </div>
-                                    ))}
-                                </div>
-                              </div>
-                            ) : null}
-                          </CollapsibleContent>
-                        </Collapsible>
-                      ) : null}
-                    </div>
-                  )
-                )}
+                {messages.map((message, messageIndex) => (
+                  <MessageRow
+                    key={message.id}
+                    message={message}
+                    nextMessageRole={messages[messageIndex + 1]?.role}
+                    voiceMode={voiceMode}
+                    state={{
+                      autoPlayId,
+                      copiedKey,
+                      editingId,
+                      editText,
+                      loading,
+                      speakingId,
+                      speakLoadingId,
+                      speakError,
+                      askSelections: askSel,
+                      incomingFiles: incomingFilesFor(message.id)
+                    }}
+                    actions={messageActions}
+                    navigation={messageNavigation}
+                  />
+                ))}
                 {/* A reply generating on another one of your devices, streaming here live. Pro
                     registers the renderer; the free build has no slot and this is nothing. */}
                 {ChatMessagesFooter && activeConversationId ? (
@@ -4206,11 +4571,7 @@ export function MemoryChat({
                           </div>
                         )}
                         <div className="flex items-center justify-between text-[11px] text-neutral-500">
-                          <span>
-                            {imgProgress
-                              ? `${imgProgress.phase === 'decoding' ? 'Decoding' : 'Step'} ${imgProgress.step}/${imgProgress.total}`
-                              : 'Loading model…'}
-                          </span>
+                          <span>{imageProgressLabel(imgProgress)}</span>
                           {imgProgress ? (
                             <span className="text-neutral-600">
                               ~
