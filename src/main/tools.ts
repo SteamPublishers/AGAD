@@ -568,13 +568,14 @@ export async function toolChat(
     unified: UnifiedSource[]
     imageRequests: { prompt: string }[]
     imageRequest?: { prompt: string }
-  } => ({
-    ...result,
-    imageRequests,
-    ...(imageRequests[imageRequests.length - 1]
-      ? { imageRequest: imageRequests[imageRequests.length - 1] }
-      : {})
-  })
+  } => {
+    const finalImageRequest = imageRequests.at(-1)
+    return {
+      ...result,
+      imageRequests,
+      ...(finalImageRequest ? { imageRequest: finalImageRequest } : {})
+    }
+  }
 
   for (let step = 0; step < 5; step++) {
     // Stream this round: reasoning + any answer text flow through onDelta live; tool_calls

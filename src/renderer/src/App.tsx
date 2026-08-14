@@ -230,7 +230,13 @@ function ModelStatusDot({
       : `Model server: ${text.toLowerCase()}`
     : `${text} - expand for details`
   return (
-    <button onClick={onClick} title={label} aria-label={label} className={navRowClass(open)}>
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={navRowClass(open)}
+    >
       <IconActivityHeartbeat className={cn('h-5 w-5 shrink-0', color)} />
       {open && <span className="flex-1 text-left text-xs">{text}</span>}
     </button>

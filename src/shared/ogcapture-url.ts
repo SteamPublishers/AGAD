@@ -22,7 +22,7 @@
  */
 export function captureUrlForPath(absolutePath: string): string {
   if (!absolutePath) return ''
-  const forwardSlashed = absolutePath.replace(/\\/g, '/')
+  const forwardSlashed = absolutePath.replaceAll('\\', '/')
   const rooted = forwardSlashed.startsWith('/') ? forwardSlashed : `/${forwardSlashed}`
   const encoded = rooted.split('/').map(encodeURIComponent).join('/')
   return `ogcapture://${encoded}`

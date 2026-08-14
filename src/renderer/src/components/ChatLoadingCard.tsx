@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 
 interface ChatLoadingCardProps {
-  label: string
+  readonly label: string
 }
 
 /** The one compact three-dot state used while a chat reply is still being prepared. */

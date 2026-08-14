@@ -8,7 +8,7 @@
 //
 // chat-payload.ts stays pure and takes the DECODED images this returns.
 
-import fs from 'fs'
+import fs from 'node:fs'
 import { imageMime, type DecodedImage } from './chat-payload'
 
 /**

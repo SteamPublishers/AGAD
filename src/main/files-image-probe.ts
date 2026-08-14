@@ -19,9 +19,7 @@
 
 /** The one call this check needs from sharp — injected so the decision can be
  *  proved against a real file without a working native module. */
-export interface ImageProbe {
-  (filePath: string): { metadata(): Promise<unknown> }
-}
+export type ImageProbe = (filePath: string) => { metadata(): Promise<unknown> }
 
 export type ImageDecodeVerdict =
   /** sharp read the header: the bytes are a real image. */
