@@ -3207,7 +3207,7 @@ export function MemoryChat({
               </div>
             ) : (
               <div className="w-full px-6 py-5">
-                {messages.map((message) =>
+                {messages.map((message, messageIndex) =>
                   /* A runtime notice is not somebody speaking, so it gets no bubble and no side:
                      a centred muted line in the timeline, the same shape the phone draws. Checked
                      before voice mode for the same reason the phone checks it first - a notice
@@ -3229,7 +3229,7 @@ export function MemoryChat({
                   ) : message.role === 'tool' ? (
                     <div
                       key={message.id}
-                      className="mb-2 flex flex-col items-start"
+                      className={`${messages[messageIndex + 1]?.role === 'tool' ? 'mb-2' : 'mb-5'} flex flex-col items-start`}
                       data-testid={`chat-tool-message-${message.id}`}
                     >
                       <ChatToolRows

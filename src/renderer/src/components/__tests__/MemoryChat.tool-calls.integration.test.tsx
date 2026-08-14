@@ -69,6 +69,15 @@ describe('<MemoryChat/> tool calls — persistent + inline', () => {
           unified: [],
           tool: { name: 'web_search', status: 'completed', durationMs: 1031 }
         }
+      },
+      {
+        id: 2,
+        role: 'tool',
+        content: 'The selected page text.',
+        context: {
+          unified: [],
+          tool: { name: 'read_url', status: 'completed', durationMs: 1696 }
+        }
       }
     ]
     installBoundary(boundary)
@@ -79,6 +88,7 @@ describe('<MemoryChat/> tool calls — persistent + inline', () => {
     expect(tool.textContent).toContain('Completed in 1031 ms')
     expect(screen.queryByText(LONG_RESULT)).toBeNull()
     expect(screen.getByTestId('chat-tool-message-1').className).toContain('mb-2')
+    expect(screen.getByTestId('chat-tool-message-2').className).toContain('mb-5')
 
     await user.click(tool)
     expect(await screen.findByText(LONG_RESULT)).toBeTruthy()
