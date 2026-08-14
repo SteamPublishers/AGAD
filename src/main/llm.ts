@@ -904,14 +904,15 @@ export class LLMService {
   private thinkingDialect: ThinkingDialect = 'enable-thinking'
 
   /** Read the loaded model's chat template and remember which thinking dialect it speaks.
-   *  Best-effort: a server that will not answer /props leaves the previous default in place
-   *  rather than failing a load over a capability probe. */
+   *  Best-effort: a server that will not answer /props keeps the safe default rather than
+   *  retaining the dialect of the model that was loaded before it. */
   private async resolveThinkingDialect(): Promise<void> {
+    this.thinkingDialect = 'enable-thinking'
     try {
       const res = await fetch(`http://127.0.0.1:${this.port}/props`)
       if (!res.ok) return
       const body = (await res.json()) as { chat_template?: string }
-      this.thinkingDialect = detectThinkingDialect(body?.chat_template)
+      this.thinkingDialect = detectThinkingDialect(body.chat_template)
       console.log(`[LLMService] thinking dialect: ${this.thinkingDialect}`)
     } catch (e) {
       console.warn('[LLMService] could not read /props for the thinking dialect:', e)
@@ -986,7 +987,9 @@ export class LLMService {
           if (opts.responseFormat) payload.response_format = opts.responseFormat
           // Turn off the model's reasoning channel for fast, direct output (its
           // chain-of-thought otherwise eats the token budget and leaves content empty).
-          if (opts.disableThinking) payload.chat_template_kwargs = { enable_thinking: false }
+          if (opts.disableThinking) {
+            Object.assign(payload, thinkingPayload(false, this.thinkingDialect))
+          }
           const body = JSON.stringify(payload)
 
           console.log(
