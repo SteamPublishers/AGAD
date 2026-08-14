@@ -42,8 +42,15 @@ export function capturePathFromUrl(url: string): string {
   const rest = separator === -1 ? '' : withoutScheme.slice(separator)
   // A single-letter authority is a Windows drive, and the colon it lost belongs back on it. Anything
   // longer is a real host, which this scheme never has, so it is treated as part of the path.
-  const decodedAuthority = decodeURIComponent(authority)
-  const decodedRest = decodeURIComponent(rest)
+  let decodedAuthority: string
+  let decodedRest: string
+  try {
+    decodedAuthority = decodeURIComponent(authority)
+    decodedRest = decodeURIComponent(rest)
+  } catch {
+    // Malformed percent escapes are invalid capture paths, not protocol-handler exceptions.
+    return ''
+  }
   if (/^[a-zA-Z]$/.test(decodedAuthority)) return `${decodedAuthority}:${decodedRest}`
   if (decodedAuthority === '') return stripRootBeforeDriveLetter(decodedRest)
   return `${decodedAuthority}${decodedRest}`
