@@ -308,7 +308,7 @@ const TOOLS: ToolDef[] = [
   },
   {
     // generate_image is DEFERRED: run() never generates. It records the requested
-    // prompt as `imageRequest` (the loop keeps the last one) so the renderer
+    // prompt as an image request so the renderer
     // generates AFTER the turn — generating inline would evict the LLM from unified
     // memory mid-loop and risk a nested modality-queue deadlock.
     name: 'generate_image',
@@ -447,6 +447,8 @@ export async function toolChat(
   answer: string
   toolCalls: ToolCall[]
   unified: UnifiedSource[]
+  imageRequests: { prompt: string }[]
+  /** Compatibility alias for older renderer bundles that can generate only one image. */
   imageRequest?: { prompt: string }
 }> {
   await llm.init() // respects pause; ensures the server is up
@@ -552,9 +554,27 @@ export async function toolChat(
   const toolCalls: ToolCall[] = []
   const unified: UnifiedSource[] = []
   const unifiedKeys = new Set<string>()
-  // Deferred image generation: the loop only RECORDS the requested prompt (last call
-  // wins). The renderer generates after the turn so we never evict the LLM mid-loop.
-  let imageRequest: { prompt: string } | undefined
+  // Deferred image generation: keep EVERY request in tool-call order. The renderer generates after
+  // the turn so we never evict the LLM mid-loop, and one model round that asks for two pictures does
+  // not silently replace the first request with the last.
+  const imageRequests: { prompt: string }[] = []
+  const resultWithImages = (result: {
+    answer: string
+    toolCalls: ToolCall[]
+    unified: UnifiedSource[]
+  }): {
+    answer: string
+    toolCalls: ToolCall[]
+    unified: UnifiedSource[]
+    imageRequests: { prompt: string }[]
+    imageRequest?: { prompt: string }
+  } => ({
+    ...result,
+    imageRequests,
+    ...(imageRequests[imageRequests.length - 1]
+      ? { imageRequest: imageRequests[imageRequests.length - 1] }
+      : {})
+  })
 
   for (let step = 0; step < 5; step++) {
     // Stream this round: reasoning + any answer text flow through onDelta live; tool_calls
@@ -575,7 +595,8 @@ export async function toolChat(
     // tool_calls it assembled (it doesn't reject on abort), so we MUST NOT execute
     // them — a cancelled turn fires no side effects (e.g. an MCP send/create).
     // Return what we have; the renderer treats the turn as cancelled.
-    if (opts.signal?.aborted) return { answer: content.trim(), toolCalls, unified, imageRequest }
+    if (opts.signal?.aborted)
+      return resultWithImages({ answer: content.trim(), toolCalls, unified })
 
     // Native tool_calls are preferred; but small on-device models (the gemma-4 we
     // ship) often emit a call as TEXT instead of on the tool_calls channel. When
@@ -619,8 +640,8 @@ export async function toolChat(
         }
         opts.onStep?.({ name: c.name, args: c.args }) // surface the tool activity BEFORE running it
         // Uniform dispatch — every tool owns its own result. Merge any structured
-        // side channels: sources are deduped into `unified` across rounds; the last
-        // non-empty imageRequest wins (deferred generation after the turn).
+        // side channels: sources are deduped into `unified` across rounds; image requests retain
+        // call order for deferred generation after the turn.
         const res = await runTool(
           c.name,
           c.args,
@@ -632,7 +653,7 @@ export async function toolChat(
           unifiedKeys.add(s.key)
           unified.push(s)
         }
-        if (res.imageRequest) imageRequest = res.imageRequest
+        if (res.imageRequest) imageRequests.push(res.imageRequest)
         toolCalls.push({ name: c.name, args: c.args, result: res.text })
         // Surface the COMPLETED call (with its result) live, so the UI can show each
         // tool call + result as it lands, not only in the final batch.
@@ -642,13 +663,13 @@ export async function toolChat(
       continue // let the model use the results
     }
     // No tool calls this round: `content` is the final answer (already streamed via onDelta).
-    return { answer: content.trim(), toolCalls, unified, imageRequest }
+    return resultWithImages({ answer: content.trim(), toolCalls, unified })
   }
   // Step cap reached with the model still calling tools. Instead of dead-ending
   // with a canned "stopped" message, FORCE one final answer WITHOUT tools, so the
   // user gets a real response built from the results gathered so far.
   if (opts.signal?.aborted) {
-    return { answer: '', toolCalls, unified, imageRequest }
+    return resultWithImages({ answer: '', toolCalls, unified })
   }
   const final = await llm.streamChat(messages, onDelta, {
     temperature: 0.3,
@@ -657,12 +678,11 @@ export async function toolChat(
     thinking: false,
     signal: opts.signal
   })
-  return {
+  return resultWithImages({
     answer: final.content.trim() || 'Stopped after too many tool steps.',
     toolCalls,
-    unified,
-    imageRequest
-  }
+    unified
+  })
 }
 
 /** Parse a tool-call arguments JSON string to an object; empty object on failure. */

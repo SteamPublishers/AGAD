@@ -87,6 +87,9 @@ describe('<MemoryChat/> - chat lifecycle integration (#36-#42, #47-#48)', () => 
     const disclosure = await screen.findByRole('button', { name: /enhanced prompt/i })
     const answer = screen.getByText('Generated image for: a lighthouse in a winter storm')
     const speak = screen.getByRole('button', { name: 'Speak' })
+    expect(screen.getByTestId('supporting-context-bubble')).toBeTruthy()
+    expect(screen.getByTestId('chat-message-1').className).toContain('mb-2')
+    expect(screen.getByTestId('chat-message-2').className).toContain('mb-5')
     expect(disclosure.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
       0
     )

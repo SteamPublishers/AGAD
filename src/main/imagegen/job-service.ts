@@ -18,6 +18,8 @@ import { noteGeneratedImageMessage, shareGeneratedImage } from './generated-imag
 
 export type ImageGenerationJobRequest = ImageGenerationRequestContract & {
   conversationId?: string
+  /** The durable assistant message this image will hang under. */
+  messageId?: string
   projectId?: string | null
 }
 
@@ -134,6 +136,7 @@ export class ImageGenerationJobService {
             syncId: id,
             ...(keptSource ? { initImage: keptSource } : {}),
             ...(request.conversationId ? { conversationId: request.conversationId } : {}),
+            ...(request.messageId ? { messageId: request.messageId } : {}),
             projectId: request.projectId ?? null,
             createdAt: new Date(this.snapshot.startedAt ?? Date.now()).toISOString(),
             ...(request.width ? { width: request.width } : {}),
@@ -164,7 +167,7 @@ export class ImageGenerationJobService {
       this.snapshot = {
         ...this.snapshot,
         phase: 'succeeded',
-        outputPath: result.path ?? null,
+        outputPath: result.path,
         progress: null,
         finishedAt: Date.now()
       }
@@ -213,9 +216,9 @@ export class ImageGenerationJobService {
    * Called only after the renderer has persisted the generated assistant message.
    * A remounted Chat observes this and refreshes the conversation from SQLite.
    *
-   * This is also the first moment the message EXISTS, so it is the only moment the image can be told
-   * which message it hangs under. The picture is offered again with that link, which is what lets a
-   * phone move it out of the gallery and under the message instead of drawing a hole.
+   * The image was already offered with the stable message id reserved at the start of the turn.
+   * `noteMessage` confirms the final persisted association. The generated-image owner treats this as
+   * an idempotent acknowledgement, so it does not publish or transfer the same image a second time.
    */
   acknowledgeConversation(conversationId: string, messageId?: string): boolean {
     if (

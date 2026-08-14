@@ -7,6 +7,20 @@ how to reproduce, and the fix direction. Close with evidence; never hide.
 
 ## OPEN
 
+### SYN-004 (P1) - Late-pair full graph is not verified between the real Desktop and Mobile apps
+
+**Evidence (2026-08-13):** the production send paths now backfill state records, generated images,
+message attachments, and knowledge documents when a device pairs after the data exists. Shared tests
+prove byte-bounded anti-entropy. Desktop tests use the real service, SQLite, and temporary files.
+Mobile tests use two real sync engines and prove exact file bytes and durable controls. These tests do
+not start both actual apps and verify final receiver materialization and UI in one journey.
+
+**Evidence required to close:** create a project, settings, chat text, enhanced prompt, reasoning,
+completed tool, generated image, attachment, and knowledge document on device A before device B is
+paired. Pair the real apps through the production connect path. Verify every record, relationship,
+and byte on B, restart B, and verify that the same graph returns without duplicate transfers or
+detached files. Run Desktop-to-Mobile and Mobile-to-Desktop on physical macOS, iOS, and Android.
+
 ### DEF-001 (P1) - Replay capture control reports a state that is not factual
 
 **Evidence (2026-08-08):** macOS Settings reported `Screen access: denied` and `Permission

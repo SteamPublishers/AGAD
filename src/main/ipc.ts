@@ -94,10 +94,13 @@ import {
   beginChatImageStream,
   bindChatStream,
   continueChatStreamWithImage,
+  currentChatStreamMessageId,
   endChatStream,
   endChatStreamForConversation,
   noteChatStreamImageProgress,
   noteChatStreamDelta,
+  noteChatStreamToolCompleted,
+  noteChatStreamToolStarted,
   takeChatStreamMessageId
 } from './chat-stream-state'
 
@@ -154,7 +157,7 @@ async function streamAnswer(
     })
   } finally {
     streamControllers.delete(streamId)
-    endChatStream(streamId)
+    endChatStream(streamId, controller.signal.aborted ? 'discarded' : 'record_pending')
   }
 }
 
@@ -1712,12 +1715,10 @@ export function setupIPC() {
         snapshot.progress?.step,
         snapshot.progress?.total
       )
-    } else if (
-      snapshot.phase === 'succeeded' ||
-      snapshot.phase === 'failed' ||
-      snapshot.phase === 'cancelled'
-    ) {
-      endChatStreamForConversation(snapshot.conversationId)
+    } else if (snapshot.phase === 'succeeded') {
+      endChatStreamForConversation(snapshot.conversationId, 'record_pending')
+    } else if (snapshot.phase === 'failed' || snapshot.phase === 'cancelled') {
+      endChatStreamForConversation(snapshot.conversationId, 'discarded')
     }
     for (const window of BrowserWindow.getAllWindows()) {
       if (window.isDestroyed()) continue
@@ -1756,9 +1757,13 @@ export function setupIPC() {
       const imageGenerationJobs = await imageJobPublisherReady
       beginChatImageStream(params.conversationId)
       try {
-        return await imageGenerationJobs.start(params)
+        const messageId = currentChatStreamMessageId(params.conversationId)
+        return await imageGenerationJobs.start({
+          ...params,
+          ...(messageId ? { messageId } : {})
+        })
       } catch (error) {
-        endChatStreamForConversation(params.conversationId)
+        endChatStreamForConversation(params.conversationId, 'discarded')
         throw error
       }
     }
@@ -1889,6 +1894,7 @@ export function setupIPC() {
               }
             },
             onStep: (call) => {
+              noteChatStreamToolStarted(streamId, call.name)
               try {
                 sender.send('rag:stream', {
                   streamId,
@@ -1900,6 +1906,7 @@ export function setupIPC() {
               }
             },
             onToolResult: (call) => {
+              noteChatStreamToolCompleted(streamId, call.name, call.result)
               try {
                 sender.send('rag:stream', { streamId, type: 'tool_result', call })
               } catch {
@@ -1908,13 +1915,15 @@ export function setupIPC() {
             }
           })
         )
-        if (result.imageRequest?.prompt) {
+        if (result.imageRequests.length > 0) {
           continuesAsImage = continueChatStreamWithImage(streamId)
         }
         return result
       } finally {
         streamControllers.delete(streamId)
-        if (!continuesAsImage) endChatStream(streamId)
+        if (!continuesAsImage) {
+          endChatStream(streamId, controller.signal.aborted ? 'discarded' : 'record_pending')
+        }
       }
     }
   )

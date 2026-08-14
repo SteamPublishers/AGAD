@@ -13,6 +13,7 @@ import { shouldFollowBottom } from '@renderer/lib/scroll-follow'
 import {
   chatListPreviewLine,
   isSupportingChatContext,
+  preprocessChatMarkdown,
   projectSyncedMessageTurn,
   type ProjectedSyncedTool,
   type RecordProvenance,
@@ -24,6 +25,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { getSlot, SLOTS } from '@/bootstrap/slotRegistry'
 import { ChatLoadingCard } from './ChatLoadingCard'
+import { chatMarkdownComponents } from './ChatMarkdown'
 import { ChatThinkingBlock } from './ChatThinkingBlock'
 import { ChatToolRows } from './ChatToolRows'
 import { ArtifactCanvas, parseArtifact, type Artifact } from './ArtifactCanvas'
@@ -361,7 +363,11 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
     // "<think></think>" and was matched as that string. The shared projection now splits inline
     // reasoning out, so the same row arrives empty instead - test emptiness, which covers both and
     // any other way a turn can carry nothing.
-    if (turn.role === 'assistant' && !turn.content.trim() && turn.reasoning === undefined) {
+    if (
+      turn.role === 'assistant' &&
+      !(turn.answer ?? turn.content).trim() &&
+      turn.reasoning === undefined
+    ) {
       return []
     }
     const imageReference = readGeneratedImageReference(ctx)
@@ -987,46 +993,7 @@ export function MemoryChat({
     }
   }, [])
 
-  const markdownComponents: Components = {
-    h1: ({ children }) => (
-      <h1 className="mb-2 mt-3 text-base font-medium text-neutral-100 first:mt-0">{children}</h1>
-    ),
-    h2: ({ children }) => (
-      <h2 className="mb-1.5 mt-3 text-sm font-medium text-neutral-100 first:mt-0">{children}</h2>
-    ),
-    h3: ({ children }) => (
-      <h3 className="mb-1 mt-2.5 text-sm text-neutral-200 first:mt-0">{children}</h3>
-    ),
-    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-    ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>,
-    ol: ({ children }) => (
-      <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>
-    ),
-    li: ({ children }) => <li className="pl-0.5">{children}</li>,
-    blockquote: ({ children }) => (
-      <blockquote className="my-2 border-l-2 border-neutral-700 pl-3 text-neutral-400">
-        {children}
-      </blockquote>
-    ),
-    strong: ({ children }) => <strong className="font-medium text-neutral-100">{children}</strong>,
-    hr: () => <hr className="my-3 border-neutral-800" />,
-    a: ({ href, children }) => (
-      <a href={href} target="_blank" rel="noreferrer" className="text-green-500 underline">
-        {children}
-      </a>
-    ),
-    code: ({ children, ...props }) => {
-      const inline = !('className' in props)
-      return (
-        <code
-          className={`font-mono text-[0.9em] bg-neutral-800/60 rounded ${inline ? 'px-1 py-0.5' : 'block px-2.5 py-2 overflow-x-auto'}`}
-        >
-          {children}
-        </code>
-      )
-    },
-    pre: ({ children }) => <pre className="my-2 overflow-x-auto last:mb-0">{children}</pre>
-  }
+  const markdownComponents = chatMarkdownComponents
 
   // Citation-aware markdown components: `[S2]` in an answer is rewritten to a
   // cite: link and rendered as a clickable chip that opens the exact source it
@@ -3311,13 +3278,41 @@ export function MemoryChat({
                   ) : (
                     <div
                       key={message.id}
-                      className={`mb-5 flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
+                      className={`${
+                        isSupportingChatContext({
+                          answer: message.content,
+                          reasoning: message.reasoning,
+                          reasoningLabel: message.reasoningLabel
+                        })
+                          ? 'mb-2'
+                          : 'mb-5'
+                      } flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
+                      data-testid={`chat-message-${message.id}`}
                     >
                       {message.role === 'assistant' &&
                       !message.streaming &&
                       message.reasoning &&
                       message.reasoning.trim() ? (
-                        <div className="mb-1.5">
+                        <div
+                          className={
+                            isSupportingChatContext({
+                              answer: message.content,
+                              reasoning: message.reasoning,
+                              reasoningLabel: message.reasoningLabel
+                            })
+                              ? 'rounded-md border border-neutral-800 bg-neutral-900/40 px-3.5 py-2.5'
+                              : 'mb-1.5'
+                          }
+                          data-testid={
+                            isSupportingChatContext({
+                              answer: message.content,
+                              reasoning: message.reasoning,
+                              reasoningLabel: message.reasoningLabel
+                            })
+                              ? 'supporting-context-bubble'
+                              : undefined
+                          }
+                        >
                           <ChatThinkingBlock
                             content={message.reasoning}
                             label={message.reasoningLabel}
@@ -3500,17 +3495,19 @@ export function MemoryChat({
                                 : markdownComponents
                             }
                           >
-                            {message.role !== 'assistant'
-                              ? message.content
-                              : // Show the selected regenerated variant (if any); keep artifact code
-                                // inline; hide only the clarifying-question fence.
-                                (message.variants && message.variantIndex != null
-                                  ? message.variants[message.variantIndex]!
-                                  : message.content
-                                )
-                                  .replace(ASK_FENCE, '')
-                                  .replace(/\[S(\d+)\]/g, '[S$1](cite:$1)')
-                                  .trim()}
+                            {preprocessChatMarkdown(
+                              message.role !== 'assistant'
+                                ? message.content
+                                : // Show the selected regenerated variant (if any); keep artifact code
+                                  // inline; hide only the clarifying-question fence.
+                                  (message.variants && message.variantIndex != null
+                                    ? message.variants[message.variantIndex]!
+                                    : message.content
+                                  )
+                                    .replace(ASK_FENCE, '')
+                                    .replace(/\[S(\d+)\]/g, '[S$1](cite:$1)')
+                                    .trim()
+                            )}
                           </ReactMarkdown>
                         )}
                         {message.cutoff ? (
@@ -4073,7 +4070,7 @@ export function MemoryChat({
                                     remarkPlugins={[remarkGfm, remarkBreaks]}
                                     components={markdownComponents}
                                   >
-                                    {message.context.masterMemory}
+                                    {preprocessChatMarkdown(message.context.masterMemory)}
                                   </ReactMarkdown>
                                 </div>
                               </div>

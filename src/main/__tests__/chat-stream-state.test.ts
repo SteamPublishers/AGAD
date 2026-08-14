@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { registerHook, HOOKS } from '../bootstrap/hookRegistry'
 import {
+  beginChatImageStream,
   bindChatStream,
   continueChatStreamWithImage,
+  currentChatStreamMessageId,
   endChatStreamForConversation,
   noteChatStreamDelta,
   noteChatStreamImageProgress,
+  noteChatStreamToolCompleted,
+  noteChatStreamToolStarted,
+  takeChatStreamMessageId,
   endChatStream
 } from '../chat-stream-state'
 
@@ -22,12 +27,18 @@ import {
 
 type Snapshot = {
   conversationId: string
-  content: string
-  reasoning: string
-  phase: 'waiting' | 'thinking' | 'answering' | 'generating_image'
+  content?: string
+  reasoning?: string
+  phase?: 'waiting' | 'thinking' | 'answering' | 'loading_image_model' | 'generating_image'
   progress?: { current: number; total: number }
+  tools?: Array<{
+    name: string
+    status: 'running' | 'completed'
+    result?: string
+  }>
   /** Minted when the turn is bound, so the record that follows keeps the id its frames carried. */
   messageId?: string
+  completion?: 'record_pending' | 'discarded'
 } | null
 
 describe('the reply being generated, as published to anything that follows it', () => {
@@ -93,7 +104,7 @@ describe('the reply being generated, as published to anything that follows it', 
     })
   })
 
-  it('ends with a null snapshot rather than falling silent', () => {
+  it('ends with an explicit record-pending terminal rather than falling silent', () => {
     bindChatStream('stream-a', 'conversation-1')
     noteChatStreamDelta('stream-a', 'done', 'content')
 
@@ -101,11 +112,15 @@ describe('the reply being generated, as published to anything that follows it', 
 
     // The end IS an event. A consumer that had to infer it from silence would need a timeout, and would
     // show a phone "still generating" forever whenever a turn failed.
-    expect(published.at(-1)).toBeNull()
+    expect(published.at(-1)).toEqual({
+      conversationId: 'conversation-1',
+      completion: 'record_pending'
+    })
   })
 
   it('keeps one reply alive while its deferred image is generated', () => {
     bindChatStream('stream-a', 'conversation-1')
+    noteChatStreamDelta('stream-a', 'I should use the image tool.', 'reasoning')
     noteChatStreamDelta('stream-a', 'I will make that image.', 'content')
     const messageId = published.at(-1)?.messageId
 
@@ -113,8 +128,17 @@ describe('the reply being generated, as published to anything that follows it', 
     expect(published.at(-1)).toEqual({
       conversationId: 'conversation-1',
       content: 'I will make that image.',
-      reasoning: '',
-      phase: 'generating_image',
+      reasoning: 'I should use the image tool.',
+      phase: 'loading_image_model',
+      messageId
+    })
+
+    expect(noteChatStreamImageProgress('conversation-1', 0, 42)).toBe(true)
+    expect(published.at(-1)).toEqual({
+      conversationId: 'conversation-1',
+      content: 'I will make that image.',
+      reasoning: 'I should use the image tool.',
+      phase: 'loading_image_model',
       messageId
     })
 
@@ -122,14 +146,66 @@ describe('the reply being generated, as published to anything that follows it', 
     expect(published.at(-1)).toEqual({
       conversationId: 'conversation-1',
       content: 'I will make that image.',
-      reasoning: '',
+      reasoning: 'I should use the image tool.',
       phase: 'generating_image',
       progress: { current: 7, total: 42 },
       messageId
     })
 
     expect(endChatStreamForConversation('conversation-1')).toBe(true)
-    expect(published.at(-1)).toBeNull()
+    expect(published.at(-1)).toEqual({
+      conversationId: 'conversation-1',
+      completion: 'record_pending'
+    })
+  })
+
+  it('reserves one new durable identity when the text row was claimed before its image starts', () => {
+    bindChatStream('stream-a', 'conversation-1')
+    noteChatStreamDelta('stream-a', 'I made both images.', 'content')
+    noteChatStreamToolStarted('stream-a', 'generate_image')
+    const textMessageId = takeChatStreamMessageId('conversation-1')
+    expect(textMessageId).toBe(published.at(-1)?.messageId)
+
+    expect(continueChatStreamWithImage('stream-a')).toBe(true)
+    expect(beginChatImageStream('conversation-1')).toBe(true)
+    const firstImageMessageId = currentChatStreamMessageId('conversation-1')
+    expect(firstImageMessageId).toEqual(expect.any(String))
+    expect(firstImageMessageId).not.toBe(textMessageId)
+    expect(published.at(-1)).toEqual({
+      conversationId: 'conversation-1',
+      content: '',
+      reasoning: '',
+      phase: 'loading_image_model',
+      messageId: firstImageMessageId
+    })
+
+    // This is what rag:add-message claims for the first separate image row.
+    expect(takeChatStreamMessageId('conversation-1')).toBe(firstImageMessageId)
+
+    // If another generated image starts before the active stream is retired, it still cannot reuse
+    // the first image row's claimed identity.
+    expect(beginChatImageStream('conversation-1')).toBe(true)
+    const secondImageMessageId = currentChatStreamMessageId('conversation-1')
+    expect(secondImageMessageId).toEqual(expect.any(String))
+    expect(secondImageMessageId).not.toBe(firstImageMessageId)
+    expect(takeChatStreamMessageId('conversation-1')).toBe(secondImageMessageId)
+  })
+
+  it('publishes a tool when it starts, then completes the same row', () => {
+    bindChatStream('stream-a', 'conversation-1')
+    noteChatStreamDelta('stream-a', 'I will make that image.', 'content')
+
+    noteChatStreamToolStarted('stream-a', 'generate_image')
+    expect(published.at(-1)?.tools).toEqual([{ name: 'generate_image', status: 'running' }])
+
+    noteChatStreamToolCompleted('stream-a', 'generate_image', 'Image generation started')
+    expect(published.at(-1)?.tools).toEqual([
+      {
+        name: 'generate_image',
+        status: 'completed',
+        result: 'Image generation started'
+      }
+    ])
   })
 
   it('says nothing more once a turn has ended, even if a late delta arrives', () => {
@@ -142,6 +218,20 @@ describe('the reply being generated, as published to anything that follows it', 
     // A delta arriving after cancellation must not resurrect the turn - that would leave a consumer
     // showing a reply the user already stopped.
     expect(published).toHaveLength(afterEnd)
+  })
+
+  it('discards a stopped image stream and releases the unused durable id', () => {
+    bindChatStream('stream-a', 'conversation-1')
+    expect(beginChatImageStream('conversation-1')).toBe(true)
+    expect(currentChatStreamMessageId('conversation-1')).toEqual(expect.any(String))
+
+    endChatStreamForConversation('conversation-1', 'discarded')
+
+    expect(published.at(-1)).toEqual({
+      conversationId: 'conversation-1',
+      completion: 'discarded'
+    })
+    expect(currentChatStreamMessageId('conversation-1')).toBeUndefined()
   })
 
   it('ends only once, so a repeated end cannot look like a second turn', () => {
@@ -179,7 +269,10 @@ describe('the reply being generated, as published to anything that follows it', 
       messageId: expect.any(String)
     })
     endChatStream('stream-b')
-    expect(published.at(-1)).toBeNull()
+    expect(published.at(-1)).toEqual({
+      conversationId: 'conversation-2',
+      completion: 'record_pending'
+    })
 
     // Ending one leaves the other running: its next delta still publishes, with its own text.
     noteChatStreamDelta('stream-a', ' more', 'content')

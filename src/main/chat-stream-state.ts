@@ -11,7 +11,14 @@
 // because ending IS a snapshot.
 
 import { callHook, HOOKS } from './bootstrap/hookRegistry'
-import type { ChatStreamPhase, ChatStreamProgress } from '@offgrid/sync'
+import {
+  completeChatStreamTool,
+  startChatStreamTool,
+  type ChatStreamCompletion,
+  type ChatStreamPhase,
+  type ChatStreamProgress,
+  type ChatStreamTool
+} from '@offgrid/sync'
 
 interface ActiveStream {
   conversationId: string
@@ -19,6 +26,7 @@ interface ActiveStream {
   reasoning: string
   phase: ChatStreamPhase
   progress?: ChatStreamProgress
+  tools?: ChatStreamTool[]
   /**
    * The id this reply will be STORED under, when the caller named it before the first token.
    *
@@ -81,6 +89,19 @@ export function takeChatStreamMessageId(conversationId: string): string | undefi
   return messageId
 }
 
+/**
+ * Read the identity of the reply that is still forming, without claiming it.
+ *
+ * Image generation needs this before it publishes the generated file. The later message write still
+ * claims the same id through `takeChatStreamMessageId`, so the live preview, file control and durable
+ * message all name one reply from the start.
+ */
+export function currentChatStreamMessageId(
+  conversationId: string | null | undefined
+): string | undefined {
+  return conversationId ? pendingMessageIds.get(conversationId) : undefined
+}
+
 /** Fold one delta into the reply so far and publish the result. */
 export function noteChatStreamDelta(
   streamId: string | undefined,
@@ -101,6 +122,28 @@ export function noteChatStreamDelta(
   publish(streamId)
 }
 
+/** Publish a tool row as soon as the model starts it, before its result exists. */
+export function noteChatStreamToolStarted(streamId: string | undefined, name: string): void {
+  if (!streamId || !name) return
+  const stream = active.get(streamId)
+  if (!stream) return
+  stream.tools = startChatStreamTool(stream.tools, name)
+  publish(streamId)
+}
+
+/** Complete the same tool row without changing its position below the reply. */
+export function noteChatStreamToolCompleted(
+  streamId: string | undefined,
+  name: string,
+  result: string
+): void {
+  if (!streamId || !name) return
+  const stream = active.get(streamId)
+  if (!stream) return
+  stream.tools = completeChatStreamTool(stream.tools, name, result)
+  publish(streamId)
+}
+
 /**
  * Start or continue the image phase for one conversation.
  *
@@ -114,8 +157,21 @@ export function beginChatImageStream(conversationId: string | null | undefined):
   )
   if (existing) {
     const [streamId, stream] = existing
-    stream.phase = 'generating_image'
-    stream.reasoning = ''
+    // The text answer can already be durable while this stream remains alive for its deferred image
+    // phase. `rag:add-message` takes the pending id once; reusing the ActiveStream's old id after that
+    // would publish the image file with the text row's id, then persist the image under a different
+    // one. Rotate at the start of the image job, before its sidecar/file control are written.
+    if (!pendingMessageIds.has(conversationId)) {
+      const messageId = crypto.randomUUID()
+      pendingMessageIds.set(conversationId, messageId)
+      stream.messageId = messageId
+      // The completed answer now has its own durable row. The new identity is for one image row, so
+      // its live preview contains lifecycle state only and does not repeat the answer or tool chips.
+      stream.content = ''
+      stream.reasoning = ''
+      delete stream.tools
+    }
+    stream.phase = 'loading_image_model'
     delete stream.progress
     publish(streamId)
     return true
@@ -128,7 +184,7 @@ export function beginChatImageStream(conversationId: string | null | undefined):
     conversationId,
     content: '',
     reasoning: '',
-    phase: 'generating_image',
+    phase: 'loading_image_model',
     messageId
   })
   publish(streamId)
@@ -146,8 +202,7 @@ export function continueChatStreamWithImage(streamId: string | undefined): boole
   if (!streamId) return false
   const stream = active.get(streamId)
   if (!stream) return false
-  stream.reasoning = ''
-  stream.phase = 'generating_image'
+  stream.phase = 'loading_image_model'
   delete stream.progress
   publish(streamId)
   return true
@@ -161,13 +216,17 @@ export function noteChatStreamImageProgress(
 ): boolean {
   if (!conversationId) return false
   const entry = [...active.entries()].find(
-    ([, stream]) => stream.conversationId === conversationId && stream.phase === 'generating_image'
+    ([, stream]) =>
+      stream.conversationId === conversationId &&
+      (stream.phase === 'loading_image_model' || stream.phase === 'generating_image')
   )
   if (!entry) return false
   const [streamId, stream] = entry
-  if (step !== undefined && total !== undefined && total > 0) {
+  if (step !== undefined && step > 0 && total !== undefined && total > 0) {
+    stream.phase = 'generating_image'
     stream.progress = { current: Math.min(Math.max(step, 0), total), total }
   } else {
+    stream.phase = 'loading_image_model'
     delete stream.progress
   }
   publish(streamId)
@@ -175,24 +234,35 @@ export function noteChatStreamImageProgress(
 }
 
 /** End the deferred image phase when its native job succeeds, fails, or is cancelled. */
-export function endChatStreamForConversation(conversationId: string | null | undefined): boolean {
+export function endChatStreamForConversation(
+  conversationId: string | null | undefined,
+  completion: ChatStreamCompletion = 'record_pending'
+): boolean {
   if (!conversationId) return false
   const streamId = [...active.entries()].find(
     ([, stream]) => stream.conversationId === conversationId
   )?.[0]
   if (!streamId) return false
-  endChatStream(streamId)
+  endChatStream(streamId, completion)
   return true
 }
 
 /**
- * The turn ended, however it ended - completed, cancelled, or failed.
- *
- * Always publishes null, so a consumer never has to infer the end from silence.
+ * The turn ended. A successful reply remains until its durable record arrives. Cancelled or failed
+ * work is discarded now because no record is coming to replace it.
  */
-export function endChatStream(streamId: string | undefined): void {
-  if (!streamId || !active.delete(streamId)) return
-  callHook(HOOKS.syncStreamingState, null)
+export function endChatStream(
+  streamId: string | undefined,
+  completion: ChatStreamCompletion = 'record_pending'
+): void {
+  if (!streamId) return
+  const stream = active.get(streamId)
+  if (!stream || !active.delete(streamId)) return
+  if (completion === 'discarded') pendingMessageIds.delete(stream.conversationId)
+  callHook(HOOKS.syncStreamingState, {
+    conversationId: stream.conversationId,
+    completion
+  })
 }
 
 function publish(streamId: string): void {
@@ -204,6 +274,7 @@ function publish(streamId: string): void {
     reasoning: stream.reasoning,
     phase: stream.phase,
     ...(stream.progress ? { progress: stream.progress } : {}),
+    ...(stream.tools?.length ? { tools: stream.tools } : {}),
     messageId: stream.messageId
   })
 }

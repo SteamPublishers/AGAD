@@ -37,7 +37,7 @@ describe('<MemoryChat/> tool calls — persistent + inline', () => {
           unified: [],
           toolCalls: [
             { name: 'web_search', result: LONG_RESULT },
-            { name: 'read_url', result: 'Off Grid AI · GitHub page body text' }
+            { name: 'read_url', result: '**Off Grid AI** · GitHub page body text' }
           ]
         }
       }
@@ -47,7 +47,7 @@ describe('<MemoryChat/> tool calls — persistent + inline', () => {
     renderChat({ conversationId: 'conversation-b' })
 
     const chip = await screen.findByRole('button', { name: /web_search/ })
-    expect(await screen.findByRole('button', { name: /read_url/ })).toBeTruthy()
+    const markdownTool = await screen.findByRole('button', { name: /read_url/ })
     const answer = await screen.findByText('Here is what I found.')
     expect(answer.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
     expect(screen.queryByText(LONG_RESULT)).toBeNull()
@@ -56,6 +56,11 @@ describe('<MemoryChat/> tool calls — persistent + inline', () => {
     await user.click(chip)
     expect(await screen.findByText(LONG_RESULT)).toBeTruthy()
     expect(screen.queryByRole('dialog')).toBeNull()
+
+    await user.click(markdownTool)
+    const boldToolResult = await screen.findByText('Off Grid AI', { selector: 'strong' })
+    expect(boldToolResult.tagName).toBe('STRONG')
+    expect(boldToolResult.style.fontWeight).toBe('700')
   })
 
   it('keeps a saved tool result closed until the user opens it', async () => {
@@ -100,7 +105,7 @@ describe('<MemoryChat/> tool calls — persistent + inline', () => {
       {
         id: 1,
         role: 'assistant',
-        content: '# Summary\n\n- First item\n- Second item\n\n> Important note',
+        content: '# Summary\n\n- **First item**\n- Second item\n\n> Important note',
         context: { unified: [] }
       }
     ]
@@ -109,9 +114,16 @@ describe('<MemoryChat/> tool calls — persistent + inline', () => {
 
     const heading = await screen.findByRole('heading', { name: 'Summary', level: 1 })
     const list = screen.getByRole('list')
+    const strong = screen.getByText('First item')
     const quote = screen.getByText('Important note').closest('blockquote')
     expect(heading.className).toContain('text-base')
+    expect(heading.className).toContain('font-bold')
+    expect(heading.style.fontWeight).toBe('700')
     expect(list.className).toContain('list-disc')
+    expect(list.style.listStyleType).toBe('disc')
+    expect(strong.tagName).toBe('STRONG')
+    expect(strong.className).toContain('font-bold')
+    expect(strong.style.fontWeight).toBe('700')
     expect(quote?.className).toContain('border-l-2')
   })
 

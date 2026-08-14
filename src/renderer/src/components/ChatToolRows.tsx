@@ -1,5 +1,6 @@
 import type { ChatStreamTool, ProjectedSyncedTool } from '@offgrid/sync'
 import { CaretDown, Wrench } from '@phosphor-icons/react'
+import { ChatMarkdown } from './ChatMarkdown'
 import {
   Collapsible,
   CollapsibleContent,
@@ -52,8 +53,8 @@ export function ChatToolRows({ tools }: Readonly<ChatToolRowsProps>): React.JSX.
               ) : null}
             </CollapsibleTrigger>
             {hasDetails ? (
-              <CollapsibleContent className="mt-1 whitespace-pre-wrap border-l-2 border-neutral-800 pl-3 text-xs leading-relaxed text-neutral-500">
-                {result}
+              <CollapsibleContent className="mt-1 border-l-2 border-neutral-800 pl-3 text-xs leading-relaxed text-neutral-500">
+                <ChatMarkdown content={result} />
               </CollapsibleContent>
             ) : null}
           </Collapsible>

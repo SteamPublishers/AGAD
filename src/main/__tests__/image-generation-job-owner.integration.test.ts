@@ -41,7 +41,10 @@ interface ControlledGeneration {
   fail(error: unknown): void
 }
 
-function controlledRuntime(cancelResult = true, saveScopeError?: Error): {
+function controlledRuntime(
+  cancelResult = true,
+  saveScopeError?: Error
+): {
   runtime: ImageGenerationRuntime
   generation(): ControlledGeneration
   savedScopes: { path: string; scope: GeneratedImageSidecar }[]
@@ -102,6 +105,7 @@ const request: ImageGenerationJobRequest = {
   prompt: 'A green cabin rendered while navigating',
   model: 'local-image-model',
   conversationId: 'conversation-navigation',
+  messageId: 'message-navigation',
   projectId: 'project-navigation',
   seed: 91,
   width: 512,
@@ -158,6 +162,7 @@ describe('main-owned image generation job journeys', () => {
         scope: {
           syncId: jobs.status().id,
           conversationId: request.conversationId,
+          messageId: request.messageId,
           projectId: request.projectId,
           createdAt: expect.any(String),
           width: request.width,
