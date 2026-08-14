@@ -255,6 +255,7 @@ export async function downloadModel(
       }
 
       let activePartPath: string | null = null
+      let activePartRecoverable = true
       try {
         // Decide the JOB before reporting on it. A model is several files, and percent used to be
         // per-file: a two-file download ran 0→100 for the weights and then 0→100 again for the
@@ -283,6 +284,7 @@ export async function downloadModel(
           const dest = path.join(dir, file.name)
           const partPath = `${dest}.part`
           activePartPath = partPath
+          activePartRecoverable = true
           // Resume from a partial .part if one exists (e.g. download interrupted by a
           // quit/crash) via an HTTP Range request, so we don't re-fetch GBs.
           let resumeFrom = 0
@@ -331,7 +333,10 @@ export async function downloadModel(
           // Verify the file is complete + valid BEFORE promoting it — never mark a
           // truncated/corrupt download installed (it loads as a blank "Chat model Down").
           const integrityErr = downloadIntegrityError(file.name, written, total, partPath)
-          if (integrityErr) throw new Error(integrityErr)
+          if (integrityErr) {
+            activePartRecoverable = false
+            throw new Error(integrityErr)
+          }
           // Content check: when the file carries an expected SHA-256 (e.g. HF's lfs
           // oid), verify the bytes match — catches silent corruption the byte-count +
           // magic check can't. Skipped when no hash is known.
@@ -340,7 +345,10 @@ export async function downloadModel(
             partPath,
             (file as { sha256?: string }).sha256
           )
-          if (checksumErr) throw new Error(checksumErr)
+          if (checksumErr) {
+            activePartRecoverable = false
+            throw new Error(checksumErr)
+          }
           fs.renameSync(partPath, dest)
           activePartPath = null
           jobDoneBytes += written // this file's real bytes now count toward the job, not a new 0%
@@ -368,10 +376,10 @@ export async function downloadModel(
         send({ percent: 100, status: 'completed' })
         return { success: true }
       } catch (err) {
-        // A capacity failure cannot resume until space is reclaimed, and retaining the
-        // bytes makes the full-volume condition worse. Other failures keep their
-        // partial file so retry can resume instead of downloading it again.
-        if (activePartPath && isStorageCapacityError(err)) {
+        // A capacity failure cannot resume until space is reclaimed. A file that failed byte or
+        // checksum validation must restart because the stored prefix is not trustworthy. Only a
+        // transport interruption keeps its partial file for a Range retry.
+        if (activePartPath && (!activePartRecoverable || isStorageCapacityError(err))) {
           try {
             fs.rmSync(activePartPath, { force: true })
           } catch {
