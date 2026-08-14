@@ -12,6 +12,7 @@ import { useActiveModelSummary } from '@renderer/hooks/useActiveModelSummary'
 import { shouldFollowBottom } from '@renderer/lib/scroll-follow'
 import {
   chatListPreviewLine,
+  isSupportingChatContext,
   projectSyncedMessageTurn,
   type ProjectedSyncedTool,
   type RecordProvenance,
@@ -24,6 +25,7 @@ import remarkBreaks from 'remark-breaks'
 import { getSlot, SLOTS } from '@/bootstrap/slotRegistry'
 import { ChatLoadingCard } from './ChatLoadingCard'
 import { ChatThinkingBlock } from './ChatThinkingBlock'
+import { ChatToolRows } from './ChatToolRows'
 import { ArtifactCanvas, parseArtifact, type Artifact } from './ArtifactCanvas'
 import { VoiceBubble, stopAllVoicePlayback } from './VoiceBubble'
 import { SkillsPanel } from './SkillsPanel'
@@ -182,6 +184,25 @@ function noticeText(content: string): string {
   return content.replace(/^_([\s\S]*)_$/, '$1').trim()
 }
 
+/**
+ * Mobile persists this short-lived row while it rewrites an image prompt, then updates the SAME
+ * message to a labelled reasoning block. It is lifecycle state, not an assistant answer: drawing
+ * reply actions on it made Speak / Copy / Regenerate target text that was about to be replaced.
+ */
+function isPromptEnhancementContent(content: unknown): content is string {
+  return typeof content === 'string' && /^Enhancing your prompt(?:\.{3}|…)$/.test(content.trim())
+}
+
+function isPromptEnhancementStatus(message: ChatMessage): boolean {
+  return (
+    message.role === 'assistant' &&
+    !message.image &&
+    !message.reasoning?.trim() &&
+    !message.toolCalls?.length &&
+    isPromptEnhancementContent(message.content)
+  )
+}
+
 type AskBlock = { question: string; options: string[]; multiSelect: boolean }
 
 // Detect a model-emitted interactive question: ```ask { question, options, multiSelect }```
@@ -298,7 +319,7 @@ interface MemoryChatProps {
 }
 
 function mapRagMessages(raw: any[]): ChatMessage[] {
-  return raw.flatMap((m: any) => {
+  return raw.flatMap<ChatMessage>((m: any) => {
     let ctx: RagContext | undefined
     if (m.context && typeof m.context === 'string') {
       try {
@@ -316,6 +337,13 @@ function mapRagMessages(raw: any[]): ChatMessage[] {
             originDeviceName: m.origin_device_name
           }
         : undefined
+    // Shared correctly excludes this temporary row from the portable ANSWER projection. Desktop
+    // still needs the local database row as lifecycle UI until the same UUID is rewritten as the
+    // durable Enhanced prompt disclosure. Admit only this exact producer-owned sentence here.
+    if (m.role === 'assistant' && isPromptEnhancementContent(m.content)) {
+      const id = String(m.uuid ?? m.id ?? '')
+      return id ? [{ id, role: 'assistant', content: m.content, provenance }] : []
+    }
     const turn = projectSyncedMessageTurn({
       id: String(m.uuid ?? m.id),
       role: m.role,
@@ -399,12 +427,7 @@ function ChatImagePreview({
 }): React.JSX.Element {
   return (
     <div>
-      <img
-        src={src}
-        alt={alt}
-        onClick={() => onOpen({ url: src, path })}
-        className={className}
-      />
+      <img src={src} alt={alt} onClick={() => onOpen({ url: src, path })} className={className} />
       <ImageMetadata metadata={metadata} />
     </div>
   )
@@ -567,6 +590,28 @@ export function MemoryChat({
     },
     []
   )
+  // A peer can update one durable message twice in quick succession (the prompt-enhancement
+  // placeholder, then its final disclosure). SQLite reads started for both broadcasts may finish
+  // out of order; only the newest read is allowed to replace the rendered conversation.
+  const conversationMessageLoadVersionRef = useRef<Map<string, number>>(new Map())
+  const loadLatestConversationMessages = useCallback(
+    async (conversationId: string): Promise<ChatMessage[] | null> => {
+      const nextVersion = (conversationMessageLoadVersionRef.current.get(conversationId) ?? 0) + 1
+      conversationMessageLoadVersionRef.current.set(conversationId, nextVersion)
+      const rawMessages = await window.api.getRagMessages(conversationId)
+      if (conversationMessageLoadVersionRef.current.get(conversationId) !== nextVersion) return null
+      return mapRagMessages(rawMessages)
+    },
+    []
+  )
+  const refreshConversationMessages = useCallback(
+    async (conversationId: string): Promise<void> => {
+      const nextMessages = await loadLatestConversationMessages(conversationId)
+      if (!nextMessages) return
+      setConvMessages(conversationId, nextMessages)
+    },
+    [loadLatestConversationMessages, setConvMessages]
+  )
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   // Whether the active chat model can read images. Gate image attachment on this and
@@ -638,6 +683,13 @@ export function MemoryChat({
   // Active tab's messages (derived) + a shim so the existing active-conversation call
   // sites keep working. The send path targets its own conv via setConvMessages instead.
   const messages = messagesByConv[activeConversationId ?? NEW_CHAT] ?? EMPTY_MSGS
+  const promptEnhancementActive = messages.some(isPromptEnhancementStatus)
+  const promptEnhancementComplete = messages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      message.reasoningLabel?.trim().toLowerCase() === 'enhanced prompt' &&
+      !!message.reasoning?.trim()
+  )
   const setMessages = useCallback(
     (updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])): void => {
       setConvMessages(activeConversationId, updater)
@@ -936,7 +988,28 @@ export function MemoryChat({
   }, [])
 
   const markdownComponents: Components = {
-    p: ({ children }) => <p style={{ margin: 0 }}>{children}</p>,
+    h1: ({ children }) => (
+      <h1 className="mb-2 mt-3 text-base font-medium text-neutral-100 first:mt-0">{children}</h1>
+    ),
+    h2: ({ children }) => (
+      <h2 className="mb-1.5 mt-3 text-sm font-medium text-neutral-100 first:mt-0">{children}</h2>
+    ),
+    h3: ({ children }) => (
+      <h3 className="mb-1 mt-2.5 text-sm text-neutral-200 first:mt-0">{children}</h3>
+    ),
+    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+    ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>,
+    ol: ({ children }) => (
+      <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>
+    ),
+    li: ({ children }) => <li className="pl-0.5">{children}</li>,
+    blockquote: ({ children }) => (
+      <blockquote className="my-2 border-l-2 border-neutral-700 pl-3 text-neutral-400">
+        {children}
+      </blockquote>
+    ),
+    strong: ({ children }) => <strong className="font-medium text-neutral-100">{children}</strong>,
+    hr: () => <hr className="my-3 border-neutral-800" />,
     a: ({ href, children }) => (
       <a href={href} target="_blank" rel="noreferrer" className="text-green-500 underline">
         {children}
@@ -952,7 +1025,7 @@ export function MemoryChat({
         </code>
       )
     },
-    pre: ({ children }) => <pre style={{ margin: 0 }}>{children}</pre>
+    pre: ({ children }) => <pre className="my-2 overflow-x-auto last:mb-0">{children}</pre>
   }
 
   // Citation-aware markdown components: `[S2]` in an answer is rewritten to a
@@ -1057,7 +1130,8 @@ export function MemoryChat({
         setActiveProjectId((first as { project_id?: string | null }).project_id ?? null)
         setOpenTabs([first.id])
         try {
-          setConvMessages(first.id, mapRagMessages(await window.api.getRagMessages(first.id)))
+          const nextMessages = await loadLatestConversationMessages(first.id)
+          if (nextMessages) setConvMessages(first.id, nextMessages)
         } catch {
           setConvMessages(first.id, [])
         }
@@ -1234,14 +1308,6 @@ export function MemoryChat({
     return () => off?.()
   }, [])
 
-  const refreshConversationMessages = useCallback(async (conversationId: string): Promise<void> => {
-    const rawMessages = await window.api.getRagMessages(conversationId)
-    setMessagesByConv((prev) => ({
-      ...prev,
-      [conversationId]: mapRagMessages(rawMessages)
-    }))
-  }, [])
-
   // Image jobs survive this component. Subscribe before reading the snapshot so a
   // navigation/remount cannot miss the transition between status and observation.
   // Cleanup only detaches observers; explicit Stop is the sole cancellation path.
@@ -1296,19 +1362,18 @@ export function MemoryChat({
       setActiveConversationId(convId)
       setActiveProjectId(conversations.find((c) => c.id === convId)?.project_id ?? null)
       try {
-        const rawMessages = await window.api.getRagMessages(convId)
+        const nextMessages = await loadLatestConversationMessages(convId)
+        if (!nextMessages) return
         // Refresh from DB, but never clobber an in-flight stream for this conversation.
         setMessagesByConv((prev) =>
-          prev[convId]?.some((m) => m.streaming)
-            ? prev
-            : { ...prev, [convId]: mapRagMessages(rawMessages) }
+          prev[convId]?.some((m) => m.streaming) ? prev : { ...prev, [convId]: nextMessages }
         )
       } catch (e) {
         console.error('Failed to load messages:', e)
         setMessagesByConv((prev) => (prev[convId] ? prev : { ...prev, [convId]: [] }))
       }
     },
-    [activeConversationId, conversations]
+    [activeConversationId, conversations, loadLatestConversationMessages]
   )
 
   // Close a chat tab; fall back to another open tab (or a fresh chat) if it was active.
@@ -1345,10 +1410,7 @@ export function MemoryChat({
             conversationId === activeConversationId &&
             !generatingConvs.has(conversationId)
           ) {
-            setConvMessages(
-              conversationId,
-              mapRagMessages(await window.api.getRagMessages(conversationId))
-            )
+            await refreshConversationMessages(conversationId)
           }
           await loadConversations()
         } catch (error) {
@@ -1358,7 +1420,7 @@ export function MemoryChat({
     })
     return () => off?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId, generatingConvs])
+  }, [activeConversationId, generatingConvs, refreshConversationMessages])
 
   // Open a target passed from the Projects tab (an existing chat, or a new chat
   // scoped to a project). Resolves project from the DB to avoid stale state.
@@ -1372,7 +1434,8 @@ export function MemoryChat({
           setOpenTabs((t) => (t.includes(convId) ? t : [...t, convId]))
           const conv = await window.api.getRagConversation(convId)
           setActiveProjectId((conv as { project_id?: string | null }).project_id ?? null)
-          setConvMessages(convId, mapRagMessages(await window.api.getRagMessages(convId)))
+          const nextMessages = await loadLatestConversationMessages(convId)
+          if (nextMessages) setConvMessages(convId, nextMessages)
         } else if (openTarget.projectId) {
           setActiveConversationId(null)
           setConvMessages(null, [])
@@ -1761,7 +1824,8 @@ export function MemoryChat({
         })
         const toolCalls = (tr?.toolCalls || []).map((c: { name: string; result: string }) => ({
           name: c.name,
-          result: c.result
+          result: c.result,
+          status: 'completed' as const
         }))
         const context = tr?.unified?.length ? { unified: tr.unified } : undefined
         // Persist the citation sources + tool calls so they survive a reload.
@@ -1797,11 +1861,18 @@ export function MemoryChat({
         )
         const toolCtxWithReasoning = buildAssistantContext(toolCtx, { reasoning: toolReasoning })
         if (voiceMode) setAutoPlayId(toolStreamId)
-        // Deferred image generation: the tool loop only RECORDS the prompt (it never
-        // generates inline, which would evict the LLM). Generate + attach here AFTER
-        // the text turn - same path as the ```image fence block below.
+        // Deferred image generation: the tool loop only RECORDS prompts (it never generates inline,
+        // which would evict the LLM). Each completed request gets one generated file and one durable
+        // assistant image message. A message context has one imageRef by design; putting two results
+        // on one row would make the last context write replace the first association.
+        const imageRequests =
+          tr?.imageRequests?.length > 0
+            ? tr.imageRequests
+            : tr?.imageRequest?.prompt
+              ? [tr.imageRequest]
+              : []
         if (
-          tr?.imageRequest?.prompt &&
+          imageRequests.length > 0 &&
           window.api.generateImage &&
           !cancelledRef.current.has(convId)
         ) {
@@ -1812,40 +1883,53 @@ export function MemoryChat({
           setImgProgress(null)
           setImageGenConv(convId)
           try {
-            const img = await window.api.generateImage({
-              prompt: tr.imageRequest.prompt,
-              conversationId: convId,
-              projectId: projectId
-            })
-            setConvMessages(convId, (prev) =>
-              prev.map((m) =>
-                m.id === toolStreamId ? { ...m, image: img.dataUrl, imagePath: img.path } : m
-              )
-            )
-            try {
-              const stored = await window.api.addRagMessage(
-                convId,
-                'assistant',
-                answer,
-                withGeneratedImageReference(toolCtxWithReasoning ?? {}, {
-                  id: img.syncId,
-                  path: img.path
+            await window.api.addRagMessage(convId, 'assistant', answer, toolCtxWithReasoning)
+          } catch {
+            /* The answer remains on screen; image rows can still be persisted independently. */
+          }
+          try {
+            for (const imageRequest of imageRequests) {
+              if (cancelledRef.current.has(convId)) break
+              setImgProgress(null)
+              try {
+                const img = await window.api.generateImage({
+                  prompt: imageRequest.prompt,
+                  conversationId: convId,
+                  projectId: projectId
                 })
-              )
-              await announceImageMessagePersisted(convId, stored.uuid)
-            } catch {
-              /* ignore */
-            }
-          } catch (e) {
-            // Persist the TEXT answer regardless of why the image failed — including
-            // a cancel. The text turn already finished and is on screen; a cancelled
-            // (or failed) IMAGE must not drop it, or it vanishes on reload (D12). Only
-            // the image is lost.
-            void e
-            try {
-              await window.api.addRagMessage(convId, 'assistant', answer, toolCtxWithReasoning)
-            } catch {
-              /* ignore */
+                const imageContent = `Generated for: ${imageRequest.prompt}`
+                let imageMessageId: string = crypto.randomUUID()
+                try {
+                  const stored = await window.api.addRagMessage(
+                    convId,
+                    'assistant',
+                    imageContent,
+                    withGeneratedImageReference(undefined, {
+                      id: img.syncId,
+                      path: img.path
+                    })
+                  )
+                  imageMessageId = stored.uuid
+                  await announceImageMessagePersisted(convId, stored.uuid)
+                } catch {
+                  /* Keep the generated file visible even if this database write fails. */
+                }
+                setConvMessages(convId, (prev) => [
+                  ...prev,
+                  {
+                    id: imageMessageId,
+                    role: 'assistant',
+                    content: imageContent,
+                    image: img.dataUrl,
+                    imagePath: img.path
+                  }
+                ])
+              } catch (error) {
+                // One failed image does not erase or block another completed tool request. Stop is
+                // the exception: it cancels the active runtime and ends the remaining local work.
+                if (cancelledRef.current.has(convId)) break
+                console.error('Deferred tool image generation failed', error)
+              }
             }
           } finally {
             setImgProgress(null)
@@ -3134,7 +3218,34 @@ export function MemoryChat({
                         {noticeText(message.content)}
                       </span>
                     </div>
-                  ) : voiceMode && message.role !== 'tool' ? (
+                  ) : isPromptEnhancementStatus(message) ? (
+                    <div
+                      key={message.id}
+                      className="mb-5 flex flex-col items-start"
+                      data-testid="prompt-enhancement-status"
+                    >
+                      <ChatLoadingCard label={message.content.trim()} />
+                    </div>
+                  ) : message.role === 'tool' ? (
+                    <div
+                      key={message.id}
+                      className="mb-2 flex flex-col items-start"
+                      data-testid={`chat-tool-message-${message.id}`}
+                    >
+                      <ChatToolRows
+                        tools={[
+                          {
+                            name: message.toolName || 'Tool result',
+                            result: message.content,
+                            status: message.turnStatus === 'failed' ? 'failed' : 'completed',
+                            ...(message.generationTimeMs !== undefined
+                              ? { durationMs: message.generationTimeMs }
+                              : {})
+                          }
+                        ]}
+                      />
+                    </div>
+                  ) : voiceMode ? (
                     <div
                       key={message.id}
                       className={`mb-4 flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
@@ -3150,6 +3261,20 @@ export function MemoryChat({
                               durationSeconds={message.audioDuration}
                               synthesize={(t) => window.api.speak(t)}
                               onCopy={copyText}
+                            />
+                          )
+                        }
+                        if (
+                          isSupportingChatContext({
+                            answer: message.content,
+                            reasoning: message.reasoning,
+                            reasoningLabel: message.reasoningLabel
+                          })
+                        ) {
+                          return (
+                            <ChatThinkingBlock
+                              content={message.reasoning ?? ''}
+                              label={message.reasoningLabel}
                             />
                           )
                         }
@@ -3218,36 +3343,6 @@ export function MemoryChat({
                           ) : null}
                         </div>
                       ) : null}
-                      {/* Tool calls as their own entry, between thinking and the answer bubble.
-                        search_memory is shown as interactive Source cards below, so skip its chip. */}
-                      {(() => {
-                        const chips = (message.toolCalls || []).filter(
-                          (tc) => tc.name !== 'search_memory'
-                        )
-                        return chips.length > 0 ? (
-                          <div className="mb-1.5 flex max-w-[85%] flex-wrap gap-1">
-                            {chips.map((tc, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => {
-                                  closePanels()
-                                  setViewer({
-                                    title: `${tc.name} — tool result`,
-                                    text: tc.result,
-                                    kind: 'tool'
-                                  })
-                                }}
-                                title="Click to view the full result"
-                                className="cursor-pointer rounded-sm border border-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-500 transition-colors hover:border-green-500/60 hover:text-neutral-300 active:scale-95"
-                              >
-                                {tc.name} →{' '}
-                                {tc.result.length > 32 ? tc.result.slice(0, 32) + '…' : tc.result}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null
-                      })()}
                       <div
                         className={
                           // An assistant turn with no answer draws no bubble - not while it is
@@ -3265,7 +3360,9 @@ export function MemoryChat({
                                 // While editing, expand to a full, usable width instead
                                 // of hugging the (often short) message — otherwise the
                                 // textarea + buttons are crammed into a narrow bubble.
-                                editingId === message.id ? 'w-full max-w-2xl' : 'max-w-[85%]'
+                                editingId === message.id || message.image
+                                  ? 'w-full max-w-2xl'
+                                  : 'max-w-[85%]'
                               } ${
                                 message.role === 'user'
                                   ? 'bg-neutral-800 text-neutral-100'
@@ -3273,20 +3370,6 @@ export function MemoryChat({
                               }`
                         }
                       >
-                        {message.role === 'tool' ? (
-                          <div className="mb-2 flex items-center gap-2 border-b border-neutral-800 pb-2 text-[11px]">
-                            <Wrench className="h-3.5 w-3.5 text-green-500" />
-                            <span className="font-medium text-neutral-300">
-                              {message.toolName || 'Tool result'}
-                            </span>
-                            <span className="text-neutral-600">
-                              {message.turnStatus === 'failed' ? 'Failed' : 'Completed'}
-                              {message.generationTimeMs !== undefined
-                                ? ` in ${Math.round(message.generationTimeMs)} ms`
-                                : ''}
-                            </span>
-                          </div>
-                        ) : null}
                         {/* Announced by a peer, bytes still coming. Drawn from the announcement, so
                             the row names the real file instead of leaving the turn looking empty
                             until it lands — which is what made a synced image look like a lost one. */}
@@ -3367,6 +3450,15 @@ export function MemoryChat({
                               )
                             })}
                           </div>
+                        ) : null}
+                        {message.image ? (
+                          <ChatImagePreview
+                            src={message.image}
+                            path={message.imagePath}
+                            metadata={message.imageMetadata}
+                            className="mb-2 w-full max-w-full cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
+                            onOpen={setLightbox}
+                          />
                         ) : null}
                         {editingId === message.id ? (
                           <div className="flex flex-col gap-2">
@@ -3540,16 +3632,9 @@ export function MemoryChat({
                             </div>
                           )
                         })()}
-                        {message.image ? (
-                          <ChatImagePreview
-                            src={message.image}
-                            path={message.imagePath}
-                            metadata={message.imageMetadata}
-                            className="mt-2 max-w-full cursor-zoom-in rounded-md border border-neutral-800 transition-opacity hover:opacity-90"
-                            onOpen={setLightbox}
-                          />
-                        ) : null}
                       </div>
+
+                      <ChatToolRows tools={message.toolCalls} />
 
                       {message.role === 'user' ? (
                         <div className="mt-1.5 flex items-center gap-3">
@@ -3640,7 +3725,13 @@ export function MemoryChat({
                         </div>
                       ) : null}
 
-                      {message.role === 'assistant' && !message.image ? (
+                      {message.role === 'assistant' &&
+                      !message.image &&
+                      !isSupportingChatContext({
+                        answer: message.content,
+                        reasoning: message.reasoning,
+                        reasoningLabel: message.reasoningLabel
+                      }) ? (
                         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                           <button
                             onClick={() => speakMessage(message.id, message.content)}
@@ -4091,7 +4182,11 @@ export function MemoryChat({
                 {/* A reply generating on another one of your devices, streaming here live. Pro
                     registers the renderer; the free build has no slot and this is nothing. */}
                 {ChatMessagesFooter && activeConversationId ? (
-                  <ChatMessagesFooter conversationId={activeConversationId} />
+                  <ChatMessagesFooter
+                    conversationId={activeConversationId}
+                    promptEnhancementActive={promptEnhancementActive}
+                    promptEnhancementComplete={promptEnhancementComplete}
+                  />
                 ) : null}
                 {!!activeConversationId &&
                 generatingConvs.has(activeConversationId) &&
@@ -5274,7 +5369,7 @@ export function MemoryChat({
                       >
                         <img
                           src={captureUrlForPath(g.path)}
-                          alt=""
+                          alt={g.name}
                           className="aspect-square w-full object-cover"
                         />
                       </button>

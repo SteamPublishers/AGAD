@@ -62,7 +62,13 @@ type GenPayload = {
   conversationId?: string
 }
 
-type ImageResult = { dataUrl: string; path: string; seed?: number; model?: string }
+type ImageResult = {
+  dataUrl: string
+  path: string
+  syncId?: string
+  seed?: number
+  model?: string
+}
 type ImageProgress = {
   phase: string
   step: number
@@ -103,6 +109,12 @@ type InstallApiOptions = {
   jobStatus?: ImageGenerationJobContract
   /** Seed per-conversation persisted messages (getRagMessages), keyed by conversation id. */
   messages?: Record<string, unknown[]>
+  toolResult?: {
+    answer: string
+    toolCalls: { name: string; result: string }[]
+    unified: never[]
+    imageRequests?: { prompt: string }[]
+  }
 }
 
 type InstalledApi = {
@@ -111,9 +123,16 @@ type InstalledApi = {
   emitJobState: (job: ImageGenerationJobContract) => void
   setActiveModalModel: Mock<(kind: string, model: string) => Promise<void>>
   toolChat: Mock<
-    (...args: unknown[]) => Promise<{ answer: string; toolCalls: never[]; unified: never[] }>
+    (...args: unknown[]) => Promise<{
+      answer: string
+      toolCalls: { name: string; result: string }[]
+      unified: never[]
+      imageRequests?: { prompt: string }[]
+    }>
   >
   exportGeneratedImage: Mock<(...args: unknown[]) => Promise<void>>
+  addRagMessage: Mock<(...args: unknown[]) => Promise<{ id: number; uuid: string }>>
+  imageGenConversationPersisted: Mock<(...args: unknown[]) => Promise<void>>
   getRagMessages: Mock<(id: string) => Promise<unknown[]>>
   cancelImageGen: Mock<() => void>
   chatVisionAvailable: Mock<() => Promise<boolean>>
@@ -140,27 +159,44 @@ function installApi(opts: InstallApiOptions): InstalledApi {
   const settings: Record<string, unknown> = { ...(opts.settings ?? {}) }
   const conversations = [...(opts.conversations ?? [])]
   const messages = new Map<string, unknown[]>(Object.entries(opts.messages ?? {}))
+  const generatedGallery: { path: string; name: string; mtime: number }[] = []
   let progress: ((value: ImageProgress) => void) | null = null
   let jobStateCb: ((job: ImageGenerationJobContract) => void) | null = null
   let convUpdatedCb: ((conversationId: string) => void) | null = null
-  const generateImage = vi.fn<(payload: GenPayload) => Promise<ImageResult>>(
+  const generate =
     opts.generate ??
-      (async (payload: GenPayload) => ({
-        dataUrl: 'data:image/png;base64,AAAA',
-        path: '/tmp/out.png',
-        seed: payload.seed,
-        model: payload.model
-      }))
-  )
+    (async (payload: GenPayload) => ({
+      dataUrl: 'data:image/png;base64,AAAA',
+      path: '/tmp/out.png',
+      seed: payload.seed,
+      model: payload.model
+    }))
+  const generateImage = vi.fn<(payload: GenPayload) => Promise<ImageResult>>(async (payload) => {
+    const result = await generate(payload)
+    generatedGallery.unshift({
+      path: result.path,
+      name: result.path.split('/').pop() ?? 'generated.png',
+      mtime: Date.now()
+    })
+    return result
+  })
   const setActiveModalModel = vi.fn<(kind: string, model: string) => Promise<void>>(async () => {})
   // The agentic path's single entry point. Returns a benign text answer with no
   // imageRequest, so if the turn reaches the agent no generateImage call follows —
   // making "generateImage was/ wasn't called" an unambiguous terminal artifact.
-  const toolChat = vi.fn<
-    (...args: unknown[]) => Promise<{ answer: string; toolCalls: never[]; unified: never[] }>
-  >(async () => ({ answer: 'done', toolCalls: [], unified: [] }))
+  const toolChat = vi.fn(async () =>
+    opts.toolResult
+      ? structuredClone(opts.toolResult)
+      : { answer: 'done', toolCalls: [], unified: [] }
+  )
   const cancelImageGen = vi.fn<() => void>()
   const exportGeneratedImage = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
+  let nextStoredMessageId = 1
+  const addRagMessage = vi.fn(async () => {
+    const id = nextStoredMessageId++
+    return { id, uuid: `stored-message-${id}` }
+  })
+  const imageGenConversationPersisted = vi.fn(async () => {})
   // Timestamps are filled in where a seed omitted one. The renderer projects each row through
   // projectSyncedMessageTurn, which returns null for a message it cannot order, so an untimestamped
   // row is silently dropped and the conversation renders empty. The table this stands for always has
@@ -244,7 +280,8 @@ function installApi(opts: InstallApiOptions): InstalledApi {
       })
       messages.set(id, [])
     }),
-    addRagMessage: vi.fn(async () => {}),
+    addRagMessage,
+    imageGenConversationPersisted,
     saveArtifact: vi.fn(async () => {}),
     exportGeneratedImage,
     // --- settings round-trip (per-model override persistence) ---
@@ -255,6 +292,7 @@ function installApi(opts: InstallApiOptions): InstalledApi {
     // --- misc mount-time calls (inert) ---
     listProjects: vi.fn(async () => []),
     listArtifacts: vi.fn(async () => []),
+    listGeneratedImages: vi.fn(async () => generatedGallery.map((image) => ({ ...image }))),
     styleThumbs: vi.fn(async () => ({})),
     listSkills: vi.fn(async () => []),
     onRagStream: vi.fn(() => () => {}),
@@ -270,6 +308,8 @@ function installApi(opts: InstallApiOptions): InstalledApi {
     toolChat,
     exportGeneratedImage,
     getRagMessages,
+    addRagMessage,
+    imageGenConversationPersisted,
     cancelImageGen,
     chatVisionAvailable,
     processFile,
@@ -578,6 +618,71 @@ describe('<MemoryChat/> chat mode — image intent is decided in ONE place', () 
     const payload = generateImage.mock.calls[0]![0] as GenPayload
     expect(payload.prompt).toBe('a dog') // cleanImagePrompt stripped the verb
   })
+
+  it('generates, associates, and renders one distinct image for every completed image tool call', async () => {
+    const outputs = [
+      {
+        dataUrl: 'data:image/png;base64,FIRST',
+        path: '/generated/first.png',
+        syncId: 'image-sync-first'
+      },
+      {
+        dataUrl: 'data:image/png;base64,SECOND',
+        path: '/generated/second.png',
+        syncId: 'image-sync-second'
+      }
+    ]
+    const boundary = installApi({
+      active: FULL,
+      models: [FULL],
+      settings: { composerToolsOn: true },
+      toolResult: {
+        answer: 'I made both images.',
+        toolCalls: [
+          { name: 'generate_image', result: 'Image generation started' },
+          { name: 'generate_image', result: 'Image generation started' }
+        ],
+        unified: [],
+        imageRequests: [{ prompt: 'first scene' }, { prompt: 'second scene' }]
+      },
+      generate: async () => outputs.shift()!
+    })
+    const user = userEvent.setup()
+    renderChat()
+
+    await sendChat(user, 'make two different scenes')
+
+    await waitFor(() => expect(boundary.generateImage).toHaveBeenCalledTimes(2))
+    expect(boundary.generateImage.mock.calls.map(([payload]) => payload.prompt)).toEqual([
+      'first scene',
+      'second scene'
+    ])
+    const generated = await screen.findAllByAltText('Generated')
+    expect(generated.map((image) => image.getAttribute('src'))).toEqual([
+      'data:image/png;base64,FIRST',
+      'data:image/png;base64,SECOND'
+    ])
+
+    const persistedImages = boundary.addRagMessage.mock.calls.filter(
+      ([, role, , context]) =>
+        role === 'assistant' && !!(context as { imageRef?: unknown })?.imageRef
+    )
+    expect(persistedImages).toHaveLength(2)
+    expect(
+      persistedImages.map(([, , , context]) => (context as { imageRef: unknown }).imageRef)
+    ).toEqual([
+      { id: 'image-sync-first', path: '/generated/first.png' },
+      { id: 'image-sync-second', path: '/generated/second.png' }
+    ])
+    expect(
+      boundary.imageGenConversationPersisted.mock.calls.map(([, messageId]) => messageId)
+    ).toEqual(['stored-message-3', 'stored-message-4'])
+
+    await user.click(screen.getByTitle('Generated images'))
+    expect(await screen.findByRole('button', { name: /images \(2\)/i })).toBeTruthy()
+    expect(screen.getByAltText('first.png')).toBeTruthy()
+    expect(screen.getByAltText('second.png')).toBeTruthy()
+  })
 })
 
 function conversation(id: string, title: string): TestConversation {
@@ -673,7 +778,12 @@ describe('<MemoryChat/> image and vision release journeys', () => {
 
     turn.resolve({ dataUrl: 'data:image/png;base64,AAAA', path: '/generated/lighthouse.png' })
     const generated = await screen.findByAltText('Generated')
+    const caption = await screen.findByText('Generated for: a lighthouse during a winter storm')
     expect(screen.getAllByAltText('Generated')).toHaveLength(1)
+    expect(generated.className).toContain('w-full')
+    expect(generated.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+      0
+    )
 
     await user.click(generated)
     expect(screen.getByRole('dialog', { name: 'Generated image preview' })).toBeTruthy()

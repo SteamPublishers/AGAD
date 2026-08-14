@@ -65,6 +65,36 @@ describe('<MemoryChat/> - chat lifecycle integration (#36-#42, #47-#48)', () => 
     expect(screen.queryByText(/<\/?think>/i)).toBeNull()
   })
 
+  it('keeps actions off supporting context and below the real assistant reply', async () => {
+    const boundary = new ChatBoundary()
+    boundary.messages['conversation-a'] = [
+      {
+        id: 1,
+        role: 'assistant',
+        content:
+          '<think>__LABEL:Enhanced prompt__\nA cinematic lighthouse in a winter storm.</think>'
+      },
+      {
+        id: 2,
+        role: 'assistant',
+        content: 'Generated image for: a lighthouse in a winter storm'
+      }
+    ]
+    installBoundary(boundary)
+
+    renderChat({ conversationId: 'conversation-a' })
+
+    const disclosure = await screen.findByRole('button', { name: /enhanced prompt/i })
+    const answer = screen.getByText('Generated image for: a lighthouse in a winter storm')
+    const speak = screen.getByRole('button', { name: 'Speak' })
+    expect(disclosure.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+      0
+    )
+    expect(answer.compareDocumentPosition(speak) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(screen.getAllByTitle('Copy')).toHaveLength(1)
+    expect(screen.getAllByTitle('Regenerate')).toHaveLength(1)
+  })
+
   it('strips inline think markers from a plain reply through the real stream parser (#37)', async () => {
     const parserPath = ['../../../../main/llm', 'sse-stream'].join('/')
     const parser = await vi.importActual<{ createThinkSplitter: ThinkSplitterFactory }>(parserPath)
