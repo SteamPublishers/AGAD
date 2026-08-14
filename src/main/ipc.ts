@@ -1755,6 +1755,9 @@ export function setupIPC() {
       }
     ) => {
       const imageGenerationJobs = await imageJobPublisherReady
+      // Admission belongs to the job service. Reject before changing the conversation stream, so a
+      // second request cannot reset or discard the identity of the image that is already running.
+      imageGenerationJobs.assertCanStart()
       beginChatImageStream(params.conversationId)
       try {
         const messageId = currentChatStreamMessageId(params.conversationId)

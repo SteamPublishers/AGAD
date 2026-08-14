@@ -91,10 +91,15 @@ export class ImageGenerationJobService {
     return () => this.conversationListeners.delete(listener)
   }
 
-  async start(request: ImageGenerationJobRequest): Promise<ImageGenerationResult> {
+  /** Reject before a caller reserves related state for a job this service cannot accept. */
+  assertCanStart(): void {
     if (this.active) {
       throw new Error('An image is already generating - please wait for it to finish.')
     }
+  }
+
+  async start(request: ImageGenerationJobRequest): Promise<ImageGenerationResult> {
+    this.assertCanStart()
     this.active = true
     const id = randomUUID()
     this.snapshot = {
