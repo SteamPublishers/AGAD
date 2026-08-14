@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { shouldQueue, enqueue, dequeue, queuedCount, clearQueue } from '@renderer/lib/chat-queue'
 import { buildSendHistory } from '@renderer/lib/chat-history'
 import { waitingLabel } from '@renderer/lib/chat-labels'
@@ -12,6 +12,8 @@ import { useActiveModelSummary } from '@renderer/hooks/useActiveModelSummary'
 import { shouldFollowBottom } from '@renderer/lib/scroll-follow'
 import {
   chatListPreviewLine,
+  isPromptEnhancementReasoningLabel,
+  isPromptEnhancementStatus,
   isSupportingChatContext,
   preprocessChatMarkdown,
   projectSyncedMessageTurn,
@@ -24,6 +26,11 @@ import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { getSlot, SLOTS } from '@/bootstrap/slotRegistry'
+import { callHook } from '@/bootstrap/hookRegistry'
+import {
+  SYNC_SUBSCRIBE_INCOMING_FILES_HOOK,
+  type IncomingSharedFile
+} from '@renderer/lib/sync-hooks'
 import { ChatLoadingCard } from './ChatLoadingCard'
 import { chatMarkdownComponents } from './ChatMarkdown'
 import { ChatThinkingBlock } from './ChatThinkingBlock'
@@ -210,17 +217,13 @@ function noticeText(content: string): string {
  * message to a labelled reasoning block. It is lifecycle state, not an assistant answer: drawing
  * reply actions on it made Speak / Copy / Regenerate target text that was about to be replaced.
  */
-function isPromptEnhancementContent(content: unknown): content is string {
-  return typeof content === 'string' && /^Enhancing your prompt(?:\.{3}|…)$/.test(content.trim())
-}
-
-function isPromptEnhancementStatus(message: ChatMessage): boolean {
+function isPromptEnhancementMessage(message: ChatMessage): boolean {
   return (
     message.role === 'assistant' &&
     !message.image &&
     !message.reasoning?.trim() &&
     !message.toolCalls?.length &&
-    isPromptEnhancementContent(message.content)
+    isPromptEnhancementStatus(message.content)
   )
 }
 
@@ -382,7 +385,7 @@ function promptEnhancementMessage(
   message: RawRagMessage,
   provenance: ChatMessage['provenance']
 ): ChatMessage | undefined {
-  if (message.role !== 'assistant' || !isPromptEnhancementContent(message.content)) return undefined
+  if (message.role !== 'assistant' || !isPromptEnhancementStatus(message.content)) return undefined
   const id = String(message.uuid ?? message.id ?? '')
   return id ? { id, role: 'assistant', content: message.content, provenance } : undefined
 }
@@ -1731,7 +1734,7 @@ function MessageRow({
   let body: React.JSX.Element
   if (message.notice) {
     body = <NoticeMessageRow message={message} />
-  } else if (isPromptEnhancementStatus(message)) {
+  } else if (isPromptEnhancementMessage(message)) {
     body = <PromptEnhancementMessageRow message={message} />
   } else if (message.role === 'tool') {
     body = <ToolMessageRow message={message} nextMessageRole={nextMessageRole} />
@@ -1952,7 +1955,10 @@ export function MemoryChat({
    */
   const [incomingFiles, setIncomingFiles] = useState<IncomingSharedFile[]>([])
   useEffect(() => {
-    const off = window.api.onIncomingSharedFiles?.((files) => setIncomingFiles(files))
+    const off = callHook<() => void>(
+      SYNC_SUBSCRIBE_INCOMING_FILES_HOOK,
+      (files: IncomingSharedFile[]) => setIncomingFiles(files)
+    )
     return () => off?.()
   }, [])
   // Matched on the message's UUID, which is what `id` carries here (`String(m.uuid ?? m.id)`) and is
@@ -2008,11 +2014,11 @@ export function MemoryChat({
   // Active tab's messages (derived) + a shim so the existing active-conversation call
   // sites keep working. The send path targets its own conv via setConvMessages instead.
   const messages = messagesByConv[activeConversationId ?? NEW_CHAT] ?? EMPTY_MSGS
-  const promptEnhancementActive = messages.some(isPromptEnhancementStatus)
+  const promptEnhancementActive = messages.some(isPromptEnhancementMessage)
   const promptEnhancementComplete = messages.some(
     (message) =>
       message.role === 'assistant' &&
-      message.reasoningLabel?.trim().toLowerCase() === 'enhanced prompt' &&
+      isPromptEnhancementReasoningLabel(message.reasoningLabel) &&
       !!message.reasoning?.trim()
   )
   const setMessages = useCallback(
@@ -2202,7 +2208,7 @@ export function MemoryChat({
   const [editText, setEditText] = useState('')
   const [lightbox, setLightbox] = useState<{ url: string; path?: string } | null>(null)
   // Rows pro appends after the message list, e.g. a peer's live reply. Empty in the free build.
-  const ChatMessagesFooter = getSlot(SLOTS.chatMessagesFooter)
+  const ChatMessagesFooter = useMemo(() => getSlot(SLOTS.chatMessagesFooter), [])
   // Esc closes the open overlay (attachment viewer / image lightbox).
   useEffect(() => {
     if (!viewer && !lightbox) return
@@ -3828,49 +3834,60 @@ export function MemoryChat({
   )
 
   // Edit a sent message: replace its text, drop everything after it, re-run.
-  const saveEdit = useCallback(
-    (id: string) => {
-      const text = editText.trim()
-      setEditingId(null)
-      if (!text) return
-      const idx = messages.findIndex((m) => m.id === id)
-      if (idx < 0) return
-      setMessages((prev) =>
-        prev.slice(0, idx + 1).map((m, i) => (i === idx ? { ...m, content: text } : m))
-      )
-      // Persist the edit: drop the old user row + everything after, re-add the
-      // edited message, then regenerate the answer onto it.
-      //
-      // The re-added row carries the ORIGINAL turn's attachments. Editing the words of a message
-      // does not detach its image, and rewriting the row without them deleted the only durable
-      // record of it - so the chip vanished from the thread and every later regenerate lost it too.
-      const cid = activeConversationId
-      const edited = messages[idx]
-      const keptAtts = edited ? attachmentsOf(edited) : []
-      if (cid)
-        void window.api.truncateRagMessages(cid, idx).then(() =>
-          window.api.addRagMessage(
-            cid,
-            'user',
-            text,
-            keptAtts.length
-              ? {
-                  attachments: keptAtts.map(
-                    (a): StoredAttachment => ({
-                      name: a.name,
-                      kind: a.kind,
-                      text: a.text,
-                      path: a.path
-                    })
-                  )
-                }
-              : undefined
+  const saveEdit = (id: string): void => {
+    const text = editText.trim()
+    setEditingId(null)
+    if (!text) return
+    const idx = messages.findIndex((m) => m.id === id)
+    if (idx < 0) return
+    setMessages((prev) =>
+      prev.slice(0, idx + 1).map((m, i) => (i === idx ? { ...m, content: text } : m))
+    )
+    // Persist the edit: drop the old user row + everything after, re-add the
+    // edited message, then regenerate the answer onto it.
+    //
+    // The re-added row carries the ORIGINAL turn's attachments. Editing the words of a message
+    // does not detach its image, and rewriting the row without them deleted the only durable
+    // record of it - so the chip vanished from the thread and every later regenerate lost it too.
+    const cid = activeConversationId
+    const edited = messages[idx]
+    const keptAtts = edited ? attachmentsOf(edited) : []
+    const persisted = keptAtts.length
+      ? {
+          attachments: keptAtts.map(
+            (attachment): StoredAttachment => ({
+              name: attachment.name,
+              kind: attachment.kind,
+              text: attachment.text,
+              path: attachment.path
+            })
           )
-        )
-      void sendMessage(text, { regen: true, atts: keptAtts })
-    },
-    [editText, messages, activeConversationId]
-  )
+        }
+      : undefined
+    void (async () => {
+      try {
+        if (cid) {
+          await window.api.truncateRagMessages(cid, idx)
+          await window.api.addRagMessage(cid, 'user', text, persisted)
+        }
+      } catch (error) {
+        console.error('Failed to persist the edited user message:', error)
+        if (cid) {
+          try {
+            await refreshConversationMessages(cid)
+          } catch (refreshError) {
+            console.error('Failed to restore the conversation after the edit failed:', refreshError)
+          }
+        }
+        return
+      }
+      try {
+        await sendMessage(text, { regen: true, atts: keptAtts })
+      } catch (error) {
+        console.error('Failed to regenerate the edited message:', error)
+      }
+    })()
+  }
 
   // Process attached files into text (read/parse/caption/transcribe) on the main side.
   const addFiles = useCallback(
@@ -4061,7 +4078,6 @@ export function MemoryChat({
       )
     }
   }
-
 
   return (
     <div

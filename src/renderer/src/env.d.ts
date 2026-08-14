@@ -60,22 +60,6 @@ interface DashboardStats {
 
 type RagConversation = import('../../shared/ipc-contracts').RagConversationContract
 
-/**
- * A file a message is waiting for: announced by the peer, bytes not here.
- *
- * Structural rather than imported from `pro/`, because the free build has no pro submodule and this
- * file must still typecheck there.
- */
-interface IncomingSharedFile {
-  syncId: string
-  name: string
-  fileSize: number
-  mimeType: string
-  kind: string
-  conversationId?: string
-  messageId?: string
-}
-
 type RagMessage = import('../../shared/ipc-contracts').RagMessageContract
 type RagChatResult = import('../../shared/ipc-contracts').RagChatResultContract
 
@@ -210,7 +194,6 @@ interface RendererAPIOverrides {
   onRagConversationsChanged?: (
     callback: (data: { conversationId: string; projectId: string | null }) => void
   ) => () => void
-  onIncomingSharedFiles?: (callback: (files: IncomingSharedFile[]) => void) => () => void
   setRagConversationProject: (id: string, projectId: string | null) => Promise<boolean>
   getRagConversation: (id: string) => Promise<RagConversation | null>
   getRagMessages: (conversationId: string) => Promise<RagMessage[]>
