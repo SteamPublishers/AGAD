@@ -80,6 +80,11 @@ fi
 set -euo pipefail
 if [ "${'$'}1" = "-l" ]; then
   printf 'Load command 1\n      cmd LC_BUILD_VERSION\n    minos ${minos}\n'
+  # The staged binary carries the @loader_path rpath install_name_tool adds, because the script
+  # GATES on it: without one the dylibs sitting right beside whisper-cli are unreachable to dyld,
+  # which is the "nothing happened" voice-note bug. A fake that never reports a load command the
+  # script checks makes the script fail for a reason the test is not about.
+  printf 'Load command 2\n          cmd LC_RPATH\n      cmdsize 32\n         path @loader_path (offset 12)\n'
   exit 0
 fi
 file="${'$'}2"
