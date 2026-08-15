@@ -21,7 +21,7 @@ export function ChatToolRows({ tools }: Readonly<ChatToolRowsProps>): React.JSX.
   if (visible.length === 0) return null
 
   return (
-    <div className="mt-1.5 flex w-full max-w-[85%] flex-col gap-1">
+    <div className="mt-1 flex w-full max-w-[85%] flex-col gap-1">
       {visible.map((tool, index) => {
         const running = tool.status === 'running'
         const result = tool.result ?? ''

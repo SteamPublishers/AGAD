@@ -606,7 +606,10 @@ function ToolMessageRow({
   message: ChatMessage
   nextMessageRole?: SyncedMessageRole
 }>): React.JSX.Element {
-  const margin = nextMessageRole === 'tool' ? 'mb-2' : 'mb-5'
+  // A tool row is one step of a turn, not a message between people. `mb-5` is the gap BETWEEN
+  // messages, and applying it after every call that is followed by a reasoning pill spaced a single
+  // turn's steps as far apart as separate conversations.
+  const margin = nextMessageRole === 'tool' ? 'mb-1' : 'mb-2'
   return (
     <div
       className={`${margin} flex flex-col items-start`}
@@ -705,8 +708,11 @@ function MessageThinkingHeader({ message }: Readonly<{ message: ChatMessage }>):
     <div
       className={
         supporting
-          ? 'rounded-md border border-neutral-800 bg-neutral-900/40 px-3.5 py-2.5'
-          : 'mb-1.5'
+          ? // The same box a tool row uses. This pill sits BETWEEN tool rows in a tool-calling turn,
+            // and at px-3.5/py-2.5 it was visibly fatter than the rows either side of it, so a
+            // sequence of reasoning and calls read as two competing shapes rather than one list.
+            'rounded-sm border border-neutral-800 bg-neutral-900/40 px-2 py-1'
+          : 'mb-1'
       }
       data-testid={supporting ? 'supporting-context-bubble' : undefined}
     >

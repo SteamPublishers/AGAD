@@ -92,8 +92,11 @@ describe('<MemoryChat/> tool calls — persistent + inline', () => {
     const tool = await screen.findByRole('button', { name: /web_search/ })
     expect(tool.textContent).toContain('Completed in 1031 ms')
     expect(screen.queryByText(LONG_RESULT)).toBeNull()
-    expect(screen.getByTestId('chat-tool-message-1').className).toContain('mb-2')
-    expect(screen.getByTestId('chat-tool-message-2').className).toContain('mb-5')
+    // A call followed by another call is one step of a turn; the last one closes the run. The gap
+    // still says which is which - it is just no longer the between-MESSAGES gap, which spaced a
+    // single turn's steps as far apart as separate conversations.
+    expect(screen.getByTestId('chat-tool-message-1').className).toContain('mb-1')
+    expect(screen.getByTestId('chat-tool-message-2').className).toContain('mb-2')
 
     await user.click(tool)
     expect(await screen.findByText(LONG_RESULT)).toBeTruthy()
