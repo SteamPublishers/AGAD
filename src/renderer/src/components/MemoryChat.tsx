@@ -766,12 +766,7 @@ function MessageAttachments({
               src={source}
               path={attachment.path}
               alt={attachment.name || 'Shared image'}
-              // A THUMBNAIL, not a full preview. The bubble's width is set by the prompt text, so a
-              // tall portrait photo shown at 28rem stood narrow in a wide bubble with a band of
-              // empty grey beside it - the picture looked mis-laid-out rather than merely narrow.
-              // Capping BOTH sides keeps every attachment the same modest size whatever its shape,
-              // and the picture stays click-to-zoom for anyone who wants to actually look at it.
-              className="max-h-[12rem] max-w-[12rem] cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
+              className="max-h-[28rem] max-w-full cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
               onOpen={onOpenImage}
             />
           )
