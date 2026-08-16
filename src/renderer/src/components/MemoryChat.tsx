@@ -12,6 +12,7 @@ import { useActiveModelSummary } from '@renderer/hooks/useActiveModelSummary'
 import { shouldFollowBottom } from '@renderer/lib/scroll-follow'
 import {
   chatListPreviewLine,
+  attachmentKindFor,
   describeAttachment,
   isPromptEnhancementReasoningLabel,
   isPromptEnhancementStatus,
@@ -666,7 +667,7 @@ function VoiceMessageRow({
         messageId={message.id}
         isUser
         transcript={messageToSpeakable(message.content)}
-        audioUrl={message.audioUrl}
+        audioUrl={recordedClipUrl(message)}
         durationSeconds={message.audioDuration}
         synthesize={(text) => window.api.speak(text)}
         onCopy={onCopy}
@@ -1768,6 +1769,25 @@ function StandardMessageRow({
  * every document fell through to the text pane and showed an empty page. The handler boundary-checks
  * the path against the uploads directory, so this cannot be pointed at arbitrary files.
  */
+/**
+ * The recorded clip for a voice note, when the message carries one.
+ *
+ * A note recorded HERE arrives with audioUrl already set. One that SYNCED from a phone arrives as an
+ * ordinary audio attachment with a path and no url - so VoiceBubble saw no clip and fell back to
+ * synthesizing the transcript with Kokoro, reading the user's own words back in the assistant's
+ * voice instead of playing what they actually said.
+ *
+ * Kind comes from the shared attachment-kind rule rather than an extension check here, so desktop
+ * and mobile agree on what counts as audio.
+ */
+function recordedClipUrl(message: ChatMessage): string | undefined {
+  if (message.audioUrl) return message.audioUrl
+  const clip = message.attachments?.find(
+    (a) => !!a.path && attachmentKindFor({ fileName: a.name }) === 'audio'
+  )
+  return clip?.path ? captureUrlForPath(clip.path) : undefined
+}
+
 function DocumentPane({ path, title }: { path: string; title: string }): React.JSX.Element {
   // The SAME transport images use. The loopback media server already serves `uploads` (see
   // media-roots.ts) with canonicalisation and root admission, and captureUrlForPath is how every
@@ -1790,6 +1810,31 @@ function DocumentPane({ path, title }: { path: string; title: string }): React.J
       title={title}
       className="h-full max-h-full w-full max-w-3xl rounded-md border border-neutral-800 bg-neutral-950"
     />
+  )
+}
+
+/**
+ * A voice note, played rather than looked at.
+ *
+ * attachment-kind already answers `renderer: 'audio'`; the viewer simply had no branch for it, so a
+ * .wav fell through to the text pane and drew an empty page - a note that HAD synced looked like a
+ * note that had not. Same media-origin transport as images and documents, so there is one way local
+ * bytes reach the renderer.
+ */
+function AudioPane({ path, title }: { path: string; title: string }): React.JSX.Element {
+  const src = captureUrlForPath(path)
+  if (!src) {
+    return (
+      <div className="w-full max-w-3xl rounded-md border border-neutral-800 bg-neutral-950 p-5 text-sm text-neutral-400">
+        This voice note could not be played. Its bytes are not on this device.
+      </div>
+    )
+  }
+  return (
+    <div className="w-full max-w-3xl rounded-md border border-neutral-800 bg-neutral-950 p-5">
+      <div className="mb-3 truncate text-xs text-neutral-400">{title}</div>
+      <audio src={src} controls autoPlay className="w-full" />
+    </div>
   )
 }
 
@@ -5696,7 +5741,9 @@ export function MemoryChat({
                 Close
               </button>
             </div>
-            {viewer.renderer === 'document' && viewer.path ? (
+            {viewer.renderer === 'audio' && viewer.path ? (
+              <AudioPane path={viewer.path} title={viewer.title} />
+            ) : viewer.renderer === 'document' && viewer.path ? (
               // A document renders from its BYTES. main already serves them as a data URL for
               // exactly this - Chromium draws the PDF itself - and the old code path never called
               // it, so every PDF fell through to the text pane below and showed an empty page.
