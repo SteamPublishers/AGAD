@@ -506,12 +506,12 @@ function ChatImagePreview({
   onOpen: (image: { url: string; path?: string }) => void
 }>): React.JSX.Element {
   return (
-    <div>
+    <div className="w-full">
       <button
         type="button"
         aria-label={`Open ${alt}`}
         onClick={() => onOpen({ url: src, path })}
-        className="block max-w-full"
+        className="block w-full max-w-full"
       >
         <img src={src} alt={alt} className={className} />
       </button>
@@ -560,7 +560,15 @@ function standardMessageBubbleClass(message: ChatMessage, editing: boolean): str
     !message.image &&
     !message.imageMemoryRetry
   if (emptyAssistant) return 'hidden'
-  const width = editing || message.image ? 'w-full max-w-2xl' : 'max-w-[85%]'
+  // A turn carrying a picture gets a COLUMN, not the full 85%.
+  //
+  // A generated image already did this; an attached one never did, so it inherited a bubble as wide
+  // as its prompt - some 1700px on a maximised window - and a picture told to fill that width was
+  // gigantic. The same cap makes the two kinds of picture behave the same way.
+  const width =
+    editing || message.image || message.attachments?.length
+      ? 'w-full max-w-2xl'
+      : 'max-w-[85%]'
   const color =
     message.role === 'user'
       ? 'bg-neutral-800 text-neutral-100'
@@ -756,7 +764,7 @@ function MessageAttachments({
   onOpenImage: (image: OpenImage) => void
 }>): React.JSX.Element {
   return (
-    <div className="mb-2 flex flex-wrap gap-1.5">
+    <div className="@container mb-2 flex w-full flex-wrap gap-1.5">
       {attachments.map((attachment, index) => {
         if (attachment.kind === 'image' && attachment.path) {
           const source = captureUrlForPath(attachment.path)
@@ -766,7 +774,16 @@ function MessageAttachments({
               src={source}
               path={attachment.path}
               alt={attachment.name || 'Shared image'}
-              className="max-h-[28rem] max-w-full cursor-zoom-in rounded-md border border-neutral-800 object-contain transition-opacity hover:opacity-90"
+              // Full width, never taller than it is wide, and CROPPED - the way WhatsApp does it.
+              //
+              // Capped by height alone, a portrait photo stood narrow in a bubble as wide as the
+              // prompt, with a band of empty grey beside it. Filling the width is what removes that
+              // band; `100cqw` is the row's own width, so the ceiling follows the bubble at any
+              // window size and an extreme portrait cannot tower. `cover` is what stops the band
+              // coming back as letterboxing - a contained portrait just moves the grey to both
+              // sides of a square. It crops from the bottom, and the whole picture is one click
+              // away, which is where anyone who wants to READ a screenshot goes.
+              className="max-h-[100cqw] w-full cursor-zoom-in rounded-md border border-neutral-800 object-cover object-top transition-opacity hover:opacity-90"
               onOpen={onOpenImage}
             />
           )
