@@ -1769,39 +1769,18 @@ function StandardMessageRow({
  * the path against the uploads directory, so this cannot be pointed at arbitrary files.
  */
 function DocumentPane({ path, title }: { path: string; title: string }): React.JSX.Element {
-  const [src, setSrc] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    setSrc(null)
-    setFailed(false)
-    void window.api
-      .fileDataUrl(path)
-      .then((url) => {
-        if (cancelled) return
-        if (url) setSrc(url)
-        else setFailed(true)
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [path])
-
-  if (failed) {
-    return (
-      <div className="w-full max-w-3xl rounded-md border border-neutral-800 bg-neutral-950 p-5 text-sm text-neutral-400">
-        This file could not be opened. Its bytes are not on this device.
-      </div>
-    )
-  }
+  // The SAME transport images use. The loopback media server already serves `uploads` (see
+  // media-roots.ts) with canonicalisation and root admission, and captureUrlForPath is how every
+  // other local file reaches the renderer.
+  //
+  // The first attempt used a data: URL from files:data-url and drew a blank page: frame-src did not
+  // allow data:, so Chromium blocked the frame silently. Reusing the media origin keeps one file
+  // path for all local media instead of adding a second, weaker one to the CSP.
+  const src = captureUrlForPath(path)
   if (!src) {
     return (
       <div className="w-full max-w-3xl rounded-md border border-neutral-800 bg-neutral-950 p-5 text-sm text-neutral-400">
-        Opening {title}…
+        This file could not be opened. Its bytes are not on this device.
       </div>
     )
   }
