@@ -12,6 +12,7 @@ import { useActiveModelSummary } from '@renderer/hooks/useActiveModelSummary'
 import { shouldFollowBottom } from '@renderer/lib/scroll-follow'
 import {
   chatListPreviewLine,
+  describeAttachment,
   isPromptEnhancementReasoningLabel,
   isPromptEnhancementStatus,
   isSupportingChatContext,
@@ -794,7 +795,14 @@ function MessageAttachments({
             />
           )
         }
-        const viewable = Boolean(attachment.text || attachment.path)
+        // The UI holds no opinion about what a PDF is: sync answers, this draws.
+        const view = describeAttachment({
+          fileName: attachment.name,
+          mimeType: (attachment as { mimeType?: string }).mimeType,
+          path: attachment.path,
+          text: attachment.text
+        })
+        const viewable = view.viewable
         return (
           <button
             key={`${attachment.name}-${index}`}
@@ -806,7 +814,7 @@ function MessageAttachments({
           >
             <Paperclip className="h-3 w-3 text-neutral-400" />
             <span className="max-w-[12rem] truncate">{attachment.name}</span>
-            <span className="text-neutral-500">{attachment.kind}</span>
+            <span className="text-neutral-500">{view.badge}</span>
           </button>
         )
       })}
@@ -1752,6 +1760,60 @@ function StandardMessageRow({
   )
 }
 
+/**
+ * Draw a document's actual bytes.
+ *
+ * main serves an uploaded file as a data URL (`files:data-url`) precisely so Chromium's built-in
+ * viewer can render a PDF natively rather than dumping parsed text - but nothing ever called it, so
+ * every document fell through to the text pane and showed an empty page. The handler boundary-checks
+ * the path against the uploads directory, so this cannot be pointed at arbitrary files.
+ */
+function DocumentPane({ path, title }: { path: string; title: string }): React.JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setSrc(null)
+    setFailed(false)
+    void window.api
+      .fileDataUrl(path)
+      .then((url) => {
+        if (cancelled) return
+        if (url) setSrc(url)
+        else setFailed(true)
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [path])
+
+  if (failed) {
+    return (
+      <div className="w-full max-w-3xl rounded-md border border-neutral-800 bg-neutral-950 p-5 text-sm text-neutral-400">
+        This file could not be opened. Its bytes are not on this device.
+      </div>
+    )
+  }
+  if (!src) {
+    return (
+      <div className="w-full max-w-3xl rounded-md border border-neutral-800 bg-neutral-950 p-5 text-sm text-neutral-400">
+        Opening {title}…
+      </div>
+    )
+  }
+  return (
+    <iframe
+      src={src}
+      title={title}
+      className="h-full max-h-full w-full max-w-3xl rounded-md border border-neutral-800 bg-neutral-950"
+    />
+  )
+}
+
 function MessageRow({
   message,
   nextMessageRole,
@@ -2232,6 +2294,7 @@ export function MemoryChat({
     text: string
     path?: string
     kind?: string
+    renderer?: 'image' | 'document' | 'audio' | 'video' | 'text'
   } | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -4052,17 +4115,25 @@ export function MemoryChat({
     regenerate,
     openImage: setLightbox,
     openAttachment: (attachment) => {
-      if (!attachment.text && !attachment.path) return
+      const view = describeAttachment({
+        fileName: attachment.name,
+        mimeType: (attachment as { mimeType?: string }).mimeType,
+        path: attachment.path,
+        text: attachment.text
+      })
+      if (!view.viewable) return
       closePanels()
-      if (attachment.kind === 'image' && attachment.path) {
+      if (view.renderer === 'image' && attachment.path) {
         setLightbox({ url: captureUrlForPath(attachment.path), path: attachment.path })
         return
       }
       setViewer({
         title: attachment.kind === 'pasted' ? 'Pasted text' : attachment.name,
-        text: attachment.text || '',
+        // A binary has no text body. Handing the viewer an empty string is what drew a blank page.
+        text: view.source === 'text' ? attachment.text || '' : '',
         path: attachment.path,
-        kind: attachment.kind
+        kind: view.kind,
+        renderer: view.renderer
       })
     },
     startEdit: (message) => {
@@ -5646,15 +5717,22 @@ export function MemoryChat({
                 Close
               </button>
             </div>
-            <motion.pre
-              initial={{ opacity: 0, scale: 0.96, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: 4 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-              className="max-h-full w-full max-w-3xl overflow-auto whitespace-pre-wrap break-words rounded-md border border-neutral-800 bg-neutral-950 p-5 text-sm leading-relaxed text-neutral-200"
-            >
-              {viewer.text}
-            </motion.pre>
+            {viewer.renderer === 'document' && viewer.path ? (
+              // A document renders from its BYTES. main already serves them as a data URL for
+              // exactly this - Chromium draws the PDF itself - and the old code path never called
+              // it, so every PDF fell through to the text pane below and showed an empty page.
+              <DocumentPane path={viewer.path} title={viewer.title} />
+            ) : (
+              <motion.pre
+                initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: 4 }}
+                transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                className="max-h-full w-full max-w-3xl overflow-auto whitespace-pre-wrap break-words rounded-md border border-neutral-800 bg-neutral-950 p-5 text-sm leading-relaxed text-neutral-200"
+              >
+                {viewer.text}
+              </motion.pre>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
