@@ -496,6 +496,7 @@ function ChatImagePreview({
   alt = 'Generated',
   metadata,
   className,
+  fill = false,
   onOpen
 }: Readonly<{
   src: string
@@ -503,15 +504,19 @@ function ChatImagePreview({
   alt?: string
   metadata?: ImageGenerationMetadata
   className: string
+  /** Widen the box to its container, for a picture whose own width is meant to fill it. Off by
+   *  default: a preview with its own max-width would otherwise get a click target spanning the
+   *  whole bubble, so clicking the empty space beside it would open the viewer. */
+  fill?: boolean
   onOpen: (image: { url: string; path?: string }) => void
 }>): React.JSX.Element {
   return (
-    <div className="w-full">
+    <div className={fill ? 'w-full' : undefined}>
       <button
         type="button"
         aria-label={`Open ${alt}`}
         onClick={() => onOpen({ url: src, path })}
-        className="block w-full max-w-full"
+        className={fill ? 'block w-full max-w-full' : 'block max-w-full'}
       >
         <img src={src} alt={alt} className={className} />
       </button>
@@ -774,6 +779,7 @@ function MessageAttachments({
               src={source}
               path={attachment.path}
               alt={attachment.name || 'Shared image'}
+              fill
               // Full width, never taller than it is wide, and CROPPED - the way WhatsApp does it.
               //
               // Capped by height alone, a portrait photo stood narrow in a bubble as wide as the
