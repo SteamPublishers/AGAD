@@ -48,6 +48,7 @@ import { PRODUCT_NAME } from '../shared/product-identity'
 import { installMediaPermissionHandler } from './media-permission'
 import { localMediaRoots } from './media-roots'
 import { beginProductIdentityBootstrap } from './product-identity-lifecycle'
+import { repairMissingDefaultKeychainAtBootstrap } from './secure-storage-bootstrap'
 import {
   installDiagnosticConsoleCapture,
   installIpcDiagnostics,
@@ -65,6 +66,22 @@ import { shutdownModelDownloads } from './models/download-queue'
 // Before anything logs: a broken stdout/stderr pipe (parent/e2e-harness exited, closed pipe)
 // must never crash main via an uncaught EPIPE. See stream-guards.ts.
 guardConsoleStreams([process.stdout, process.stderr])
+
+// Electron asks macOS for its safeStorage password during early bootstrap. Repair
+// the one safe, known-bad state before that lookup can trigger SecurityAgent's
+// generic "Keychain Not Found" dialog. This never creates or resets a Keychain.
+const secureStorageBootstrap = repairMissingDefaultKeychainAtBootstrap(
+  process.platform,
+  app.isPackaged
+)
+if (secureStorageBootstrap?.status === 'repaired') {
+  console.warn(`[secure-storage] ${secureStorageBootstrap.detail}`)
+} else if (
+  secureStorageBootstrap &&
+  secureStorageBootstrap.status !== 'healthy'
+) {
+  console.error(`[secure-storage] ${secureStorageBootstrap.detail}`)
+}
 
 // Pin one canonical userData dir ("Off Grid AI Desktop") regardless of package
 // name, and migrate data from the legacy split dirs ("My Memories" had the
