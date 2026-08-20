@@ -87,7 +87,6 @@ import {
   Sparkle as Sparkles,
   FolderPlus,
   Wrench,
-  MagnifyingGlass as Search,
   Plug,
   SlidersHorizontal,
   Brain,
@@ -5378,13 +5377,6 @@ export function MemoryChat({
                           >
                             {connectorsOn ? 'On' : 'Off'}
                           </span>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Coming soon
-                        </DropdownMenuLabel>
-                        <DropdownMenuItem disabled>
-                          <Search /> Web search
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
