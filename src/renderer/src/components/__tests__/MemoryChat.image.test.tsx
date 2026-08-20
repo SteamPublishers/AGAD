@@ -479,9 +479,9 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     expect(historyPanel).not.toBeNull()
     expect(historyPanel?.dataset.panelSize).toBe('20.0')
     expect(historyPanel?.querySelector('.w-64')).toBeNull()
-    expect(
-      historyPanel?.querySelector('[aria-label="Collapse conversation list"]')
-    ).not.toBeNull()
+    const toggle = screen.getByRole('button', { name: 'Collapse conversation list' })
+    expect(toggle.closest('header')?.firstElementChild).toBe(toggle)
+    expect(historyPanel?.querySelector('[aria-label="Collapse conversation list"]')).toBeNull()
     expect(screen.queryByTitle('Show conversations')).toBeNull()
   })
 

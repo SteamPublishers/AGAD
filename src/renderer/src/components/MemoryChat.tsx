@@ -4273,19 +4273,21 @@ export function MemoryChat({
     >
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-neutral-900 px-6 py-4">
-        {!showHistory && (
-          <button
-            onClick={() => historyPanelRef.current?.expand()}
-            className="rounded-md border border-neutral-800 p-1.5 text-neutral-500 transition-colors hover:border-green-500 hover:text-green-500"
-            title="Show conversations"
-            aria-label="Show conversations"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <rect x="3" y="4" width="18" height="16" rx="2" strokeWidth={2} />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v16" />
-            </svg>
-          </button>
-        )}
+        <button
+          onClick={() => {
+            const panel = historyPanelRef.current
+            if (showHistory) panel?.collapse()
+            else panel?.expand()
+          }}
+          className="rounded-md border border-neutral-800 p-1.5 text-neutral-500 transition-colors hover:border-green-500 hover:text-green-500"
+          title={showHistory ? 'Collapse conversation list' : 'Show conversations'}
+          aria-label={showHistory ? 'Collapse conversation list' : 'Show conversations'}
+        >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="16" rx="2" strokeWidth={2} />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v16" />
+          </svg>
+        </button>
         <div className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-800 bg-neutral-900">
           <svg
             className="h-4 w-4 text-green-500"
@@ -4427,10 +4429,10 @@ export function MemoryChat({
         >
           <aside className="h-full overflow-hidden border-r border-neutral-900">
             <div className="flex h-full min-w-0 flex-col">
-              <div className="flex items-center gap-2 p-3">
+              <div className="p-3">
                 <button
                   onClick={startNewConversation}
-                  className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md border border-neutral-800 px-3 py-2 text-xs text-neutral-300 transition-colors hover:border-green-500 hover:text-green-500"
+                  className="flex w-full items-center justify-center gap-2 rounded-md border border-neutral-800 px-3 py-2 text-xs text-neutral-300 transition-colors hover:border-green-500 hover:text-green-500"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -4441,27 +4443,6 @@ export function MemoryChat({
                     />
                   </svg>
                   New chat
-                </button>
-                <button
-                  onClick={() => historyPanelRef.current?.collapse()}
-                  className="shrink-0 rounded-md border border-neutral-800 p-2 text-neutral-500 transition-colors hover:border-green-500 hover:text-green-500"
-                  title="Collapse conversation list"
-                  aria-label="Collapse conversation list"
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <rect x="3" y="4" width="18" height="16" rx="2" strokeWidth={2} />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 4v16"
-                    />
-                  </svg>
                 </button>
               </div>
               {conversations.length > 0 && (
