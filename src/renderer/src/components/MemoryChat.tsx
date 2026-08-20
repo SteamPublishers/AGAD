@@ -4273,6 +4273,19 @@ export function MemoryChat({
     >
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-neutral-900 px-6 py-4">
+        {!showHistory && (
+          <button
+            onClick={() => historyPanelRef.current?.expand()}
+            className="rounded-md border border-neutral-800 p-1.5 text-neutral-500 transition-colors hover:border-green-500 hover:text-green-500"
+            title="Show conversations"
+            aria-label="Show conversations"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="16" rx="2" strokeWidth={2} />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v16" />
+            </svg>
+          </button>
+        )}
         <div className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-800 bg-neutral-900">
           <svg
             className="h-4 w-4 text-green-500"
@@ -4391,18 +4404,6 @@ export function MemoryChat({
             />
           </svg>
         </button>
-        {!showHistory && (
-          <button
-            onClick={() => historyPanelRef.current?.expand()}
-            className="rounded-md border border-neutral-800 p-1.5 text-neutral-500 transition-colors hover:text-neutral-300"
-            title="Show conversations"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <rect x="3" y="4" width="18" height="16" rx="2" strokeWidth={2} />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v16" />
-            </svg>
-          </button>
-        )}
       </header>
 
       {/* Body */}
