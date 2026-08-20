@@ -428,6 +428,7 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     expect((await screen.findByAltText('Photoreal')).getAttribute('src')).toBe(
       'ogcapture:///app/resources/style-thumbs/Photoreal.png'
     )
+    expect(screen.getByAltText('Photoreal').closest('button')?.className).toContain('aspect-[16/9]')
     expect((await screen.findByAltText('Cinematic')).getAttribute('src')).toBe(
       'ogcapture:///app/resources/style-thumbs/Cinematic.png'
     )
@@ -464,6 +465,8 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     expect((await screen.findByAltText('Photoreal')).getAttribute('src')).toBe(
       'ogcapture:///app/resources/style-thumbs/Photoreal.png'
     )
+    expect(screen.getByRole('region', { name: 'Image style presets' })).toBeTruthy()
+    expect(screen.getByAltText('Photoreal').closest('button')?.className).toContain('h-48')
     expect((await screen.findByAltText('Cinematic')).getAttribute('src')).toBe(
       'ogcapture:///app/resources/style-thumbs/Cinematic.png'
     )

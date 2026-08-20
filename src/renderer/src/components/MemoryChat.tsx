@@ -2033,7 +2033,7 @@ function StylePresetPicker({
               type="button"
               aria-pressed={selected}
               onClick={() => onChange(selected ? null : style.name)}
-              className={`group relative aspect-[16/9] overflow-hidden rounded-md border transition-all ${
+              className={`group relative overflow-hidden rounded-md border transition-all ${compact ? 'h-48' : 'aspect-[16/9]'} ${
                 selected
                   ? 'border-green-500 ring-1 ring-green-500'
                   : 'border-neutral-800 hover:border-neutral-600'
@@ -4956,14 +4956,27 @@ export function MemoryChat({
                   </div>
                 )}
 
-                {mode === 'image' && messages.length > 0 ? (
-                  <StylePresetPicker
-                    compact
-                    activeStyle={activeStyle}
-                    styleThumbs={styleThumbs}
-                    onChange={setActiveStyle}
-                  />
-                ) : null}
+                <AnimatePresence initial={false}>
+                  {mode === 'image' && messages.length > 0 ? (
+                    <motion.div
+                      key="inline-image-style-picker"
+                      role="region"
+                      aria-label="Image style presets"
+                      className="overflow-hidden"
+                      initial={{ height: 0, opacity: 0, y: 8 }}
+                      animate={{ height: 'auto', opacity: 1, y: 0 }}
+                      exit={{ height: 0, opacity: 0, y: 6 }}
+                      transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                    >
+                      <StylePresetPicker
+                        compact
+                        activeStyle={activeStyle}
+                        styleThumbs={styleThumbs}
+                        onChange={setActiveStyle}
+                      />
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
 
                 {projCreating && (
                   <div className="mb-2">
