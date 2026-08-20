@@ -4425,11 +4425,11 @@ export function MemoryChat({
           collapsedSize={0}
           onCollapse={() => setShowHistory(false)}
           onExpand={() => setShowHistory(true)}
-          className="min-w-0 overflow-hidden"
+          className="min-w-0 overflow-hidden transition-[flex-grow] duration-200 ease-out motion-reduce:transition-none"
         >
           <aside className="h-full overflow-hidden border-r border-neutral-900">
             <div className="flex h-full min-w-0 flex-col">
-              <div className="p-3">
+              <div className="px-2 pb-2 pt-3">
                 <button
                   onClick={startNewConversation}
                   className="flex w-full items-center justify-center gap-2 rounded-md border border-neutral-800 px-3 py-2 text-xs text-neutral-300 transition-colors hover:border-green-500 hover:text-green-500"
@@ -4584,7 +4584,13 @@ export function MemoryChat({
         </PanelResizeHandle>
 
         {/* Main column */}
-        <Panel id="chat" order={2} defaultSize={80} minSize={40} className="min-w-0">
+        <Panel
+          id="chat"
+          order={2}
+          defaultSize={80}
+          minSize={40}
+          className="min-w-0 transition-[flex-grow] duration-200 ease-out motion-reduce:transition-none"
+        >
           <div className="flex h-full min-w-0 flex-col">
             {/* Chat tabs — quick-switch between open conversations */}
             {(openTabs.length > 0 || activeConversationId) && (

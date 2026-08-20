@@ -479,6 +479,13 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     expect(historyPanel).not.toBeNull()
     expect(historyPanel?.dataset.panelSize).toBe('20.0')
     expect(historyPanel?.querySelector('.w-64')).toBeNull()
+    expect(historyPanel?.className).toContain('transition-[flex-grow]')
+    const newChat = screen.getByRole('button', { name: 'New chat' })
+    expect(newChat.parentElement?.className).toContain('px-2')
+    expect(newChat.parentElement?.className).not.toContain('p-3')
+    expect(document.querySelector('[data-panel-id="chat"]')?.className).toContain(
+      'transition-[flex-grow]'
+    )
     const toggle = screen.getByRole('button', { name: 'Collapse conversation list' })
     expect(toggle.closest('header')?.firstElementChild).toBe(toggle)
     expect(historyPanel?.querySelector('[aria-label="Collapse conversation list"]')).toBeNull()
