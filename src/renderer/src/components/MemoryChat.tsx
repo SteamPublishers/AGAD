@@ -221,8 +221,8 @@ function imageProgressLabel(
   if (!progress) return stage === 'decoding' ? 'Decoding image…' : 'Generating image…'
   const phase = progress.phase === 'decoding' ? 'Decoding' : 'Step'
   return progress.phase === 'decoding'
-    ? `${phase} ${progress.step}/${progress.total}`
-    : `Generating image · ${phase} ${progress.step}/${progress.total}`
+    ? `${phase} ${progress.step} of ${progress.total}`
+    : `Generating image · ${phase} ${progress.step} of ${progress.total}`
 }
 
 /**
@@ -4790,23 +4790,23 @@ export function MemoryChat({
                               }
                             />
                           ) : null}
-                          <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
+                          <div className="w-full rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
                             {imgProgress?.preview ? (
                               <img
                                 src={imgProgress.preview}
                                 alt="forming"
-                                className="mb-2 w-56 rounded-md border border-neutral-800"
+                                className="mb-2 aspect-square w-full rounded-md border border-neutral-800 object-cover"
                               />
                             ) : (
-                              <div className="mb-2 flex h-56 w-56 items-center justify-center rounded-md border border-neutral-800 text-[11px] text-neutral-600">
+                              <div className="mb-2 flex aspect-square w-full items-center justify-center rounded-md border border-neutral-800 text-[11px] text-neutral-600">
                                 Preparing image…
                               </div>
                             )}
-                            <div className="flex items-center justify-between text-[11px] text-neutral-500">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-500">
                               <span>{imageProgressLabel(imageJobStage, imgProgress)}</span>
                               {imgProgress ? (
                                 <span className="text-neutral-600">
-                                  ~
+                                  · ~
                                   {Math.max(
                                     0,
                                     Math.round(
@@ -4818,7 +4818,7 @@ export function MemoryChat({
                                 </span>
                               ) : null}
                             </div>
-                            <div className="mt-1.5 h-1 w-56 overflow-hidden rounded-full bg-neutral-800">
+                            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-neutral-800">
                               <div
                                 className="h-full bg-green-500 transition-all duration-300"
                                 style={{

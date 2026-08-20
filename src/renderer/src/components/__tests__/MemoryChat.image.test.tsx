@@ -642,7 +642,7 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     // proving the remount re-derived the whole in-flight UI from main, not a blank screen.
     // Delete the markGenerating(...) call in the reattach observe() → generatingConvs stays empty
     // → this panel never renders → the test goes red (the "generated but UI didn't show it" bug).
-    expect(await screen.findByText('Generating image · Step 3/20')).toBeTruthy()
+    expect(await screen.findByText('Generating image · Step 3 of 20')).toBeTruthy()
   })
 
   it('picking a different model in the dropdown routes through setActiveModalModel and reaches the payload', async () => {
@@ -979,7 +979,7 @@ describe('<MemoryChat/> image and vision release journeys', () => {
     act(() => {
       boundary.emitProgress({ phase: 'sampling', step: 4, total: 10, secPerStep: 0.5 })
     })
-    expect(await screen.findByText('Generating image · Step 4/10')).toBeTruthy()
+    expect(await screen.findByText('Generating image · Step 4 of 10')).toBeTruthy()
 
     const enhancedPrompt =
       'A cinematic lighthouse in a fierce winter storm, dramatic waves, cold blue light'
@@ -1084,10 +1084,10 @@ describe('<MemoryChat/> image and vision release journeys', () => {
     act(() => {
       boundary.emitProgress({ phase: 'sampling', step: 2, total: 8, secPerStep: 1 })
     })
-    expect(await screen.findByText('Generating image · Step 2/8')).toBeTruthy()
+    expect(await screen.findByText('Generating image · Step 2 of 8')).toBeTruthy()
 
     await user.click(screen.getByText('Conversation B'))
-    await waitFor(() => expect(screen.queryByText('Generating image · Step 2/8')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('Generating image · Step 2 of 8')).toBeNull())
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
     expect(boundary.cancelImageGen).not.toHaveBeenCalled()
 
