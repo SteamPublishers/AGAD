@@ -25,6 +25,8 @@ import { render, screen, waitFor, cleanup, fireEvent, act } from '@testing-libra
 import userEvent from '@testing-library/user-event'
 import { MemoryChat } from '../MemoryChat'
 import { TooltipProvider } from '../ui/tooltip'
+import { registerHook } from '../../bootstrap/hookRegistry'
+import { SYNC_SUBSCRIBE_INCOMING_FILES_HOOK, type IncomingSharedFile } from '../../lib/sync-hooks'
 import {
   imageMemoryGuardErrorMessage,
   type ImageGenerationJobContract
@@ -76,6 +78,7 @@ type ImageProgress = {
   secPerStep: number
   preview?: string
 }
+type GalleryImage = { path: string; name: string; mtime: number }
 type TestConversation = {
   id: string
   title: string
@@ -138,6 +141,9 @@ type InstalledApi = {
   chatVisionAvailable: Mock<() => Promise<boolean>>
   processFile: Mock<ProcessImage>
   ragChat: Mock<(...args: unknown[]) => Promise<{ answer: string; context: { unified: never[] } }>>
+  listGeneratedImages: Mock<() => Promise<GalleryImage[]>>
+  replaceGeneratedGallery: (images: GalleryImage[]) => void
+  emitIncomingFiles: (files: IncomingSharedFile[]) => void
   emitProgress: (value: ImageProgress) => void
 }
 
@@ -159,10 +165,17 @@ function installApi(opts: InstallApiOptions): InstalledApi {
   const settings: Record<string, unknown> = { ...(opts.settings ?? {}) }
   const conversations = [...(opts.conversations ?? [])]
   const messages = new Map<string, unknown[]>(Object.entries(opts.messages ?? {}))
-  const generatedGallery: { path: string; name: string; mtime: number }[] = []
+  const generatedGallery: GalleryImage[] = []
   let progress: ((value: ImageProgress) => void) | null = null
   let jobStateCb: ((job: ImageGenerationJobContract) => void) | null = null
   let convUpdatedCb: ((conversationId: string) => void) | null = null
+  let incomingFilesCb: ((files: IncomingSharedFile[]) => void) | null = null
+  registerHook(SYNC_SUBSCRIBE_INCOMING_FILES_HOOK, (cb: typeof incomingFilesCb) => {
+    incomingFilesCb = cb
+    return () => {
+      incomingFilesCb = null
+    }
+  })
   const generate =
     opts.generate ??
     (async (payload: GenPayload) => ({
@@ -220,6 +233,7 @@ function installApi(opts: InstallApiOptions): InstalledApi {
     answer: opts.ragAnswer ?? 'A red fox is standing in snow.',
     context: { unified: [] as never[] }
   }))
+  const listGeneratedImages = vi.fn(async () => generatedGallery.map((image) => ({ ...image })))
   const api = {
     isPro: false,
     // --- assertion subjects ---
@@ -292,7 +306,7 @@ function installApi(opts: InstallApiOptions): InstalledApi {
     // --- misc mount-time calls (inert) ---
     listProjects: vi.fn(async () => []),
     listArtifacts: vi.fn(async () => []),
-    listGeneratedImages: vi.fn(async () => generatedGallery.map((image) => ({ ...image }))),
+    listGeneratedImages,
     styleThumbs: vi.fn(async () => ({})),
     listSkills: vi.fn(async () => []),
     onRagStream: vi.fn(() => () => {}),
@@ -314,6 +328,13 @@ function installApi(opts: InstallApiOptions): InstalledApi {
     chatVisionAvailable,
     processFile,
     ragChat,
+    listGeneratedImages,
+    replaceGeneratedGallery(images: GalleryImage[]): void {
+      generatedGallery.splice(0, generatedGallery.length, ...images)
+    },
+    emitIncomingFiles(files: IncomingSharedFile[]): void {
+      incomingFilesCb?.(files)
+    },
     emitProgress(value: ImageProgress): void {
       progress?.(value)
     },
@@ -353,7 +374,8 @@ function typeSteps(value: number): void {
 
 async function sendPrompt(user: ReturnType<typeof userEvent.setup>, prompt: string): Promise<void> {
   const textarea = screen.getByPlaceholderText(/describe an image to generate/i)
-  await user.type(textarea, prompt)
+  ;(textarea as HTMLTextAreaElement).focus()
+  await user.type(textarea, prompt, { skipClick: true })
   await user.click(screen.getByRole('button', { name: /^send$/i }))
 }
 
@@ -382,8 +404,82 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
   it('opens the real Gallery when a synced generated-file destination targets it', async () => {
     installApi({ active: FULL, models: [FULL] })
     renderChat({ openGallery: true })
-    expect(await screen.findByText('Gallery')).toBeTruthy()
+    expect(await screen.findByRole('dialog', { name: 'Gallery' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /^images/i })).toBeTruthy()
+  })
+
+  it('reloads a received image while Gallery is open, then Escape restores trigger focus', async () => {
+    const user = userEvent.setup()
+    const api = installApi({ active: FULL, models: [FULL] })
+    renderChat()
+
+    const trigger = await screen.findByTitle('Generated images')
+    act(() => {
+      api.emitIncomingFiles([
+        {
+          syncId: 'sync-image',
+          name: 'synced-image.png',
+          fileSize: 10,
+          mimeType: 'image/png',
+          kind: 'generated-image'
+        }
+      ])
+    })
+    await user.click(trigger)
+    expect(await screen.findByRole('dialog', { name: 'Gallery' })).toBeTruthy()
+    await waitFor(() => expect(api.listGeneratedImages).toHaveBeenCalledTimes(1))
+
+    api.replaceGeneratedGallery([
+      { path: '/received/synced-image.png', name: 'synced-image.png', mtime: 1 }
+    ])
+    act(() => api.emitIncomingFiles([]))
+
+    expect(await screen.findByAltText('synced-image.png')).toBeTruthy()
+    expect(api.listGeneratedImages).toHaveBeenCalledTimes(2)
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Gallery' })).toBeNull()
+    })
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('closes Gallery when the user clicks its scrim', async () => {
+    const user = userEvent.setup()
+    installApi({ active: FULL, models: [FULL] })
+    renderChat()
+
+    const trigger = await screen.findByTitle('Generated images')
+    await user.click(trigger)
+    expect(await screen.findByRole('dialog', { name: 'Gallery' })).toBeTruthy()
+
+    const scrim = document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]')
+    expect(scrim).not.toBeNull()
+    // Radix defers its outside-pointer listener by one task so the opening click cannot close it.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await user.click(scrim!)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Gallery' })).toBeNull()
+    })
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('renders the conversation list as an accessible resizable panel without a fixed inner width', async () => {
+    installApi({ active: FULL, models: [FULL] })
+    renderChat()
+
+    const resizeHandle = await screen.findByRole('separator', {
+      name: 'Resize conversation list'
+    })
+    expect(resizeHandle.className).toContain('cursor-col-resize')
+    const historyPanel = document.querySelector<HTMLElement>(
+      '[data-panel-id="conversation-history"]'
+    )
+    expect(historyPanel).not.toBeNull()
+    expect(historyPanel?.dataset.panelSize).toBe('20.0')
+    expect(historyPanel?.querySelector('.w-64')).toBeNull()
+    expect(screen.getByTitle('Collapse sidebar (full-screen chat)')).toBeTruthy()
   })
 
   it('carries the USER-typed steps (10), not the model default (28), and the picked model', async () => {
@@ -511,8 +607,11 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     typeSteps(17)
     fireEvent.change(screen.getByLabelText('Guidance'), { target: { value: '5.5' } })
     const seedInput = screen.getByLabelText('Seed') as HTMLInputElement
-    await firstUser.type(seedInput, '4242')
-    await firstUser.type(screen.getByPlaceholderText('Negative prompt'), 'blurry, watermark')
+    seedInput.focus()
+    await firstUser.type(seedInput, '4242', { skipClick: true })
+    const negativePrompt = screen.getByPlaceholderText('Negative prompt') as HTMLInputElement
+    negativePrompt.focus()
+    await firstUser.type(negativePrompt, 'blurry, watermark', { skipClick: true })
     await sendPrompt(firstUser, 'a glass observatory under an aurora')
 
     await waitFor(() => expect(boundary.generateImage).toHaveBeenCalledTimes(1))
@@ -566,7 +665,8 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
 // Send a message in the DEFAULT chat composer (not image mode).
 async function sendChat(user: ReturnType<typeof userEvent.setup>, text: string): Promise<void> {
   const textarea = await screen.findByPlaceholderText(/ask anything/i, {}, { timeout: 3000 })
-  await user.type(textarea, text)
+  ;(textarea as HTMLTextAreaElement).focus()
+  await user.type(textarea, text, { skipClick: true })
   await user.click(screen.getByRole('button', { name: /^send$/i }))
 }
 

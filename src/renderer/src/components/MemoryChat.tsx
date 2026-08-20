@@ -5,6 +5,12 @@ import { waitingLabel } from '@renderer/lib/chat-labels'
 import { parseSqliteUtc, timeAgo } from '@renderer/lib/time'
 import { writeClipboardWithFallback } from '@renderer/lib/clipboard-write'
 import { motion, AnimatePresence } from 'motion/react'
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+  type ImperativePanelHandle
+} from 'react-resizable-panels'
 import { toSpeakableText } from '@renderer/lib/speakable'
 import { isAgenticTurn } from '@renderer/lib/agentic-active'
 import { applyStreamEvent } from '@renderer/lib/stream-reducer'
@@ -62,6 +68,13 @@ import {
   type ImageGenerationRequestContract
 } from '../../../shared/image-generation-contract'
 import { Button } from '@renderer/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@renderer/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import {
   DropdownMenu,
@@ -2147,6 +2160,8 @@ export function MemoryChat({
   }, [activeConversationId])
   const [openTabs, setOpenTabs] = useState<string[]>([]) // conversation ids open as tabs
   const [showHistory, setShowHistory] = useState(true)
+  const historyPanelRef = useRef<ImperativePanelHandle>(null)
+  const galleryTriggerRef = useRef<HTMLButtonElement>(null)
   const [mode, setMode] = useState<ChatMode>('ask')
   const [showImageOptions, setShowImageOptions] = useState(false)
   const [imageAvailable, setImageAvailable] = useState(false)
@@ -3781,10 +3796,12 @@ export function MemoryChat({
     }
   }, [galleryScope, activeConversationId, activeProjectId])
 
-  // Reload the gallery's artifacts whenever the scope changes while it's open.
+  // Reload the gallery when it opens, its scope changes, or the core-neutral incoming-file
+  // projection changes. A received file leaves that projection after its bytes are installed.
   useEffect(() => {
-    if (showGallery) void refreshGallery()
-  }, [galleryScope, showGallery, refreshGallery])
+    if (!showGallery) return
+    void refreshGallery()
+  }, [showGallery, refreshGallery, incomingFiles])
 
   const deleteArtifact = useCallback(async (id: string) => {
     try {
@@ -4333,6 +4350,7 @@ export function MemoryChat({
           </svg>
         </button>
         <button
+          ref={galleryTriggerRef}
           onClick={openGallery}
           className={`rounded-md border p-1.5 transition-colors ${showGallery ? 'border-green-500 text-green-500' : 'border-neutral-800 text-neutral-500 hover:text-neutral-300'}`}
           title="Generated images"
@@ -4374,7 +4392,12 @@ export function MemoryChat({
           </svg>
         </button>
         <button
-          onClick={() => setShowHistory((prev) => !prev)}
+          onClick={() => {
+            const panel = historyPanelRef.current
+            if (!panel) return
+            if (showHistory) panel.collapse()
+            else panel.expand()
+          }}
           className={`rounded-md border p-1.5 transition-colors ${showHistory ? 'border-neutral-700 text-neutral-300' : 'border-neutral-800 text-neutral-500 hover:text-neutral-300'}`}
           title={showHistory ? 'Collapse sidebar (full-screen chat)' : 'Show conversations'}
         >
@@ -4387,600 +4410,650 @@ export function MemoryChat({
       </header>
 
       {/* Body */}
-      <div className="flex min-h-0 flex-1">
-        {/* History rail — animated collapse (width slides to 0) */}
-        <aside
-          className={`shrink-0 overflow-hidden border-neutral-900 transition-[width] duration-300 ease-in-out ${showHistory ? 'w-64 border-r' : 'w-0'}`}
+      <PanelGroup
+        direction="horizontal"
+        autoSaveId="offgrid-memory-chat-layout"
+        className="min-h-0 flex-1"
+      >
+        <Panel
+          ref={historyPanelRef}
+          id="conversation-history"
+          order={1}
+          defaultSize={20}
+          minSize={14}
+          maxSize={40}
+          collapsible
+          collapsedSize={0}
+          onCollapse={() => setShowHistory(false)}
+          onExpand={() => setShowHistory(true)}
+          className="min-w-0 overflow-hidden"
         >
-          <div className="flex h-full w-64 flex-col">
-            <div className="p-3">
-              <button
-                onClick={startNewConversation}
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-neutral-800 px-3 py-2 text-xs text-neutral-300 transition-colors hover:border-green-500 hover:text-green-500"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                New chat
-              </button>
-            </div>
-            {conversations.length > 0 && (
-              <div className="px-2 pb-2">
-                <div className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-2.5 py-1.5 focus-within:border-neutral-600">
-                  <svg
-                    className="h-3.5 w-3.5 shrink-0 text-neutral-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
+          <aside className="h-full overflow-hidden border-r border-neutral-900">
+            <div className="flex h-full min-w-0 flex-col">
+              <div className="p-3">
+                <button
+                  onClick={startNewConversation}
+                  className="flex w-full items-center justify-center gap-2 rounded-md border border-neutral-800 px-3 py-2 text-xs text-neutral-300 transition-colors hover:border-green-500 hover:text-green-500"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      d="M12 4v16m8-8H4"
                     />
                   </svg>
-                  <input
-                    value={convSearch}
-                    onChange={(e) => setConvSearch(e.target.value)}
-                    placeholder="Search conversations…"
-                    className="w-full bg-transparent text-xs text-neutral-200 placeholder-neutral-600 outline-none"
-                  />
-                  {convSearch && (
-                    <button
-                      onClick={() => setConvSearch('')}
-                      className="shrink-0 text-neutral-600 hover:text-neutral-300"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-            <div className="flex-1 overflow-y-auto px-2 pb-2">
-              {(() => {
-                const q = convSearch.trim().toLowerCase()
-                const filtered = q
-                  ? conversations.filter(
-                      (c) => (c.title || '').toLowerCase().includes(q) || contentMatchIds.has(c.id)
-                    )
-                  : conversations
-                if (conversations.length === 0)
-                  return (
-                    <p className="px-2 py-4 text-center text-xs text-neutral-600">
-                      No conversations yet
-                    </p>
-                  )
-                if (filtered.length === 0)
-                  return (
-                    <p className="px-2 py-4 text-center text-xs text-neutral-600">No matches</p>
-                  )
-                const now = new Date()
-                const startToday = new Date(
-                  now.getFullYear(),
-                  now.getMonth(),
-                  now.getDate()
-                ).getTime()
-                const groups: { label: string; items: Conversation[] }[] = [
-                  { label: 'Today', items: [] },
-                  { label: 'Yesterday', items: [] },
-                  { label: 'This week', items: [] },
-                  { label: 'Older', items: [] }
-                ]
-                // Read through parseSqliteUtc, the SAME parser the row's label uses. These
-                // timestamps are UTC with no zone marker, and `new Date('2026-08-10 14:00:00')`
-                // reads a space-separated string as LOCAL - so the position said one thing and the
-                // words said another, off by the whole timezone offset. In IST that put "just now"
-                // below "5h ago" and dropped this morning's chats into Yesterday.
-                const ordered = [...filtered].sort(
-                  (a, b) =>
-                    parseSqliteUtc(b.updated_at).getTime() - parseSqliteUtc(a.updated_at).getTime()
-                )
-                for (const c of ordered) {
-                  const t = parseSqliteUtc(c.updated_at).getTime()
-                  if (t >= startToday) groups[0]!.items.push(c)
-                  else if (t >= startToday - 86400000) groups[1]!.items.push(c)
-                  else if (t >= startToday - 6 * 86400000) groups[2]!.items.push(c)
-                  else groups[3]!.items.push(c)
-                }
-                return groups
-                  .filter((g) => g.items.length)
-                  .map((g) => (
-                    <div key={g.label} className="mb-2">
-                      <div className="px-1 py-1 text-[10px] uppercase tracking-wider text-neutral-600">
-                        {g.label}
-                      </div>
-                      {g.items.map((conv) => (
-                        <div
-                          key={conv.id}
-                          onClick={() => switchConversation(conv.id)}
-                          className={`group flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors ${
-                            activeConversationId === conv.id
-                              ? 'border-neutral-800 bg-neutral-900'
-                              : 'border-transparent hover:bg-neutral-900/50'
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <ConversationTitleActions
-                              conversation={conv}
-                              onRenamed={conversationRenamed}
-                              onDelete={() => deleteConversation(conv.id)}
-                            />
-                            {/* The last thing said, from the shared rule the phone's list uses. A
-                                title alone told you nothing about a conversation you had elsewhere. */}
-                            {chatListPreviewLine(conv.last_role, conv.last_content) ? (
-                              <p className="mt-0.5 truncate text-[11px] text-neutral-500">
-                                {chatListPreviewLine(conv.last_role, conv.last_content)}
-                              </p>
-                            ) : null}
-                            <div className="mt-0.5 flex items-center gap-2">
-                              <span className="text-[10px] text-neutral-600">
-                                {timeAgo(conv.updated_at)}
-                              </span>
-                              {conv.project_id && (
-                                <span className="text-[10px] text-green-500/70">project</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ))
-              })()}
-            </div>
-          </div>
-        </aside>
-
-        {/* Main column */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {/* Chat tabs — quick-switch between open conversations */}
-          {(openTabs.length > 0 || activeConversationId) && (
-            <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-900 px-2 py-1">
-              {openTabs.map((id) => {
-                const t = conversations.find((c) => c.id === id)
-                const active = activeConversationId === id
-                return (
-                  <div
-                    key={id}
-                    className={`group flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${active ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-900'}`}
-                  >
-                    <button
-                      onClick={() => switchConversation(id)}
-                      className="max-w-[12rem] truncate"
-                    >
-                      {t?.title || 'Untitled'}
-                    </button>
-                    <button
-                      onClick={() => closeTab(id)}
-                      className="text-neutral-600 transition-colors hover:text-red-400"
-                      title="Close tab"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )
-              })}
-              {!activeConversationId && (
-                <div className="flex shrink-0 items-center rounded-md bg-neutral-800 px-2.5 py-1 text-xs text-neutral-100">
                   New chat
-                </div>
-              )}
-              <button
-                onClick={startNewConversation}
-                className="shrink-0 rounded-md px-2 py-1 text-neutral-500 transition-colors hover:text-green-500"
-                title="New tab"
-              >
-                +
-              </button>
-            </div>
-          )}
-          {/* Messages */}
-          <div ref={scrollRef} onScroll={onScrollFollow} className="flex-1 overflow-y-auto">
-            {messages.length === 0 ? (
-              <div
-                className={`mx-auto flex min-h-full flex-col items-center justify-center px-6 py-6 text-center ${mode === 'image' ? 'max-w-6xl' : 'max-w-2xl'}`}
-              >
-                <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-900 shadow-sm">
-                  <svg
-                    className="h-8 w-8 text-green-500"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-                    />
-                  </svg>
-                </div>
-                <h2 className="text-3xl font-semibold tracking-tight text-neutral-100">
-                  {mode === 'image' ? 'Create an image' : 'Start a conversation'}
-                </h2>
-                <p className="mt-3 max-w-md text-sm text-neutral-500">
-                  {mode === 'image'
-                    ? 'Pick a style, then describe your subject — generated on-device.'
-                    : activeProjectName
-                      ? `Grounded in the “${activeProjectName}” knowledge base.`
-                      : isPro
-                        ? 'Ask across your memories, chats, and entities from every source.'
-                        : 'Ask anything, generate images, or build — all on-device.'}
-                </p>
-                {mode === 'image' ? (
-                  <div className="mt-4 w-full">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-[10px] uppercase tracking-wider text-neutral-600">
-                        Style
-                      </span>
-                      {Object.keys(styleThumbs).length < STYLE_PRESETS.length && (
-                        <button
-                          onClick={generateStylePreviews}
-                          disabled={genThumbsBusy}
-                          className="text-[10px] text-neutral-500 transition-colors hover:text-green-500 disabled:opacity-50"
-                        >
-                          {genThumbsBusy ? 'Generating previews…' : 'Generate previews'}
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4">
-                      {STYLE_PRESETS.map((s) => {
-                        const thumb = styleThumbs[styleKey(s.name)]
-                        return (
-                          <button
-                            key={s.name}
-                            onClick={() =>
-                              setActiveStyle((cur) => (cur === s.name ? null : s.name))
-                            }
-                            className={`group relative aspect-[16/9] overflow-hidden rounded-md border transition-all ${
-                              activeStyle === s.name
-                                ? 'border-green-500 ring-1 ring-green-500'
-                                : 'border-neutral-800 hover:border-neutral-600'
-                            }`}
-                          >
-                            {thumb ? (
-                              <img
-                                src={captureUrlForPath(thumb)}
-                                alt={s.name}
-                                className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                              />
-                            ) : (
-                              <span
-                                className={`absolute inset-0 bg-gradient-to-br ${s.swatch} transition-transform duration-300 group-hover:scale-105`}
-                              />
-                            )}
-                            <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-left text-[11px] font-medium text-white">
-                              {s.name}
-                            </span>
-                            {activeStyle === s.name && (
-                              <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-neutral-950">
-                                <svg
-                                  className="h-3 w-3"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={3}
-                                    d="M5 13l4 4L19 7"
-                                  />
-                                </svg>
-                              </span>
-                            )}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-6 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-                    {examples.map((ex) => (
-                      <button
-                        key={ex}
-                        onClick={() => sendMessage(ex)}
-                        className="rounded-md border border-neutral-800 px-3 py-2.5 text-left text-xs text-neutral-400 transition-colors hover:border-green-500 hover:text-neutral-200"
-                      >
-                        {ex}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                </button>
               </div>
-            ) : (
-              <div className="w-full px-6 py-5">
-                {messages.map((message, messageIndex) => (
-                  <MessageRow
-                    key={message.id}
-                    message={message}
-                    nextMessageRole={messages[messageIndex + 1]?.role}
-                    voiceMode={voiceMode}
-                    state={{
-                      autoPlayId,
-                      copiedKey,
-                      editingId,
-                      editText,
-                      loading,
-                      speakingId,
-                      speakLoadingId,
-                      speakError,
-                      askSelections: askSel,
-                      incomingFiles: incomingFilesFor(message.id)
-                    }}
-                    actions={messageActions}
-                    navigation={messageNavigation}
-                  />
-                ))}
-                {/* A reply generating on another one of your devices, streaming here live. Pro
-                    registers the renderer; the free build has no slot and this is nothing. */}
-                {ChatMessagesFooter && activeConversationId ? (
-                  <ChatMessagesFooter
-                    conversationId={activeConversationId}
-                    promptEnhancementActive={promptEnhancementActive}
-                    promptEnhancementComplete={promptEnhancementComplete}
-                  />
-                ) : null}
-                {!!activeConversationId &&
-                generatingConvs.has(activeConversationId) &&
-                !messages.some((m) => m.streaming) ? (
-                  <div className="mb-5 flex flex-col items-start">
-                    <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-600">
-                      Off Grid AI
-                    </div>
-                    {mode === 'image' || generatingImage ? (
-                      <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
-                        {imgProgress?.preview ? (
-                          <img
-                            src={imgProgress.preview}
-                            alt="forming"
-                            className="mb-2 w-56 rounded-md border border-neutral-800"
-                          />
-                        ) : (
-                          <div className="mb-2 flex h-56 w-56 items-center justify-center rounded-md border border-neutral-800 text-[11px] text-neutral-600">
-                            warming up…
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between text-[11px] text-neutral-500">
-                          <span>{imageProgressLabel(imgProgress)}</span>
-                          {imgProgress ? (
-                            <span className="text-neutral-600">
-                              ~
-                              {Math.max(
-                                0,
-                                Math.round(
-                                  (imgProgress.total - imgProgress.step) * imgProgress.secPerStep
-                                )
-                              )}
-                              s left
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="mt-1.5 h-1 w-56 overflow-hidden rounded-full bg-neutral-800">
-                          <div
-                            className="h-full bg-green-500 transition-all duration-300"
-                            style={{
-                              width: imgProgress
-                                ? `${(imgProgress.step / imgProgress.total) * 100}%`
-                                : '5%'
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <ChatLoadingCard
-                        label={waitingLabel({ noMemory, hasProject: !!activeProjectId })}
-                      />
-                    )}
-                  </div>
-                ) : null}
-                <div ref={bottomRef} className="h-2" />
-              </div>
-            )}
-          </div>
-
-          {/* Composer */}
-          <div className="border-t border-neutral-900 px-6 py-3">
-            <div className="w-full px-6">
-              {/* Image options (image mode, expandable) */}
-              {mode === 'image' && showImageOptions && (
-                <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-neutral-800 px-3 py-2 text-[11px] text-neutral-500">
-                  {imgModels.length > 1 && (
-                    <label className="flex items-center gap-1.5">
-                      Model
-                      <select
-                        value={imgModel}
-                        onChange={(e) => chooseImageModel(e.target.value)}
-                        className="max-w-[12rem] rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 outline-none focus:border-green-500"
-                      >
-                        {imgModels.map((m) => (
-                          <option key={m} value={m}>
-                            {m.replace(/\.gguf$/i, '').replace(/-Q\d.*$/i, '')}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <label className="flex items-center gap-1.5">
-                    Size
-                    <select
-                      value={imgSize}
-                      onChange={(e) => setSizeOverride(Number(e.target.value))}
-                      className="rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 outline-none focus:border-green-500"
+              {conversations.length > 0 && (
+                <div className="px-2 pb-2">
+                  <div className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-2.5 py-1.5 focus-within:border-neutral-600">
+                    <svg
+                      className="h-3.5 w-3.5 shrink-0 text-neutral-600"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
                     >
-                      <option value={256}>256</option>
-                      <option value={512}>512</option>
-                      <option value={640}>640</option>
-                      <option value={768}>768</option>
-                      <option value={1024}>1024</option>
-                    </select>
-                  </label>
-                  <label className="flex items-center gap-1.5">
-                    Steps
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
                     <input
-                      type="number"
-                      min={4}
-                      max={50}
-                      value={imgSteps}
-                      onChange={(e) =>
-                        setStepsOverride(Math.max(4, Math.min(50, Number(e.target.value) || 16)))
-                      }
-                      className="w-14 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 outline-none focus:border-green-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      value={convSearch}
+                      onChange={(e) => setConvSearch(e.target.value)}
+                      placeholder="Search conversations…"
+                      className="w-full bg-transparent text-xs text-neutral-200 placeholder-neutral-600 outline-none"
                     />
-                  </label>
-                  <label className="flex items-center gap-1.5">
-                    Guidance
-                    <input
-                      type="number"
-                      min={0}
-                      max={20}
-                      step={0.5}
-                      value={imgCfgScale}
-                      onChange={(e) =>
-                        setCfgScaleOverride(Math.max(0, Math.min(20, Number(e.target.value) || 0)))
-                      }
-                      className="w-14 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 outline-none focus:border-green-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                    />
-                  </label>
-                  <label className="flex items-center gap-1.5">
-                    Seed
-                    <input
-                      value={imgSeed}
-                      onChange={(e) => setImgSeed(e.target.value.replace(/[^0-9]/g, ''))}
-                      placeholder="random"
-                      className="w-20 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 placeholder-neutral-700 outline-none focus:border-green-500"
-                    />
-                  </label>
-                  <input
-                    value={imgNegative}
-                    onChange={(e) => setImgNegative(e.target.value)}
-                    placeholder="Negative prompt"
-                    className="min-w-[10rem] flex-1 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 placeholder-neutral-700 outline-none focus:border-green-500"
-                  />
-                  <label
-                    className="flex items-center gap-1.5"
-                    title="Rewrite your prompt with the local model for richer, more detailed images"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={enhanceImg}
-                      onChange={(e) => setEnhanceImg(e.target.checked)}
-                      className="accent-green-500"
-                    />
-                    Enhance
-                  </label>
-                  {imgInit ? (
-                    <span className="flex items-center gap-2 rounded-md border border-green-500/40 px-2 py-1 text-green-500">
-                      {imgInit.split('/').pop()}
-                      <label
-                        className="flex items-center gap-1 text-neutral-500"
-                        title="img2img strength: how much to change the init image (0.1 = subtle, 1 = ignore it)"
-                      >
-                        Strength
-                        <input
-                          type="number"
-                          min={0.1}
-                          max={1}
-                          step={0.05}
-                          value={imgStrength}
-                          onChange={(e) =>
-                            setImgStrength(
-                              Math.max(0.1, Math.min(1, Number(e.target.value) || 0.6))
-                            )
-                          }
-                          className="w-14 rounded border border-neutral-800 bg-neutral-950 px-1.5 py-0.5 text-neutral-300 outline-none focus:border-green-500"
-                        />
-                      </label>
+                    {convSearch && (
                       <button
-                        onClick={() => setImgInit(null)}
-                        className="text-neutral-500 hover:text-red-400"
+                        onClick={() => setConvSearch('')}
+                        className="shrink-0 text-neutral-600 hover:text-neutral-300"
                       >
                         ✕
                       </button>
-                    </span>
-                  ) : (
-                    <button
-                      onClick={async () => {
-                        const p = await window.api.pickImageForGen?.()
-                        if (p) setImgInit(p)
-                      }}
-                      className="rounded-md border border-neutral-800 px-2 py-1 text-neutral-400 transition-colors hover:border-green-500 hover:text-green-500"
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="flex-1 overflow-y-auto px-2 pb-2">
+                {(() => {
+                  const q = convSearch.trim().toLowerCase()
+                  const filtered = q
+                    ? conversations.filter(
+                        (c) =>
+                          (c.title || '').toLowerCase().includes(q) || contentMatchIds.has(c.id)
+                      )
+                    : conversations
+                  if (conversations.length === 0)
+                    return (
+                      <p className="px-2 py-4 text-center text-xs text-neutral-600">
+                        No conversations yet
+                      </p>
+                    )
+                  if (filtered.length === 0)
+                    return (
+                      <p className="px-2 py-4 text-center text-xs text-neutral-600">No matches</p>
+                    )
+                  const now = new Date()
+                  const startToday = new Date(
+                    now.getFullYear(),
+                    now.getMonth(),
+                    now.getDate()
+                  ).getTime()
+                  const groups: { label: string; items: Conversation[] }[] = [
+                    { label: 'Today', items: [] },
+                    { label: 'Yesterday', items: [] },
+                    { label: 'This week', items: [] },
+                    { label: 'Older', items: [] }
+                  ]
+                  // Read through parseSqliteUtc, the SAME parser the row's label uses. These
+                  // timestamps are UTC with no zone marker, and `new Date('2026-08-10 14:00:00')`
+                  // reads a space-separated string as LOCAL - so the position said one thing and the
+                  // words said another, off by the whole timezone offset. In IST that put "just now"
+                  // below "5h ago" and dropped this morning's chats into Yesterday.
+                  const ordered = [...filtered].sort(
+                    (a, b) =>
+                      parseSqliteUtc(b.updated_at).getTime() -
+                      parseSqliteUtc(a.updated_at).getTime()
+                  )
+                  for (const c of ordered) {
+                    const t = parseSqliteUtc(c.updated_at).getTime()
+                    if (t >= startToday) groups[0]!.items.push(c)
+                    else if (t >= startToday - 86400000) groups[1]!.items.push(c)
+                    else if (t >= startToday - 6 * 86400000) groups[2]!.items.push(c)
+                    else groups[3]!.items.push(c)
+                  }
+                  return groups
+                    .filter((g) => g.items.length)
+                    .map((g) => (
+                      <div key={g.label} className="mb-2">
+                        <div className="px-1 py-1 text-[10px] uppercase tracking-wider text-neutral-600">
+                          {g.label}
+                        </div>
+                        {g.items.map((conv) => (
+                          <div
+                            key={conv.id}
+                            onClick={() => switchConversation(conv.id)}
+                            className={`group flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors ${
+                              activeConversationId === conv.id
+                                ? 'border-neutral-800 bg-neutral-900'
+                                : 'border-transparent hover:bg-neutral-900/50'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <ConversationTitleActions
+                                conversation={conv}
+                                onRenamed={conversationRenamed}
+                                onDelete={() => deleteConversation(conv.id)}
+                              />
+                              {/* The last thing said, from the shared rule the phone's list uses. A
+                                title alone told you nothing about a conversation you had elsewhere. */}
+                              {chatListPreviewLine(conv.last_role, conv.last_content) ? (
+                                <p className="mt-0.5 truncate text-[11px] text-neutral-500">
+                                  {chatListPreviewLine(conv.last_role, conv.last_content)}
+                                </p>
+                              ) : null}
+                              <div className="mt-0.5 flex items-center gap-2">
+                                <span className="text-[10px] text-neutral-600">
+                                  {timeAgo(conv.updated_at)}
+                                </span>
+                                {conv.project_id && (
+                                  <span className="text-[10px] text-green-500/70">project</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                })()}
+              </div>
+            </div>
+          </aside>
+        </Panel>
+
+        <PanelResizeHandle
+          aria-label="Resize conversation list"
+          title="Resize conversation list"
+          className="group relative w-2 shrink-0 cursor-col-resize focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-green-500"
+        >
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-neutral-800 group-hover:bg-green-500/50 group-focus-visible:bg-green-500 group-data-[resize-handle-state=drag]:bg-green-500" />
+        </PanelResizeHandle>
+
+        {/* Main column */}
+        <Panel id="chat" order={2} defaultSize={80} minSize={40} className="min-w-0">
+          <div className="flex h-full min-w-0 flex-col">
+            {/* Chat tabs — quick-switch between open conversations */}
+            {(openTabs.length > 0 || activeConversationId) && (
+              <div className="flex items-center gap-1 overflow-x-auto border-b border-neutral-900 px-2 py-1">
+                {openTabs.map((id) => {
+                  const t = conversations.find((c) => c.id === id)
+                  const active = activeConversationId === id
+                  return (
+                    <div
+                      key={id}
+                      className={`group flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${active ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-900'}`}
                     >
-                      + Init image
-                    </button>
+                      <button
+                        onClick={() => switchConversation(id)}
+                        className="max-w-[12rem] truncate"
+                      >
+                        {t?.title || 'Untitled'}
+                      </button>
+                      <button
+                        onClick={() => closeTab(id)}
+                        className="text-neutral-600 transition-colors hover:text-red-400"
+                        title="Close tab"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )
+                })}
+                {!activeConversationId && (
+                  <div className="flex shrink-0 items-center rounded-md bg-neutral-800 px-2.5 py-1 text-xs text-neutral-100">
+                    New chat
+                  </div>
+                )}
+                <button
+                  onClick={startNewConversation}
+                  className="shrink-0 rounded-md px-2 py-1 text-neutral-500 transition-colors hover:text-green-500"
+                  title="New tab"
+                >
+                  +
+                </button>
+              </div>
+            )}
+            {/* Messages */}
+            <div ref={scrollRef} onScroll={onScrollFollow} className="flex-1 overflow-y-auto">
+              {messages.length === 0 ? (
+                <div
+                  className={`mx-auto flex min-h-full flex-col items-center justify-center px-6 py-6 text-center ${mode === 'image' ? 'max-w-6xl' : 'max-w-2xl'}`}
+                >
+                  <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-900 shadow-sm">
+                    <svg
+                      className="h-8 w-8 text-green-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.5}
+                        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                      />
+                    </svg>
+                  </div>
+                  <h2 className="text-3xl font-semibold tracking-tight text-neutral-100">
+                    {mode === 'image' ? 'Create an image' : 'Start a conversation'}
+                  </h2>
+                  <p className="mt-3 max-w-md text-sm text-neutral-500">
+                    {mode === 'image'
+                      ? 'Pick a style, then describe your subject — generated on-device.'
+                      : activeProjectName
+                        ? `Grounded in the “${activeProjectName}” knowledge base.`
+                        : isPro
+                          ? 'Ask across your memories, chats, and entities from every source.'
+                          : 'Ask anything, generate images, or build — all on-device.'}
+                  </p>
+                  {mode === 'image' ? (
+                    <div className="mt-4 w-full">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider text-neutral-600">
+                          Style
+                        </span>
+                        {Object.keys(styleThumbs).length < STYLE_PRESETS.length && (
+                          <button
+                            onClick={generateStylePreviews}
+                            disabled={genThumbsBusy}
+                            className="text-[10px] text-neutral-500 transition-colors hover:text-green-500 disabled:opacity-50"
+                          >
+                            {genThumbsBusy ? 'Generating previews…' : 'Generate previews'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4">
+                        {STYLE_PRESETS.map((s) => {
+                          const thumb = styleThumbs[styleKey(s.name)]
+                          return (
+                            <button
+                              key={s.name}
+                              onClick={() =>
+                                setActiveStyle((cur) => (cur === s.name ? null : s.name))
+                              }
+                              className={`group relative aspect-[16/9] overflow-hidden rounded-md border transition-all ${
+                                activeStyle === s.name
+                                  ? 'border-green-500 ring-1 ring-green-500'
+                                  : 'border-neutral-800 hover:border-neutral-600'
+                              }`}
+                            >
+                              {thumb ? (
+                                <img
+                                  src={captureUrlForPath(thumb)}
+                                  alt={s.name}
+                                  className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                />
+                              ) : (
+                                <span
+                                  className={`absolute inset-0 bg-gradient-to-br ${s.swatch} transition-transform duration-300 group-hover:scale-105`}
+                                />
+                              )}
+                              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-left text-[11px] font-medium text-white">
+                                {s.name}
+                              </span>
+                              {activeStyle === s.name && (
+                                <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-neutral-950">
+                                  <svg
+                                    className="h-3 w-3"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={3}
+                                      d="M5 13l4 4L19 7"
+                                    />
+                                  </svg>
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-6 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+                      {examples.map((ex) => (
+                        <button
+                          key={ex}
+                          onClick={() => sendMessage(ex)}
+                          className="rounded-md border border-neutral-800 px-3 py-2.5 text-left text-xs text-neutral-400 transition-colors hover:border-green-500 hover:text-neutral-200"
+                        >
+                          {ex}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
-              )}
-
-              {/* Active style chip (image mode) */}
-              {mode === 'image' && activeStyle && (
-                <div className="mb-2 flex items-center gap-2 text-[11px] text-neutral-500">
-                  <span>Style</span>
-                  <span className="rounded-md border border-green-500/40 px-2 py-0.5 text-green-500">
-                    {activeStyle}
-                  </span>
-                  <button
-                    onClick={() => setActiveStyle(null)}
-                    className="text-neutral-600 transition-colors hover:text-red-400"
-                  >
-                    clear
-                  </button>
+              ) : (
+                <div className="w-full px-6 py-5">
+                  {messages.map((message, messageIndex) => (
+                    <MessageRow
+                      key={message.id}
+                      message={message}
+                      nextMessageRole={messages[messageIndex + 1]?.role}
+                      voiceMode={voiceMode}
+                      state={{
+                        autoPlayId,
+                        copiedKey,
+                        editingId,
+                        editText,
+                        loading,
+                        speakingId,
+                        speakLoadingId,
+                        speakError,
+                        askSelections: askSel,
+                        incomingFiles: incomingFilesFor(message.id)
+                      }}
+                      actions={messageActions}
+                      navigation={messageNavigation}
+                    />
+                  ))}
+                  {/* A reply generating on another one of your devices, streaming here live. Pro
+                    registers the renderer; the free build has no slot and this is nothing. */}
+                  {ChatMessagesFooter && activeConversationId ? (
+                    <ChatMessagesFooter
+                      conversationId={activeConversationId}
+                      promptEnhancementActive={promptEnhancementActive}
+                      promptEnhancementComplete={promptEnhancementComplete}
+                    />
+                  ) : null}
+                  {!!activeConversationId &&
+                  generatingConvs.has(activeConversationId) &&
+                  !messages.some((m) => m.streaming) ? (
+                    <div className="mb-5 flex flex-col items-start">
+                      <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-600">
+                        Off Grid AI
+                      </div>
+                      {mode === 'image' || generatingImage ? (
+                        <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
+                          {imgProgress?.preview ? (
+                            <img
+                              src={imgProgress.preview}
+                              alt="forming"
+                              className="mb-2 w-56 rounded-md border border-neutral-800"
+                            />
+                          ) : (
+                            <div className="mb-2 flex h-56 w-56 items-center justify-center rounded-md border border-neutral-800 text-[11px] text-neutral-600">
+                              warming up…
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between text-[11px] text-neutral-500">
+                            <span>{imageProgressLabel(imgProgress)}</span>
+                            {imgProgress ? (
+                              <span className="text-neutral-600">
+                                ~
+                                {Math.max(
+                                  0,
+                                  Math.round(
+                                    (imgProgress.total - imgProgress.step) * imgProgress.secPerStep
+                                  )
+                                )}
+                                s left
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1.5 h-1 w-56 overflow-hidden rounded-full bg-neutral-800">
+                            <div
+                              className="h-full bg-green-500 transition-all duration-300"
+                              style={{
+                                width: imgProgress
+                                  ? `${(imgProgress.step / imgProgress.total) * 100}%`
+                                  : '5%'
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <ChatLoadingCard
+                          label={waitingLabel({ noMemory, hasProject: !!activeProjectId })}
+                        />
+                      )}
+                    </div>
+                  ) : null}
+                  <div ref={bottomRef} className="h-2" />
                 </div>
               )}
+            </div>
 
-              {projCreating && (
-                <div className="mb-2">
-                  <input
-                    ref={projInputRef}
-                    value={projNewName}
-                    onChange={(e) => setProjNewName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') createAndAssignProject()
-                      if (e.key === 'Escape') {
-                        setProjCreating(false)
-                        setProjNewName('')
-                      }
-                    }}
-                    onBlur={createAndAssignProject}
-                    placeholder="New project name…  (Enter to create, Esc to cancel)"
-                    className="w-full rounded-md border border-green-500 bg-neutral-900 px-3 py-2 text-xs text-white placeholder-neutral-600 outline-none"
-                  />
-                </div>
-              )}
-
-              {queuedCount(queuedByConv, activeConversationId) > 0 && (
-                <div className="mb-2 flex flex-col gap-1">
-                  {(activeConversationId ? (queuedByConv[activeConversationId] ?? []) : []).map(
-                    (q, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-1.5 text-[11px] text-neutral-400"
-                      >
-                        <svg
-                          className="h-3 w-3 shrink-0 text-neutral-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
+            {/* Composer */}
+            <div className="border-t border-neutral-900 px-6 py-3">
+              <div className="w-full px-6">
+                {/* Image options (image mode, expandable) */}
+                {mode === 'image' && showImageOptions && (
+                  <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-neutral-800 px-3 py-2 text-[11px] text-neutral-500">
+                    {imgModels.length > 1 && (
+                      <label className="flex items-center gap-1.5">
+                        Model
+                        <select
+                          value={imgModel}
+                          onChange={(e) => chooseImageModel(e.target.value)}
+                          className="max-w-[12rem] rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 outline-none focus:border-green-500"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                          {imgModels.map((m) => (
+                            <option key={m} value={m}>
+                              {m.replace(/\.gguf$/i, '').replace(/-Q\d.*$/i, '')}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label className="flex items-center gap-1.5">
+                      Size
+                      <select
+                        value={imgSize}
+                        onChange={(e) => setSizeOverride(Number(e.target.value))}
+                        className="rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 outline-none focus:border-green-500"
+                      >
+                        <option value={256}>256</option>
+                        <option value={512}>512</option>
+                        <option value={640}>640</option>
+                        <option value={768}>768</option>
+                        <option value={1024}>1024</option>
+                      </select>
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      Steps
+                      <input
+                        type="number"
+                        min={4}
+                        max={50}
+                        value={imgSteps}
+                        onChange={(e) =>
+                          setStepsOverride(Math.max(4, Math.min(50, Number(e.target.value) || 16)))
+                        }
+                        className="w-14 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 outline-none focus:border-green-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      Guidance
+                      <input
+                        type="number"
+                        min={0}
+                        max={20}
+                        step={0.5}
+                        value={imgCfgScale}
+                        onChange={(e) =>
+                          setCfgScaleOverride(
+                            Math.max(0, Math.min(20, Number(e.target.value) || 0))
+                          )
+                        }
+                        className="w-14 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 outline-none focus:border-green-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      Seed
+                      <input
+                        value={imgSeed}
+                        onChange={(e) => setImgSeed(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="random"
+                        className="w-20 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 placeholder-neutral-700 outline-none focus:border-green-500"
+                      />
+                    </label>
+                    <input
+                      value={imgNegative}
+                      onChange={(e) => setImgNegative(e.target.value)}
+                      placeholder="Negative prompt"
+                      className="min-w-[10rem] flex-1 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-neutral-300 placeholder-neutral-700 outline-none focus:border-green-500"
+                    />
+                    <label
+                      className="flex items-center gap-1.5"
+                      title="Rewrite your prompt with the local model for richer, more detailed images"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={enhanceImg}
+                        onChange={(e) => setEnhanceImg(e.target.checked)}
+                        className="accent-green-500"
+                      />
+                      Enhance
+                    </label>
+                    {imgInit ? (
+                      <span className="flex items-center gap-2 rounded-md border border-green-500/40 px-2 py-1 text-green-500">
+                        {imgInit.split('/').pop()}
+                        <label
+                          className="flex items-center gap-1 text-neutral-500"
+                          title="img2img strength: how much to change the init image (0.1 = subtle, 1 = ignore it)"
+                        >
+                          Strength
+                          <input
+                            type="number"
+                            min={0.1}
+                            max={1}
+                            step={0.05}
+                            value={imgStrength}
+                            onChange={(e) =>
+                              setImgStrength(
+                                Math.max(0.1, Math.min(1, Number(e.target.value) || 0.6))
+                              )
+                            }
+                            className="w-14 rounded border border-neutral-800 bg-neutral-950 px-1.5 py-0.5 text-neutral-300 outline-none focus:border-green-500"
                           />
-                        </svg>
-                        <span className="flex-1 select-text cursor-text whitespace-pre-wrap break-words">
-                          {q.text || `(${q.atts.length} attachment${q.atts.length > 1 ? 's' : ''})`}
-                        </span>
-                        {q.atts.length > 0 ? (
-                          <span
-                            className="flex shrink-0 items-center gap-1 text-neutral-500"
-                            title={q.atts.map((a) => a.name).join(', ')}
+                        </label>
+                        <button
+                          onClick={() => setImgInit(null)}
+                          className="text-neutral-500 hover:text-red-400"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          const p = await window.api.pickImageForGen?.()
+                          if (p) setImgInit(p)
+                        }}
+                        className="rounded-md border border-neutral-800 px-2 py-1 text-neutral-400 transition-colors hover:border-green-500 hover:text-green-500"
+                      >
+                        + Init image
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Active style chip (image mode) */}
+                {mode === 'image' && activeStyle && (
+                  <div className="mb-2 flex items-center gap-2 text-[11px] text-neutral-500">
+                    <span>Style</span>
+                    <span className="rounded-md border border-green-500/40 px-2 py-0.5 text-green-500">
+                      {activeStyle}
+                    </span>
+                    <button
+                      onClick={() => setActiveStyle(null)}
+                      className="text-neutral-600 transition-colors hover:text-red-400"
+                    >
+                      clear
+                    </button>
+                  </div>
+                )}
+
+                {projCreating && (
+                  <div className="mb-2">
+                    <input
+                      ref={projInputRef}
+                      value={projNewName}
+                      onChange={(e) => setProjNewName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') createAndAssignProject()
+                        if (e.key === 'Escape') {
+                          setProjCreating(false)
+                          setProjNewName('')
+                        }
+                      }}
+                      onBlur={createAndAssignProject}
+                      placeholder="New project name…  (Enter to create, Esc to cancel)"
+                      className="w-full rounded-md border border-green-500 bg-neutral-900 px-3 py-2 text-xs text-white placeholder-neutral-600 outline-none"
+                    />
+                  </div>
+                )}
+
+                {queuedCount(queuedByConv, activeConversationId) > 0 && (
+                  <div className="mb-2 flex flex-col gap-1">
+                    {(activeConversationId ? (queuedByConv[activeConversationId] ?? []) : []).map(
+                      (q, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-1.5 text-[11px] text-neutral-400"
+                        >
+                          <svg
+                            className="h-3 w-3 shrink-0 text-neutral-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                          <span className="flex-1 select-text cursor-text whitespace-pre-wrap break-words">
+                            {q.text ||
+                              `(${q.atts.length} attachment${q.atts.length > 1 ? 's' : ''})`}
+                          </span>
+                          {q.atts.length > 0 ? (
+                            <span
+                              className="flex shrink-0 items-center gap-1 text-neutral-500"
+                              title={q.atts.map((a) => a.name).join(', ')}
+                            >
+                              <svg
+                                className="h-3 w-3"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                                />
+                              </svg>
+                              {q.atts.length}
+                            </span>
+                          ) : null}
+                          <button
+                            onClick={() => copyText(q.text)}
+                            className="shrink-0 cursor-pointer text-neutral-600 transition-colors hover:text-green-500"
+                            title="Copy"
                           >
                             <svg
                               className="h-3 w-3"
@@ -4992,19 +5065,237 @@ export function MemoryChat({
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 strokeWidth={2}
-                                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                                d="M8 16h8M8 12h8m-7 8h6a2 2 0 002-2V6a2 2 0 00-2-2h-3.586a1 1 0 00-.707.293l-2.414 2.414A1 1 0 009 7.414V18a2 2 0 002 2z"
                               />
                             </svg>
-                            {q.atts.length}
-                          </span>
-                        ) : null}
+                          </button>
+                          <span className="shrink-0 text-neutral-600">queued</span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+
+                {/* Unified composer — the SAME toolbar (attach / image / project /
+                  skills / tools / memory scope / thinking) serves chat and voice
+                  mode; only the input surface (textarea vs. mic) differs. */}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    if (!dragOver) setDragOver(true)
+                  }}
+                  onDragLeave={(e) => {
+                    if (e.currentTarget === e.target) setDragOver(false)
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setDragOver(false)
+                    if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files)
+                  }}
+                  className={`relative rounded-xl border bg-neutral-950 shadow-sm transition-colors ${dragOver ? 'border-green-500' : 'border-neutral-800 focus-within:border-neutral-600'}`}
+                >
+                  {dragOver ? (
+                    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-neutral-950/80 text-xs text-green-500">
+                      Drop files to attach
+                    </div>
+                  ) : null}
+                  {skillMatches.length > 0 && (
+                    <div className="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-md border border-neutral-800 bg-neutral-950 py-1 text-sm shadow-lg">
+                      <div className="flex items-center justify-between px-3 py-1 text-[10px] uppercase tracking-wide text-neutral-600">
+                        <span>Skills</span>
+                        <span className="normal-case text-neutral-700">Tab to complete</span>
+                      </div>
+                      {skillMatches.slice(0, 6).map((s, i) => (
                         <button
-                          onClick={() => copyText(q.text)}
-                          className="shrink-0 cursor-pointer text-neutral-600 transition-colors hover:text-green-500"
-                          title="Copy"
+                          key={s.name}
+                          onClick={() => {
+                            setInput(`/${s.name} `)
+                            inputRef.current?.focus()
+                          }}
+                          className={`flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-neutral-900 ${i === 0 ? 'bg-neutral-900/60' : ''}`}
                         >
+                          <span className="text-green-500">/{s.name}</span>
+                          {s.description ? (
+                            <span className="line-clamp-1 text-[11px] text-neutral-500">
+                              {s.description}
+                            </span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.length) void addFiles(e.target.files)
+                      e.target.value = ''
+                    }}
+                  />
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.length) void addFiles(e.target.files)
+                      e.target.value = ''
+                    }}
+                  />
+                  {attachWarn && (
+                    <div className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+                      <WarningCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" weight="fill" />
+                      <span className="flex-1">{attachWarn}</span>
+                      <button
+                        onClick={() => setAttachWarn(null)}
+                        className="shrink-0 text-amber-400/70 hover:text-amber-200"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                  {attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 px-3 pt-3">
+                      {attachments.map((a) => (
+                        <div
+                          key={a.id}
+                          className="group relative flex w-40 flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-900 p-2"
+                        >
+                          <button
+                            onClick={() => removeAttachment(a.id)}
+                            className="absolute -right-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 text-[10px] text-neutral-400 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                          >
+                            ✕
+                          </button>
+                          {a.kind === 'image' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const url = a.preview || (a.path ? captureUrlForPath(a.path) : '')
+                                if (url) {
+                                  closePanels()
+                                  setLightbox({ url, path: a.path })
+                                }
+                              }}
+                              title="Click to view"
+                              className="relative h-[2.6rem] overflow-hidden rounded-md"
+                            >
+                              <img
+                                src={a.preview || (a.path ? captureUrlForPath(a.path) : '')}
+                                alt={a.name}
+                                className="h-full w-full object-cover"
+                              />
+                              {a.status === 'loading' ? (
+                                <span className="absolute inset-0 flex items-center justify-center bg-neutral-950/50 text-[9px] text-neutral-300">
+                                  Reading…
+                                </span>
+                              ) : a.status === 'error' ? (
+                                <span className="absolute inset-0 flex items-center justify-center bg-neutral-950/85 px-2 text-center text-[9px] text-red-300">
+                                  {a.error || 'Could not read this image.'}
+                                </span>
+                              ) : null}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!a.text}
+                              onClick={() => {
+                                if (a.text || a.path) {
+                                  closePanels()
+                                  setViewer({
+                                    title: a.kind === 'pasted' ? 'Pasted text' : a.name,
+                                    text: a.text || '',
+                                    path: a.path,
+                                    kind: a.kind
+                                  })
+                                }
+                              }}
+                              title={a.text ? 'Click to expand' : undefined}
+                              className="line-clamp-3 h-[2.6rem] overflow-hidden text-left text-[10px] leading-snug text-neutral-500 enabled:hover:text-neutral-300"
+                            >
+                              {a.status === 'loading'
+                                ? 'Processing…'
+                                : a.status === 'error'
+                                  ? a.error || 'Could not read this file.'
+                                  : a.text.slice(0, 140) || a.name}
+                            </button>
+                          )}
+                          <div className="flex items-center justify-between">
+                            <span className="truncate text-[10px] text-neutral-400" title={a.name}>
+                              {a.kind === 'pasted' ? '' : a.name}
+                            </span>
+                            <span className="rounded-sm border border-neutral-700 px-1 py-0.5 text-[9px] uppercase tracking-wide text-neutral-400">
+                              {a.kind === 'pasted' ? 'Pasted' : a.kind}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {microphoneDenied && (
+                    <div
+                      role="alert"
+                      className="mx-2 mb-2 flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
+                    >
+                      <span>
+                        Microphone access is off. Allow Off Grid AI Desktop in System Settings, then
+                        try again.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void window.api.openMicrophoneSettings()}
+                        className="shrink-0 text-amber-300 underline underline-offset-2 transition-colors hover:text-amber-100"
+                      >
+                        Open System Settings
+                      </button>
+                    </div>
+                  )}
+                  {transcribeError && (
+                    <div
+                      role="alert"
+                      className="mx-2 mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
+                    >
+                      {transcribeError}
+                    </div>
+                  )}
+                  {voiceMode ? (
+                    // Voice mode: the input surface is a single mic — record a note,
+                    // it transcribes and sends. The toolbar below stays identical.
+                    <button
+                      type="button"
+                      onClick={toggleRecording}
+                      disabled={transcribing}
+                      className={`flex w-full flex-col items-center gap-2 py-5 ${transcribing ? 'cursor-default' : 'cursor-pointer'}`}
+                    >
+                      <span
+                        className={`flex h-14 w-14 items-center justify-center rounded-full border-2 transition-colors ${recording ? 'border-red-500 bg-red-500/15 text-red-400' : 'border-green-500 bg-green-500/10 text-green-500 hover:bg-green-500/20'} ${transcribing ? 'opacity-50' : ''}`}
+                      >
+                        {transcribing ? (
+                          <svg className="h-6 w-6 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                            />
+                          </svg>
+                        ) : recording ? (
+                          <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24">
+                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                          </svg>
+                        ) : (
                           <svg
-                            className="h-3 w-3"
+                            className="h-6 w-6"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -5013,311 +5304,212 @@ export function MemoryChat({
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               strokeWidth={2}
-                              d="M8 16h8M8 12h8m-7 8h6a2 2 0 002-2V6a2 2 0 00-2-2h-3.586a1 1 0 00-.707.293l-2.414 2.414A1 1 0 009 7.414V18a2 2 0 002 2z"
+                              d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V5a4 4 0 018 0v6a4 4 0 01-4 4z"
                             />
                           </svg>
-                        </button>
-                        <span className="shrink-0 text-neutral-600">queued</span>
-                      </div>
-                    )
-                  )}
-                </div>
-              )}
-
-              {/* Unified composer — the SAME toolbar (attach / image / project /
-                  skills / tools / memory scope / thinking) serves chat and voice
-                  mode; only the input surface (textarea vs. mic) differs. */}
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  if (!dragOver) setDragOver(true)
-                }}
-                onDragLeave={(e) => {
-                  if (e.currentTarget === e.target) setDragOver(false)
-                }}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  setDragOver(false)
-                  if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files)
-                }}
-                className={`relative rounded-xl border bg-neutral-950 shadow-sm transition-colors ${dragOver ? 'border-green-500' : 'border-neutral-800 focus-within:border-neutral-600'}`}
-              >
-                {dragOver ? (
-                  <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-neutral-950/80 text-xs text-green-500">
-                    Drop files to attach
-                  </div>
-                ) : null}
-                {skillMatches.length > 0 && (
-                  <div className="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-md border border-neutral-800 bg-neutral-950 py-1 text-sm shadow-lg">
-                    <div className="flex items-center justify-between px-3 py-1 text-[10px] uppercase tracking-wide text-neutral-600">
-                      <span>Skills</span>
-                      <span className="normal-case text-neutral-700">Tab to complete</span>
-                    </div>
-                    {skillMatches.slice(0, 6).map((s, i) => (
-                      <button
-                        key={s.name}
-                        onClick={() => {
-                          setInput(`/${s.name} `)
-                          inputRef.current?.focus()
-                        }}
-                        className={`flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-neutral-900 ${i === 0 ? 'bg-neutral-900/60' : ''}`}
-                      >
-                        <span className="text-green-500">/{s.name}</span>
-                        {s.description ? (
-                          <span className="line-clamp-1 text-[11px] text-neutral-500">
-                            {s.description}
-                          </span>
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.length) void addFiles(e.target.files)
-                    e.target.value = ''
-                  }}
-                />
-                <input
-                  ref={imageInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.length) void addFiles(e.target.files)
-                    e.target.value = ''
-                  }}
-                />
-                {attachWarn && (
-                  <div className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-                    <WarningCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" weight="fill" />
-                    <span className="flex-1">{attachWarn}</span>
-                    <button
-                      onClick={() => setAttachWarn(null)}
-                      className="shrink-0 text-amber-400/70 hover:text-amber-200"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
-                {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2 px-3 pt-3">
-                    {attachments.map((a) => (
-                      <div
-                        key={a.id}
-                        className="group relative flex w-40 flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-900 p-2"
-                      >
-                        <button
-                          onClick={() => removeAttachment(a.id)}
-                          className="absolute -right-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 text-[10px] text-neutral-400 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-                        >
-                          ✕
-                        </button>
-                        {a.kind === 'image' ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const url = a.preview || (a.path ? captureUrlForPath(a.path) : '')
-                              if (url) {
-                                closePanels()
-                                setLightbox({ url, path: a.path })
-                              }
-                            }}
-                            title="Click to view"
-                            className="relative h-[2.6rem] overflow-hidden rounded-md"
-                          >
-                            <img
-                              src={a.preview || (a.path ? captureUrlForPath(a.path) : '')}
-                              alt={a.name}
-                              className="h-full w-full object-cover"
-                            />
-                            {a.status === 'loading' ? (
-                              <span className="absolute inset-0 flex items-center justify-center bg-neutral-950/50 text-[9px] text-neutral-300">
-                                Reading…
-                              </span>
-                            ) : a.status === 'error' ? (
-                              <span className="absolute inset-0 flex items-center justify-center bg-neutral-950/85 px-2 text-center text-[9px] text-red-300">
-                                {a.error || 'Could not read this image.'}
-                              </span>
-                            ) : null}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={!a.text}
-                            onClick={() => {
-                              if (a.text || a.path) {
-                                closePanels()
-                                setViewer({
-                                  title: a.kind === 'pasted' ? 'Pasted text' : a.name,
-                                  text: a.text || '',
-                                  path: a.path,
-                                  kind: a.kind
-                                })
-                              }
-                            }}
-                            title={a.text ? 'Click to expand' : undefined}
-                            className="line-clamp-3 h-[2.6rem] overflow-hidden text-left text-[10px] leading-snug text-neutral-500 enabled:hover:text-neutral-300"
-                          >
-                            {a.status === 'loading'
-                              ? 'Processing…'
-                              : a.status === 'error'
-                                ? a.error || 'Could not read this file.'
-                                : a.text.slice(0, 140) || a.name}
-                          </button>
                         )}
-                        <div className="flex items-center justify-between">
-                          <span className="truncate text-[10px] text-neutral-400" title={a.name}>
-                            {a.kind === 'pasted' ? '' : a.name}
-                          </span>
-                          <span className="rounded-sm border border-neutral-700 px-1 py-0.5 text-[9px] uppercase tracking-wide text-neutral-400">
-                            {a.kind === 'pasted' ? 'Pasted' : a.kind}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {microphoneDenied && (
-                  <div
-                    role="alert"
-                    className="mx-2 mb-2 flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
-                  >
-                    <span>
-                      Microphone access is off. Allow Off Grid AI Desktop in System Settings, then
-                      try again.
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void window.api.openMicrophoneSettings()}
-                      className="shrink-0 text-amber-300 underline underline-offset-2 transition-colors hover:text-amber-100"
-                    >
-                      Open System Settings
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        {transcribing
+                          ? 'Transcribing…'
+                          : recording
+                            ? 'Recording — tap to send'
+                            : 'Tap to record a voice note'}
+                      </span>
                     </button>
-                  </div>
-                )}
-                {transcribeError && (
-                  <div
-                    role="alert"
-                    className="mx-2 mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"
-                  >
-                    {transcribeError}
-                  </div>
-                )}
-                {voiceMode ? (
-                  // Voice mode: the input surface is a single mic — record a note,
-                  // it transcribes and sends. The toolbar below stays identical.
-                  <button
-                    type="button"
-                    onClick={toggleRecording}
-                    disabled={transcribing}
-                    className={`flex w-full flex-col items-center gap-2 py-5 ${transcribing ? 'cursor-default' : 'cursor-pointer'}`}
-                  >
-                    <span
-                      className={`flex h-14 w-14 items-center justify-center rounded-full border-2 transition-colors ${recording ? 'border-red-500 bg-red-500/15 text-red-400' : 'border-green-500 bg-green-500/10 text-green-500 hover:bg-green-500/20'} ${transcribing ? 'opacity-50' : ''}`}
-                    >
-                      {transcribing ? (
-                        <svg className="h-6 w-6 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          />
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                          />
-                        </svg>
-                      ) : recording ? (
-                        <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24">
-                          <rect x="6" y="6" width="12" height="12" rx="2" />
-                        </svg>
-                      ) : (
-                        <svg
-                          className="h-6 w-6"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V5a4 4 0 018 0v6a4 4 0 01-4 4z"
-                          />
-                        </svg>
-                      )}
-                    </span>
-                    <span className="text-xs text-neutral-500">
-                      {transcribing
-                        ? 'Transcribing…'
-                        : recording
-                          ? 'Recording — tap to send'
-                          : 'Tap to record a voice note'}
-                    </span>
-                  </button>
-                ) : (
-                  <textarea
-                    ref={inputRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
-                    rows={1}
-                    placeholder={
-                      mode === 'image'
-                        ? 'Describe an image to generate…'
-                        : activeProjectName
-                          ? `Ask about “${activeProjectName}”…`
-                          : 'Ask anything…'
-                    }
-                    className="max-h-52 w-full resize-none overflow-y-auto bg-transparent px-3.5 pt-3 text-sm text-neutral-200 placeholder-neutral-600 outline-none"
-                  />
-                )}
-                <div className="flex flex-wrap items-center justify-between gap-y-2 gap-x-2 px-2.5 pb-2.5 pt-1">
-                  {/* Chips wrap to a new line on narrow widths instead of overflowing the composer
+                  ) : (
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onPaste={handlePaste}
+                      rows={1}
+                      placeholder={
+                        mode === 'image'
+                          ? 'Describe an image to generate…'
+                          : activeProjectName
+                            ? `Ask about “${activeProjectName}”…`
+                            : 'Ask anything…'
+                      }
+                      className="max-h-52 w-full resize-none overflow-y-auto bg-transparent px-3.5 pt-3 text-sm text-neutral-200 placeholder-neutral-600 outline-none"
+                    />
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-y-2 gap-x-2 px-2.5 pb-2.5 pt-1">
+                    {/* Chips wrap to a new line on narrow widths instead of overflowing the composer
                       (the Image chip used to clip off the right edge). */}
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    {/* "+" menu — attach / image / project / tools */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className="size-8 rounded-full"
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {/* "+" menu — attach / image / project / tools */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="size-8 rounded-full"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="start"
+                          side="top"
+                          sideOffset={8}
+                          className="w-56"
                         >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-56">
-                        <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-                          <Paperclip /> Attach files
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => imageInputRef.current?.click()}>
-                          <ImageIcon /> Add image
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={!imageAvailable}
-                          onSelect={() => setMode('image')}
+                          <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                            <Paperclip /> Attach files
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => imageInputRef.current?.click()}>
+                            <ImageIcon /> Add image
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!imageAvailable}
+                            onSelect={() => setMode('image')}
+                          >
+                            <Sparkles /> Generate image
+                          </DropdownMenuItem>
+                          {projects.length > 0 ? (
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger>
+                                <FolderOpen /> Add to project
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent className="max-h-72 w-52 overflow-y-auto">
+                                {projects.map((p) => (
+                                  <DropdownMenuItem
+                                    key={p.id}
+                                    onSelect={() => {
+                                      setNoMemory(false)
+                                      assignProject(p.id)
+                                    }}
+                                  >
+                                    <FolderOpen /> <span className="flex-1 truncate">{p.name}</span>
+                                    {activeProjectId === p.id && (
+                                      <Check className="h-3.5 w-3.5 text-primary" />
+                                    )}
+                                  </DropdownMenuItem>
+                                ))}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onSelect={() => setProjCreating(true)}>
+                                  <FolderPlus /> New project
+                                </DropdownMenuItem>
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                          ) : (
+                            <DropdownMenuItem onSelect={() => setProjCreating(true)}>
+                              <FolderPlus /> Add to project
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              closePanels()
+                              setSkillsOpen(true)
+                            }}
+                          >
+                            <Lightning /> Skills
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={(e) => {
+                              e.preventDefault()
+                              setToolsOn((t) => !t)
+                            }}
+                          >
+                            <Wrench /> <span className="flex-1">Tools</span>
+                            <span
+                              className={`text-xs ${toolsOn ? 'text-primary' : 'text-muted-foreground'}`}
+                            >
+                              {toolsOn ? 'On' : 'Off'}
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={(e) => {
+                              e.preventDefault()
+                              setConnectorsOn((t) => !t)
+                            }}
+                          >
+                            <Plug /> <span className="flex-1">Connectors</span>
+                            <span
+                              className={`text-xs ${connectorsOn ? 'text-primary' : 'text-muted-foreground'}`}
+                            >
+                              {connectorsOn ? 'On' : 'Off'}
+                            </span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      {/* Scope — Off Grid (default) or a project */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            title="Choose what this chat can draw on: your memory, nothing, or a project"
+                            className={`h-8 gap-1.5 rounded-full ${activeProjectId || (isPro && !noMemory) ? 'border-green-500 text-primary' : 'text-neutral-400'}`}
+                          >
+                            {activeProjectId ? (
+                              <FolderOpen className="h-3.5 w-3.5" />
+                            ) : (
+                              <Brain className="h-3.5 w-3.5" />
+                            )}
+                            <span className="max-w-[9rem] truncate">
+                              {activeProjectName ?? (noMemory ? 'No memory' : 'All memory')}
+                            </span>
+                            <CaretDown className="h-3 w-3 opacity-60" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="start"
+                          side="top"
+                          sideOffset={8}
+                          className="w-56"
                         >
-                          <Sparkles /> Generate image
-                        </DropdownMenuItem>
-                        {projects.length > 0 ? (
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                              <FolderOpen /> Add to project
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="max-h-72 w-52 overflow-y-auto">
+                          <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            Memory for this chat
+                          </DropdownMenuLabel>
+                          {isPro && (
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setNoMemory(false)
+                                assignProject(null)
+                              }}
+                            >
+                              <Brain />
+                              <span
+                                className={`flex-1 ${!activeProjectId && !noMemory ? 'text-primary' : ''}`}
+                              >
+                                All memory
+                              </span>
+                              {!activeProjectId && !noMemory && (
+                                <Check className="h-3.5 w-3.5 text-primary" />
+                              )}
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setNoMemory(true)
+                              assignProject(null)
+                            }}
+                          >
+                            <Prohibit />
+                            <span
+                              className={`flex-1 ${!activeProjectId && noMemory ? 'text-primary' : ''}`}
+                            >
+                              No memory{' '}
+                              <span className="text-[10px] text-muted-foreground">
+                                · plain chat
+                              </span>
+                            </span>
+                            {!activeProjectId && noMemory && (
+                              <Check className="h-3.5 w-3.5 text-primary" />
+                            )}
+                          </DropdownMenuItem>
+                          {projects.length > 0 && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                Project memory
+                              </DropdownMenuLabel>
                               {projects.map((p) => (
                                 <DropdownMenuItem
                                   key={p.id}
@@ -5326,276 +5518,235 @@ export function MemoryChat({
                                     assignProject(p.id)
                                   }}
                                 >
-                                  <FolderOpen /> <span className="flex-1 truncate">{p.name}</span>
+                                  <FolderOpen />
+                                  <span
+                                    className={`flex-1 truncate ${activeProjectId === p.id ? 'text-primary' : ''}`}
+                                  >
+                                    {p.name}
+                                  </span>
                                   {activeProjectId === p.id && (
                                     <Check className="h-3.5 w-3.5 text-primary" />
                                   )}
                                 </DropdownMenuItem>
                               ))}
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onSelect={() => setProjCreating(true)}>
-                                <FolderPlus /> New project
-                              </DropdownMenuItem>
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
-                        ) : (
+                            </>
+                          )}
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem onSelect={() => setProjCreating(true)}>
-                            <FolderPlus /> Add to project
+                            <FolderPlus /> New project
                           </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            closePanels()
-                            setSkillsOpen(true)
-                          }}
-                        >
-                          <Lightning /> Skills
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={(e) => {
-                            e.preventDefault()
-                            setToolsOn((t) => !t)
-                          }}
-                        >
-                          <Wrench /> <span className="flex-1">Tools</span>
-                          <span
-                            className={`text-xs ${toolsOn ? 'text-primary' : 'text-muted-foreground'}`}
-                          >
-                            {toolsOn ? 'On' : 'Off'}
-                          </span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={(e) => {
-                            e.preventDefault()
-                            setConnectorsOn((t) => !t)
-                          }}
-                        >
-                          <Plug /> <span className="flex-1">Connectors</span>
-                          <span
-                            className={`text-xs ${connectorsOn ? 'text-primary' : 'text-muted-foreground'}`}
-                          >
-                            {connectorsOn ? 'On' : 'Off'}
-                          </span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    {/* Scope — Off Grid (default) or a project */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          title="Choose what this chat can draw on: your memory, nothing, or a project"
-                          className={`h-8 gap-1.5 rounded-full ${activeProjectId || (isPro && !noMemory) ? 'border-green-500 text-primary' : 'text-neutral-400'}`}
-                        >
-                          {activeProjectId ? (
-                            <FolderOpen className="h-3.5 w-3.5" />
-                          ) : (
-                            <Brain className="h-3.5 w-3.5" />
-                          )}
-                          <span className="max-w-[9rem] truncate">
-                            {activeProjectName ?? (noMemory ? 'No memory' : 'All memory')}
-                          </span>
-                          <CaretDown className="h-3 w-3 opacity-60" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-56">
-                        <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Memory for this chat
-                        </DropdownMenuLabel>
-                        {isPro && (
-                          <DropdownMenuItem
-                            onSelect={() => {
-                              setNoMemory(false)
-                              assignProject(null)
-                            }}
-                          >
-                            <Brain />
-                            <span
-                              className={`flex-1 ${!activeProjectId && !noMemory ? 'text-primary' : ''}`}
-                            >
-                              All memory
-                            </span>
-                            {!activeProjectId && !noMemory && (
-                              <Check className="h-3.5 w-3.5 text-primary" />
-                            )}
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setNoMemory(true)
-                            assignProject(null)
-                          }}
-                        >
-                          <Prohibit />
-                          <span
-                            className={`flex-1 ${!activeProjectId && noMemory ? 'text-primary' : ''}`}
-                          >
-                            No memory{' '}
-                            <span className="text-[10px] text-muted-foreground">· plain chat</span>
-                          </span>
-                          {!activeProjectId && noMemory && (
-                            <Check className="h-3.5 w-3.5 text-primary" />
-                          )}
-                        </DropdownMenuItem>
-                        {projects.length > 0 && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                              Project memory
-                            </DropdownMenuLabel>
-                            {projects.map((p) => (
-                              <DropdownMenuItem
-                                key={p.id}
-                                onSelect={() => {
-                                  setNoMemory(false)
-                                  assignProject(p.id)
-                                }}
-                              >
-                                <FolderOpen />
-                                <span
-                                  className={`flex-1 truncate ${activeProjectId === p.id ? 'text-primary' : ''}`}
-                                >
-                                  {p.name}
-                                </span>
-                                {activeProjectId === p.id && (
-                                  <Check className="h-3.5 w-3.5 text-primary" />
-                                )}
-                              </DropdownMenuItem>
-                            ))}
-                          </>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => setProjCreating(true)}>
-                          <FolderPlus /> New project
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    {/* Active model + context window — click to change (opens the same
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      {/* Active model + context window — click to change (opens the same
                         ModelPicker as the header). Mirrors what the Active-models panel shows. */}
-                    {modelSummary.name && (
+                      {modelSummary.name && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setModelPickerOpen(true)}
+                              className="h-8 max-w-[14rem] gap-1.5 rounded-full text-neutral-400"
+                            >
+                              <Cpu className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">{modelSummary.name}</span>
+                              {modelSummary.ctx && (
+                                <span className="shrink-0 text-neutral-600">
+                                  · {modelSummary.ctx}
+                                </span>
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {`Active model: ${modelSummary.name}${
+                              modelSummary.ctx ? ` · ${modelSummary.ctx} context window` : ''
+                            }. Click to change.`}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => setModelPickerOpen(true)}
-                            className="h-8 max-w-[14rem] gap-1.5 rounded-full text-neutral-400"
+                            onClick={() => setThinkingEnabled((t) => !t)}
+                            className={`h-8 gap-1.5 rounded-full ${thinkingEnabled ? 'border-green-500 text-primary' : 'text-neutral-400'}`}
                           >
-                            <Cpu className="h-3.5 w-3.5 shrink-0" />
-                            <span className="truncate">{modelSummary.name}</span>
-                            {modelSummary.ctx && (
-                              <span className="shrink-0 text-neutral-600">
-                                · {modelSummary.ctx}
-                              </span>
-                            )}
+                            <Brain className="h-3.5 w-3.5" /> Thinking
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {`Active model: ${modelSummary.name}${
-                            modelSummary.ctx ? ` · ${modelSummary.ctx} context window` : ''
-                          }. Click to change.`}
+                          {thinkingEnabled
+                            ? 'Reasoning on — the model thinks step by step (slower)'
+                            : 'Reasoning off — direct answers (faster)'}
                         </TooltipContent>
                       </Tooltip>
-                    )}
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setThinkingEnabled((t) => !t)}
-                          className={`h-8 gap-1.5 rounded-full ${thinkingEnabled ? 'border-green-500 text-primary' : 'text-neutral-400'}`}
-                        >
-                          <Brain className="h-3.5 w-3.5" /> Thinking
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {thinkingEnabled
-                          ? 'Reasoning on — the model thinks step by step (slower)'
-                          : 'Reasoning off — direct answers (faster)'}
-                      </TooltipContent>
-                    </Tooltip>
-                    {/* Image toggle — always available; turning it on makes the next
+                      {/* Image toggle — always available; turning it on makes the next
                       prompt generate an image instead of a chat reply. */}
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const on = mode !== 'image'
-                            setMode(on ? 'image' : 'ask')
-                            if (!on) setShowImageOptions(false)
-                          }}
-                          className={`h-8 gap-1.5 rounded-full ${mode === 'image' ? 'border-green-500 text-primary' : 'text-neutral-400'}`}
-                        >
-                          <Sparkles className="h-3.5 w-3.5" /> Image
-                          {mode === 'image' && <X className="h-3.5 w-3.5 opacity-70" />}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {mode === 'image'
-                          ? 'Image mode on — your prompt generates an image (click to return to chat)'
-                          : 'Generate an image from your prompt'}
-                      </TooltipContent>
-                    </Tooltip>
-                    {mode === 'image' && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowImageOptions((o) => !o)}
-                        className={`h-8 gap-1.5 rounded-full ${showImageOptions ? 'text-primary' : ''}`}
-                      >
-                        <SlidersHorizontal className="h-3.5 w-3.5" /> Image options
-                      </Button>
-                    )}
-                    {queuedCount(queuedByConv, activeConversationId) > 0 && (
-                      <span className="flex h-8 items-center rounded-full border border-neutral-800 px-2.5 text-[11px] text-neutral-400">
-                        {queuedCount(queuedByConv, activeConversationId)} queued
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {!voiceMode && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             type="button"
                             variant="outline"
-                            size="icon"
-                            aria-label={recording ? 'Stop recording' : 'Record voice'}
-                            onClick={toggleRecording}
-                            disabled={transcribing}
-                            className={`size-8 ${recording ? 'border-red-500/50 text-red-400' : ''}`}
+                            size="sm"
+                            onClick={() => {
+                              const on = mode !== 'image'
+                              setMode(on ? 'image' : 'ask')
+                              if (!on) setShowImageOptions(false)
+                            }}
+                            className={`h-8 gap-1.5 rounded-full ${mode === 'image' ? 'border-green-500 text-primary' : 'text-neutral-400'}`}
                           >
-                            {transcribing ? (
-                              <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
+                            <Sparkles className="h-3.5 w-3.5" /> Image
+                            {mode === 'image' && <X className="h-3.5 w-3.5 opacity-70" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {mode === 'image'
+                            ? 'Image mode on — your prompt generates an image (click to return to chat)'
+                            : 'Generate an image from your prompt'}
+                        </TooltipContent>
+                      </Tooltip>
+                      {mode === 'image' && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowImageOptions((o) => !o)}
+                          className={`h-8 gap-1.5 rounded-full ${showImageOptions ? 'text-primary' : ''}`}
+                        >
+                          <SlidersHorizontal className="h-3.5 w-3.5" /> Image options
+                        </Button>
+                      )}
+                      {queuedCount(queuedByConv, activeConversationId) > 0 && (
+                        <span className="flex h-8 items-center rounded-full border border-neutral-800 px-2.5 text-[11px] text-neutral-400">
+                          {queuedCount(queuedByConv, activeConversationId)} queued
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {!voiceMode && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              aria-label={recording ? 'Stop recording' : 'Record voice'}
+                              onClick={toggleRecording}
+                              disabled={transcribing}
+                              className={`size-8 ${recording ? 'border-red-500/50 text-red-400' : ''}`}
+                            >
+                              {transcribing ? (
+                                <svg
+                                  className="h-4 w-4 animate-spin"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  />
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                  />
+                                </svg>
+                              ) : recording ? (
+                                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                                </svg>
+                              ) : (
+                                <svg
+                                  className="h-4 w-4"
+                                  fill="none"
                                   stroke="currentColor"
-                                  strokeWidth="4"
-                                />
-                                <path
-                                  className="opacity-75"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V5a4 4 0 018 0v6a4 4 0 01-4 4z"
+                                  />
+                                </svg>
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {recording ? 'Stop recording' : 'Record voice'}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {/* Stop shows for the WHOLE generating window — the pre-stream
+                        "Searching your memory…" phase as well as a live token stream —
+                        so an in-flight turn is always cancellable. Image gen has its own
+                        labeled Stop just below, so skip this icon in that mode. */}
+                      {!!activeConversationId &&
+                        generatingConvs.has(activeConversationId) &&
+                        !(loading && generatingImage) && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                aria-label="Stop generating"
+                                onClick={() => stopGeneration(activeConversationId)}
+                                className="size-8 rounded-full border-red-500/50 text-red-400 hover:bg-red-500/10"
+                              >
+                                <svg
+                                  className="h-3.5 w-3.5"
                                   fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                                />
-                              </svg>
-                            ) : recording ? (
-                              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                                <rect x="6" y="6" width="12" height="12" rx="2" />
-                              </svg>
-                            ) : (
+                                  viewBox="0 0 24 24"
+                                >
+                                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                                </svg>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Stop generating</TooltipContent>
+                          </Tooltip>
+                        )}
+                      {loading && generatingImage ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            stopGeneration(activeConversationId)
+                          }}
+                          className="h-8 gap-1.5 border-red-500/50 text-red-400 hover:bg-red-500/10"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                          </svg>
+                          Stop
+                        </Button>
+                      ) : voiceMode ? null : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              size="icon"
+                              onClick={() => sendMessage()}
+                              disabled={
+                                (!input.trim() && attachments.length === 0) ||
+                                attachments.some((a) => a.status === 'loading')
+                              }
+                              title={
+                                attachments.some((a) => a.status === 'loading')
+                                  ? 'Waiting for attachment to finish processing…'
+                                  : 'Send'
+                              }
+                              className="size-8 rounded-full"
+                            >
+                              {/* Always sendable — generating doesn't block; messages queue. */}
                               <svg
                                 className="h-4 w-4"
                                 fill="none"
@@ -5606,100 +5757,22 @@ export function MemoryChat({
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                   strokeWidth={2}
-                                  d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V5a4 4 0 018 0v6a4 4 0 01-4 4z"
+                                  d="M5 10l7-7m0 0l7 7m-7-7v18"
                                 />
-                              </svg>
-                            )}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {recording ? 'Stop recording' : 'Record voice'}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                    {/* Stop shows for the WHOLE generating window — the pre-stream
-                        "Searching your memory…" phase as well as a live token stream —
-                        so an in-flight turn is always cancellable. Image gen has its own
-                        labeled Stop just below, so skip this icon in that mode. */}
-                    {!!activeConversationId &&
-                      generatingConvs.has(activeConversationId) &&
-                      !(loading && generatingImage) && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              aria-label="Stop generating"
-                              onClick={() => stopGeneration(activeConversationId)}
-                              className="size-8 rounded-full border-red-500/50 text-red-400 hover:bg-red-500/10"
-                            >
-                              <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                <rect x="6" y="6" width="12" height="12" rx="2" />
                               </svg>
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Stop generating</TooltipContent>
+                          <TooltipContent>Send</TooltipContent>
                         </Tooltip>
                       )}
-                    {loading && generatingImage ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          stopGeneration(activeConversationId)
-                        }}
-                        className="h-8 gap-1.5 border-red-500/50 text-red-400 hover:bg-red-500/10"
-                      >
-                        <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
-                          <rect x="6" y="6" width="12" height="12" rx="2" />
-                        </svg>
-                        Stop
-                      </Button>
-                    ) : voiceMode ? null : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            size="icon"
-                            onClick={() => sendMessage()}
-                            disabled={
-                              (!input.trim() && attachments.length === 0) ||
-                              attachments.some((a) => a.status === 'loading')
-                            }
-                            title={
-                              attachments.some((a) => a.status === 'loading')
-                                ? 'Waiting for attachment to finish processing…'
-                                : 'Send'
-                            }
-                            className="size-8 rounded-full"
-                          >
-                            {/* Always sendable — generating doesn't block; messages queue. */}
-                            <svg
-                              className="h-4 w-4"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M5 10l7-7m0 0l7 7m-7-7v18"
-                              />
-                            </svg>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Send</TooltipContent>
-                      </Tooltip>
-                    )}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        </Panel>
+      </PanelGroup>
 
       {/* Canvas — sandboxed render of a model-generated artifact */}
       {canvasArtifact && (
@@ -5852,120 +5925,119 @@ export function MemoryChat({
       </AnimatePresence>
 
       {/* Gallery — everything generated on-device: images + artifacts */}
-      {showGallery && (
-        <>
-          <div className="fixed right-0 top-0 bottom-0 z-50 flex w-[30vw] min-w-[420px] flex-col border-l border-neutral-800 bg-neutral-950 font-mono shadow-2xl">
-            <div className="flex items-center justify-between border-b border-neutral-900 px-4 py-3">
-              <span className="text-sm text-neutral-200">Gallery</span>
+      <Dialog open={showGallery} onOpenChange={setShowGallery}>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            galleryTriggerRef.current?.focus()
+          }}
+          className="top-0 right-0 bottom-0 left-auto flex h-dvh w-[min(720px,92vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-neutral-800 bg-neutral-950 p-0 font-mono text-white shadow-none sm:max-w-none"
+        >
+          <DialogHeader className="space-y-0 border-b border-neutral-900 px-4 py-3 pr-12 text-left">
+            <DialogTitle className="text-sm font-normal text-neutral-200">Gallery</DialogTitle>
+            <DialogDescription className="sr-only">
+              Browse generated images and artifacts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-1 border-b border-neutral-900 px-3 py-2">
+            {(['images', 'artifacts'] as const).map((tab) => (
               <button
-                onClick={() => setShowGallery(false)}
-                className="text-neutral-500 transition-colors hover:text-neutral-200"
+                key={tab}
+                onClick={() => setGalleryTab(tab)}
+                className={`rounded px-3 py-1 text-xs capitalize transition-colors ${galleryTab === tab ? 'bg-neutral-800 text-green-500' : 'text-neutral-500 hover:text-neutral-300'}`}
               >
-                ✕
+                {tab} {tab === 'images' ? `(${gallery.length})` : `(${artifacts.length})`}
               </button>
-            </div>
-            <div className="flex items-center gap-1 border-b border-neutral-900 px-3 py-2">
-              {(['images', 'artifacts'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setGalleryTab(tab)}
-                  className={`rounded px-3 py-1 text-xs capitalize transition-colors ${galleryTab === tab ? 'bg-neutral-800 text-green-500' : 'text-neutral-500 hover:text-neutral-300'}`}
-                >
-                  {tab} {tab === 'images' ? `(${gallery.length})` : `(${artifacts.length})`}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 border-b border-neutral-900 px-3 py-1.5">
-              {(['chat', 'project', 'all'] as const).map((sc) => (
-                <button
-                  key={sc}
-                  onClick={() => setGalleryScope(sc)}
-                  disabled={sc === 'project' && !activeProjectId}
-                  className={`rounded px-2 py-0.5 text-[10px] capitalize transition-colors disabled:opacity-30 ${galleryScope === sc ? 'bg-neutral-800 text-green-500' : 'text-neutral-500 hover:text-neutral-300'}`}
-                >
-                  {sc === 'chat' ? 'This chat' : sc}
-                </button>
-              ))}
-            </div>
-            <div className="flex-1 overflow-y-auto p-3">
-              {galleryTab === 'images' ? (
-                gallery.length === 0 ? (
+            ))}
+          </div>
+          <div className="flex items-center gap-1 border-b border-neutral-900 px-3 py-1.5">
+            {(['chat', 'project', 'all'] as const).map((sc) => (
+              <button
+                key={sc}
+                onClick={() => setGalleryScope(sc)}
+                disabled={sc === 'project' && !activeProjectId}
+                className={`rounded px-2 py-0.5 text-[10px] capitalize transition-colors disabled:opacity-30 ${galleryScope === sc ? 'bg-neutral-800 text-green-500' : 'text-neutral-500 hover:text-neutral-300'}`}
+              >
+                {sc === 'chat' ? 'This chat' : sc}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 overflow-y-auto p-3">
+            {galleryTab === 'images' ? (
+              gallery.length === 0 ? (
+                <p className="py-10 text-center text-xs text-neutral-600">
+                  No images generated yet.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {gallery.map((g) => (
+                    <button
+                      key={g.path}
+                      onClick={() => setLightbox({ url: captureUrlForPath(g.path), path: g.path })}
+                      className="overflow-hidden rounded-md border border-neutral-800 transition-colors hover:border-green-500"
+                    >
+                      <img
+                        src={captureUrlForPath(g.path)}
+                        alt={g.name}
+                        className="aspect-square w-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : (
+              <>
+                {artifacts.length === 0 ? (
                   <p className="py-10 text-center text-xs text-neutral-600">
-                    No images generated yet.
+                    No artifacts in this {galleryScope === 'all' ? 'app' : galleryScope}.
                   </p>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {gallery.map((g) => (
-                      <button
-                        key={g.path}
-                        onClick={() =>
-                          setLightbox({ url: captureUrlForPath(g.path), path: g.path })
-                        }
-                        className="overflow-hidden rounded-md border border-neutral-800 transition-colors hover:border-green-500"
+                  <div className="flex flex-col gap-2">
+                    {artifacts.map((a) => (
+                      <div
+                        key={a.id}
+                        className="group flex items-center gap-2 rounded-md border border-neutral-800 p-2 transition-colors hover:border-green-500"
                       >
-                        <img
-                          src={captureUrlForPath(g.path)}
-                          alt={g.name}
-                          className="aspect-square w-full object-cover"
-                        />
-                      </button>
+                        <button
+                          onClick={() =>
+                            a.kind === 'image'
+                              ? (closePanels(),
+                                setLightbox({ url: captureUrlForPath(a.code), path: a.code }))
+                              : a.kind === 'text'
+                                ? (closePanels(), setViewer({ title: a.title, text: a.code }))
+                                : openCanvas({ kind: a.kind, code: a.code, title: a.title })
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        >
+                          {a.kind === 'image' ? (
+                            <img
+                              src={captureUrlForPath(a.code)}
+                              alt=""
+                              className="h-8 w-8 shrink-0 rounded-sm border border-neutral-800 object-cover"
+                            />
+                          ) : (
+                            <span className="rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-green-500">
+                              {a.kind === 'text' ? 'input' : a.kind}
+                            </span>
+                          )}
+                          <span className="truncate text-xs text-neutral-200">{a.title}</span>
+                        </button>
+                        <button
+                          onClick={() => deleteArtifact(a.id)}
+                          className="text-neutral-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                          title="Delete"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     ))}
                   </div>
-                )
-              ) : (
-                <>
-                  {artifacts.length === 0 ? (
-                    <p className="py-10 text-center text-xs text-neutral-600">
-                      No artifacts in this {galleryScope === 'all' ? 'app' : galleryScope}.
-                    </p>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {artifacts.map((a) => (
-                        <div
-                          key={a.id}
-                          className="group flex items-center gap-2 rounded-md border border-neutral-800 p-2 transition-colors hover:border-green-500"
-                        >
-                          <button
-                            onClick={() =>
-                              a.kind === 'image'
-                                ? (closePanels(),
-                                  setLightbox({ url: captureUrlForPath(a.code), path: a.code }))
-                                : a.kind === 'text'
-                                  ? (closePanels(), setViewer({ title: a.title, text: a.code }))
-                                  : openCanvas({ kind: a.kind, code: a.code, title: a.title })
-                            }
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          >
-                            {a.kind === 'image' ? (
-                              <img
-                                src={captureUrlForPath(a.code)}
-                                alt=""
-                                className="h-8 w-8 shrink-0 rounded-sm border border-neutral-800 object-cover"
-                              />
-                            ) : (
-                              <span className="rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-green-500">
-                                {a.kind === 'text' ? 'input' : a.kind}
-                              </span>
-                            )}
-                            <span className="truncate text-xs text-neutral-200">{a.title}</span>
-                          </button>
-                          <button
-                            onClick={() => deleteArtifact(a.id)}
-                            className="text-neutral-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-                            title="Delete"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+                )}
+              </>
+            )}
           </div>
-        </>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
