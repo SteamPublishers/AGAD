@@ -17,6 +17,21 @@ export interface ImageGenerationRequestContract {
   allowUnsafeMemoryOverride?: boolean
 }
 
+/** The canonical image result returned after optional local prompt enhancement. */
+export interface ImageGenerationOutputContract {
+  dataUrl: string
+  path: string
+  seed: number
+  model: string
+  /** The exact prompt sent to the image runtime. */
+  prompt: string
+}
+
+/** IPC adds the stable mesh identity owned by the main-process job service. */
+export interface ImageGenerationResultContract extends ImageGenerationOutputContract {
+  syncId: string
+}
+
 export interface ImageGenerationProgressContract {
   step: number
   total: number

@@ -23,6 +23,7 @@ import {
   isPromptEnhancementReasoningLabel,
   isPromptEnhancementStatus,
   isSupportingChatContext,
+  PROMPT_ENHANCEMENT_REASONING_LABEL,
   preprocessChatMarkdown,
   projectSyncedMessageTurn,
   type ProjectedSyncedTool,
@@ -182,6 +183,23 @@ type ChatMessage = {
   variantIndex?: number
   audioUrl?: string // voice-mode: recorded clip for a user voice note
   audioDuration?: number // seconds, when known from the recording
+}
+
+function completedImageMessage(
+  content: string,
+  requestedPrompt: string,
+  promptUsed?: string
+): Pick<ChatMessage, 'content' | 'reasoning' | 'reasoningLabel'> & { storedContent: string } {
+  const rewrittenPrompt = promptUsed?.trim()
+  if (!rewrittenPrompt || rewrittenPrompt === requestedPrompt.trim()) {
+    return { content, storedContent: content }
+  }
+  return {
+    content,
+    reasoning: rewrittenPrompt,
+    reasoningLabel: PROMPT_ENHANCEMENT_REASONING_LABEL,
+    storedContent: `<think>__LABEL:${PROMPT_ENHANCEMENT_REASONING_LABEL}__\n${rewrittenPrompt}</think>\n\n${content}`
+  }
 }
 
 type ChatMode = 'ask' | 'image'
@@ -3124,10 +3142,15 @@ export function MemoryChat({
               : (imageRequest.seed ?? (Number.isNaN(seedNum) ? -1 : seedNum)),
           model: typeof img.model === 'string' ? img.model : imageRequest.model
         }
+        const completedImage = completedImageMessage(
+          `Generated for: ${trimmed}`,
+          imageRequest.prompt,
+          img.prompt
+        )
         const assistantMessage: ChatMessage = {
           id: `a-${Date.now()}`,
           role: 'assistant',
-          content: `Generated for: ${trimmed}`,
+          ...completedImage,
           image: img.dataUrl,
           imagePath: img.path,
           imageMetadata
@@ -3137,7 +3160,7 @@ export function MemoryChat({
           const stored = await window.api.addRagMessage(
             convId,
             'assistant',
-            `Generated for: ${trimmed}`,
+            completedImage.storedContent,
             withGeneratedImageReference({ imageMetadata }, { id: img.syncId, path: img.path })
           )
           await announceImageMessagePersisted(convId, stored.uuid)
@@ -3285,12 +3308,17 @@ export function MemoryChat({
                   projectId: projectId
                 })
                 const imageContent = `Generated for: ${imageRequest.prompt}`
+                const completedImage = completedImageMessage(
+                  imageContent,
+                  imageRequest.prompt,
+                  img.prompt
+                )
                 let imageMessageId: string = crypto.randomUUID()
                 try {
                   const stored = await window.api.addRagMessage(
                     convId,
                     'assistant',
-                    imageContent,
+                    completedImage.storedContent,
                     withGeneratedImageReference(undefined, {
                       id: img.syncId,
                       path: img.path
@@ -3306,7 +3334,7 @@ export function MemoryChat({
                   {
                     id: imageMessageId,
                     role: 'assistant',
-                    content: imageContent,
+                    ...completedImage,
                     image: img.dataUrl,
                     imagePath: img.path
                   }
@@ -3387,12 +3415,17 @@ export function MemoryChat({
             conversationId: convId,
             projectId: projectId
           })
+          const completedImage = completedImageMessage(
+            `Generated: ${imgPrompt.slice(0, 80)}`,
+            imgPrompt,
+            img.prompt
+          )
           setConvMessages(convId, (prev) =>
             prev.map((m) =>
               m.id === streamId
                 ? {
                     ...m,
-                    content: `Generated: ${imgPrompt.slice(0, 80)}`,
+                    ...completedImage,
                     image: img.dataUrl,
                     imagePath: img.path
                   }
@@ -3403,7 +3436,7 @@ export function MemoryChat({
             const stored = await window.api.addRagMessage(
               convId,
               'assistant',
-              `Generated: ${imgPrompt.slice(0, 80)}`,
+              completedImage.storedContent,
               withGeneratedImageReference(undefined, { id: img.syncId, path: img.path })
             )
             await announceImageMessagePersisted(convId, stored.uuid)

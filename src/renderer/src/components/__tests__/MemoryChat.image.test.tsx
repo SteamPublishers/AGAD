@@ -70,6 +70,7 @@ type ImageResult = {
   syncId?: string
   seed?: number
   model?: string
+  prompt?: string
 }
 type ImageProgress = {
   phase: string
@@ -183,7 +184,8 @@ function installApi(opts: InstallApiOptions): InstalledApi {
       dataUrl: 'data:image/png;base64,AAAA',
       path: '/tmp/out.png',
       seed: payload.seed,
-      model: payload.model
+      model: payload.model,
+      prompt: payload.prompt
     }))
   const generateImage = vi.fn<(payload: GenPayload) => Promise<ImageResult>>(async (payload) => {
     const result = await generate(payload)
@@ -945,13 +947,28 @@ describe('<MemoryChat/> image and vision release journeys', () => {
     })
     expect(await screen.findByText('Step 4/10')).toBeTruthy()
 
-    turn.resolve({ dataUrl: 'data:image/png;base64,AAAA', path: '/generated/lighthouse.png' })
+    const enhancedPrompt =
+      'A cinematic lighthouse in a fierce winter storm, dramatic waves, cold blue light'
+    turn.resolve({
+      dataUrl: 'data:image/png;base64,AAAA',
+      path: '/generated/lighthouse.png',
+      prompt: enhancedPrompt
+    })
     const generated = await screen.findByAltText('Generated')
     const caption = await screen.findByText('Generated for: a lighthouse during a winter storm')
+    const disclosure = await screen.findByRole('button', { name: /enhanced prompt/i })
     expect(screen.getAllByAltText('Generated')).toHaveLength(1)
     expect(generated.className).toContain('w-full')
     expect(generated.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
       0
+    )
+    await user.click(disclosure)
+    expect(screen.getByText(enhancedPrompt)).toBeTruthy()
+    expect(boundary.addRagMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      'assistant',
+      expect.stringContaining(`__LABEL:Enhanced prompt__\n${enhancedPrompt}`),
+      expect.any(Object)
     )
 
     await user.click(generated)

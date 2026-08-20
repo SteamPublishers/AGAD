@@ -4,7 +4,8 @@ import type { ChatHome } from '@offgrid/sync'
 import {
   type ImageGenerationJobContract,
   type ImageGenerationProgressContract,
-  type ImageGenerationRequestContract
+  type ImageGenerationRequestContract,
+  type ImageGenerationResultContract
 } from '../../shared/image-generation-contract'
 import {
   cancelImageGen,
@@ -27,7 +28,7 @@ type JobListener = (snapshot: ImageGenerationJobContract) => void
 type ConversationListener = (conversationId: string) => void
 
 /** A finished image, and the name it answers to on every device. */
-export type ImageGenerationResult = ImageGenOutput & { syncId: string }
+export type ImageGenerationResult = ImageGenerationResultContract
 
 export interface ImageGenerationRuntime {
   generate(
@@ -150,7 +151,7 @@ export class ImageGenerationJobService {
             // phone reads `modelId`, so every image made here arrived with its model reading
             // "synced" and its steps reading 0.
             metadataJson: generatedImageMetadataJson({
-              prompt: request.prompt,
+              prompt: result.prompt,
               ...(request.negativePrompt === undefined
                 ? {}
                 : { negativePrompt: request.negativePrompt }),

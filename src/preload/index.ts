@@ -7,7 +7,10 @@ import {
   type RagChatResultContract,
   type SystemHealthContract
 } from '../shared/ipc-contracts'
-import type { ImageGenerationRequestContract } from '../shared/image-generation-contract'
+import type {
+  ImageGenerationRequestContract,
+  ImageGenerationResultContract
+} from '../shared/image-generation-contract'
 import {
   BACKUP_EXPORT_ALL_CHANNEL,
   BACKUP_IMPORT_CHANNEL,
@@ -584,7 +587,7 @@ const offGridApi = {
       conversationId?: string
       projectId?: string | null
     }
-  ) => ipcRenderer.invoke('imagegen:generate', params),
+  ) => ipcRenderer.invoke('imagegen:generate', params) as Promise<ImageGenerationResultContract>,
 
   // --- Projects + RAG (knowledge bases) + project chat ---
   listProjects: () => ipcRenderer.invoke('projects:list'),

@@ -55,6 +55,7 @@ import {
 import { IMAGE_CANCELLED_MESSAGE, ImageGenerationLifecycle } from './imagegen/generation-lifecycle'
 import {
   imageMemoryGuardErrorMessage,
+  type ImageGenerationOutputContract,
   type ImageGenerationRequestContract
 } from '../shared/image-generation-contract'
 
@@ -386,12 +387,10 @@ export function imageGenStatus(): {
 
 export type ImageGenParams = ImageGenerationRequestContract
 
-export interface ImageGenOutput {
-  dataUrl: string
-  path: string
-  seed: number
-  model: string
-}
+export type ImageGenOutput = ImageGenerationOutputContract
+
+/** Native runtimes receive the final prompt as input. The wrapper adds it to their output once. */
+type NativeImageGenOutput = Omit<ImageGenOutput, 'prompt'>
 
 export interface ImageGenProgress {
   step: number
@@ -523,7 +522,8 @@ export async function generateImage(
   const effective = enhanced === params.prompt ? params : { ...params, prompt: enhanced }
   // The queue evicts 'llm' before this runs AND re-warms it (mode-aware) when the
   // job finishes — so the image path no longer touches llm.pause/resume itself.
-  return modalityQueue.run(IMAGE_JOB, () => runImageGen(effective, onProgress))
+  const output = await modalityQueue.run(IMAGE_JOB, () => runImageGen(effective, onProgress))
+  return { ...output, prompt: effective.prompt }
 }
 
 /** Expand the user's prompt into a richer generation prompt via the local text
@@ -545,7 +545,7 @@ async function maybeEnhancePrompt(prompt: string): Promise<string> {
 async function runImageGen(
   params: ImageGenParams,
   onProgress?: (p: ImageGenProgress & { preview?: string }) => void
-): Promise<ImageGenOutput> {
+): Promise<NativeImageGenOutput> {
   if (generationLifecycle.isRunning()) {
     throw new Error('An image is already generating — please wait for it to finish.')
   }

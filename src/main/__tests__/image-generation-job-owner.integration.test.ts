@@ -141,7 +141,8 @@ describe('main-owned image generation job journeys', () => {
       dataUrl: 'data:image/png;base64,aW1hZ2U=',
       path: generatedFile('image.png'),
       seed: 91,
-      model: 'Local image model'
+      model: 'Local image model',
+      prompt: 'A detailed emerald cabin beneath a star-filled sky'
     }
     boundary.generation().succeed(output)
     await expect(generation).resolves.toEqual({ ...output, syncId: jobs.status().id })
@@ -171,7 +172,7 @@ describe('main-owned image generation job journeys', () => {
           // wire's field names drift on one platform without a single assertion noticing - which is
           // exactly what happened: the Mac wrote `model` and the phone only ever read `modelId`.
           metadataJson: generatedImageMetadataJson({
-            prompt: request.prompt,
+            prompt: output.prompt,
             steps: request.steps,
             seed: output.seed,
             modelId: output.model
@@ -246,7 +247,8 @@ describe('main-owned image generation job journeys', () => {
       dataUrl: 'data:image/png;base64,aW1hZ2U=',
       path: generatedFile('image-without-scope.png'),
       seed: 91,
-      model: 'Local image model'
+      model: 'Local image model',
+      prompt: request.prompt
     }
 
     boundary.generation().succeed(output)
@@ -269,7 +271,8 @@ describe('main-owned image generation job journeys', () => {
       dataUrl: 'data:image/png;base64,aW1hZ2U=',
       path: '',
       seed: -1,
-      model: 'Local image model'
+      model: 'Local image model',
+      prompt: 'An unscoped image'
     }
 
     boundary.generation().succeed(output)
