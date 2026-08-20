@@ -40,6 +40,15 @@ export interface ImageGenerationProgressContract {
   phase?: 'sampling' | 'decoding'
 }
 
+export type ImageGenerationJobStage = 'enhancing' | 'preparing' | 'generating' | 'decoding'
+
+/** One update shape for every operation in the image pipeline. */
+export interface ImageGenerationPipelineUpdateContract {
+  stage: ImageGenerationJobStage
+  enhancedPrompt?: string
+  progress?: ImageGenerationProgressContract | null
+}
+
 export type ImageGenerationJobPhase = 'idle' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 /** Main-owned image job state. Renderer mounts observe this snapshot; they never
@@ -49,6 +58,8 @@ export interface ImageGenerationJobContract {
   phase: ImageGenerationJobPhase
   conversationId: string | null
   projectId: string | null
+  stage: ImageGenerationJobStage | null
+  enhancedPrompt: string
   progress: ImageGenerationProgressContract | null
   outputPath: string | null
   error: string | null

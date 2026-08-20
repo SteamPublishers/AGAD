@@ -73,7 +73,7 @@ type ImageResult = {
   prompt?: string
 }
 type ImageProgress = {
-  phase: string
+  phase: 'sampling' | 'decoding'
   step: number
   total: number
   secPerStep: number
@@ -168,7 +168,7 @@ function installApi(opts: InstallApiOptions): InstalledApi {
   const conversations = [...(opts.conversations ?? [])]
   const messages = new Map<string, unknown[]>(Object.entries(opts.messages ?? {}))
   const generatedGallery: GalleryImage[] = []
-  let progress: ((value: ImageProgress) => void) | null = null
+  let activeImageConversation: string | null = null
   let jobStateCb: ((job: ImageGenerationJobContract) => void) | null = null
   let convUpdatedCb: ((conversationId: string) => void) | null = null
   let incomingFilesCb: ((files: IncomingSharedFile[]) => void) | null = null
@@ -188,6 +188,7 @@ function installApi(opts: InstallApiOptions): InstalledApi {
       prompt: payload.prompt
     }))
   const generateImage = vi.fn<(payload: GenPayload) => Promise<ImageResult>>(async (payload) => {
+    activeImageConversation = payload.conversationId ?? null
     const result = await generate(payload)
     generatedGallery.unshift({
       path: result.path,
@@ -249,12 +250,6 @@ function installApi(opts: InstallApiOptions): InstalledApi {
       active: opts.active
     })),
     cancelImageGen,
-    onImageGenProgress: vi.fn((callback: (value: ImageProgress) => void) => {
-      progress = callback
-      return () => {
-        progress = null
-      }
-    }),
     // --- main-owned image job (the reattach-on-remount path) ---
     imageGenJobStatus: vi.fn(
       async (): Promise<ImageGenerationJobContract> =>
@@ -263,6 +258,8 @@ function installApi(opts: InstallApiOptions): InstalledApi {
           phase: 'idle',
           conversationId: null,
           projectId: null,
+          stage: null,
+          enhancedPrompt: '',
           progress: null,
           outputPath: null,
           error: null,
@@ -339,7 +336,20 @@ function installApi(opts: InstallApiOptions): InstalledApi {
       incomingFilesCb?.(files)
     },
     emitProgress(value: ImageProgress): void {
-      progress?.(value)
+      if (!activeImageConversation) return
+      jobStateCb?.({
+        id: 'live-image-job',
+        phase: 'running',
+        conversationId: activeImageConversation,
+        projectId: null,
+        stage: value.phase === 'decoding' ? 'decoding' : 'generating',
+        enhancedPrompt: '',
+        progress: value,
+        outputPath: null,
+        error: null,
+        startedAt: 1,
+        finishedAt: null
+      })
     },
     emitConversationUpdated(conversationId: string): void {
       convUpdatedCb?.(conversationId)
@@ -617,6 +627,8 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
         phase: 'running',
         conversationId: 'c-img',
         projectId: null,
+        stage: 'generating',
+        enhancedPrompt: 'a glass observatory under an aurora',
         progress: { step: 3, total: 20, secPerStep: 1 },
         outputPath: null,
         error: null,
@@ -630,7 +642,7 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     // proving the remount re-derived the whole in-flight UI from main, not a blank screen.
     // Delete the markGenerating(...) call in the reattach observe() → generatingConvs stays empty
     // → this panel never renders → the test goes red (the "generated but UI didn't show it" bug).
-    expect(await screen.findByText('Step 3/20')).toBeTruthy()
+    expect(await screen.findByText('Generating image · Step 3/20')).toBeTruthy()
   })
 
   it('picking a different model in the dropdown routes through setActiveModalModel and reaches the payload', async () => {
@@ -945,10 +957,29 @@ describe('<MemoryChat/> image and vision release journeys', () => {
     await sendPrompt(user, 'a lighthouse during a winter storm')
     await waitFor(() => expect(boundary.generateImage).toHaveBeenCalledTimes(1))
 
+    const conversationId = boundary.generateImage.mock.calls[0]![0].conversationId!
     act(() => {
-      boundary.emitProgress({ phase: 'diffusion', step: 4, total: 10, secPerStep: 0.5 })
+      boundary.emitJobState({
+        id: 'live-image-job',
+        phase: 'running',
+        conversationId,
+        projectId: null,
+        stage: 'enhancing',
+        enhancedPrompt: 'A cinematic lighthouse in a fierce',
+        progress: null,
+        outputPath: null,
+        error: null,
+        startedAt: 1,
+        finishedAt: null
+      })
     })
-    expect(await screen.findByText('Step 4/10')).toBeTruthy()
+    expect(await screen.findByText('A cinematic lighthouse in a fierce')).toBeTruthy()
+    expect(screen.getByText('Enhancing prompt…')).toBeTruthy()
+
+    act(() => {
+      boundary.emitProgress({ phase: 'sampling', step: 4, total: 10, secPerStep: 0.5 })
+    })
+    expect(await screen.findByText('Generating image · Step 4/10')).toBeTruthy()
 
     const enhancedPrompt =
       'A cinematic lighthouse in a fierce winter storm, dramatic waves, cold blue light'
@@ -1051,12 +1082,12 @@ describe('<MemoryChat/> image and vision release journeys', () => {
     await waitFor(() => expect(boundary.generateImage).toHaveBeenCalledTimes(1))
     expect(boundary.generateImage.mock.calls[0]![0].conversationId).toBe('conversation-a')
     act(() => {
-      boundary.emitProgress({ phase: 'diffusion', step: 2, total: 8, secPerStep: 1 })
+      boundary.emitProgress({ phase: 'sampling', step: 2, total: 8, secPerStep: 1 })
     })
-    expect(await screen.findByText('Step 2/8')).toBeTruthy()
+    expect(await screen.findByText('Generating image · Step 2/8')).toBeTruthy()
 
     await user.click(screen.getByText('Conversation B'))
-    await waitFor(() => expect(screen.queryByText('Step 2/8')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('Generating image · Step 2/8')).toBeNull())
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
     expect(boundary.cancelImageGen).not.toHaveBeenCalled()
 

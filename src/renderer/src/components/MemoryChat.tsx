@@ -212,10 +212,17 @@ type ImageProgress = {
   phase?: 'sampling' | 'decoding'
 }
 
-function imageProgressLabel(progress: ImageProgress | null): string {
-  if (!progress) return 'Loading model…'
+function imageProgressLabel(
+  stage: ImageGenerationJobContract['stage'],
+  progress: ImageProgress | null
+): string {
+  if (stage === 'enhancing') return 'Enhancing prompt…'
+  if (stage === 'preparing') return 'Preparing image…'
+  if (!progress) return stage === 'decoding' ? 'Decoding image…' : 'Generating image…'
   const phase = progress.phase === 'decoding' ? 'Decoding' : 'Step'
-  return `${phase} ${progress.step}/${progress.total}`
+  return progress.phase === 'decoding'
+    ? `${phase} ${progress.step}/${progress.total}`
+    : `Generating image · ${phase} ${progress.step}/${progress.total}`
 }
 
 /**
@@ -2239,6 +2246,8 @@ export function MemoryChat({
   const [activeStyle, setActiveStyle] = useState<string | null>(null)
   const [styleThumbs, setStyleThumbs] = useState<Record<string, string>>({})
   const [imgProgress, setImgProgress] = useState<ImageProgress | null>(null)
+  const [imageJobStage, setImageJobStage] = useState<ImageGenerationJobContract['stage']>(null)
+  const [streamingEnhancedPrompt, setStreamingEnhancedPrompt] = useState('')
   // Which conversation currently owns the in-flight image generation (null = none).
   // Per-conversation so the image progress/warm-up UI shows ONLY in the conversation
   // that started it — a global bool bled the spinner + a Stop that cancels it into
@@ -2709,12 +2718,6 @@ export function MemoryChat({
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }))
   }, [messages, activeConversationId])
 
-  // Live per-step image generation progress (step counter + forming preview).
-  useEffect(() => {
-    const off = window.api.onImageGenProgress?.((p) => setImgProgress(p))
-    return () => off?.()
-  }, [])
-
   // Image jobs survive this component. Subscribe before reading the snapshot so a
   // navigation/remount cannot miss the transition between status and observation.
   // Cleanup only detaches observers; explicit Stop is the sole cancellation path.
@@ -2724,6 +2727,8 @@ export function MemoryChat({
       if (!live || !job.conversationId) return
       if (job.phase === 'running') {
         setImageGenConv(job.conversationId)
+        setImageJobStage(job.stage)
+        setStreamingEnhancedPrompt(job.enhancedPrompt)
         setImgProgress(job.progress)
         // Restore the SAME render gate the live-gen path sets (markGenerating). Without this a
         // remount mid-generation left imageGenConv set but generatingConvs empty, so the progress
@@ -2733,6 +2738,8 @@ export function MemoryChat({
         return
       }
       setImageGenConv((owner) => (owner === job.conversationId ? null : owner))
+      setImageJobStage(null)
+      setStreamingEnhancedPrompt('')
       setImgProgress(null)
       markGenerating(job.conversationId, false)
     }
@@ -4772,7 +4779,17 @@ export function MemoryChat({
                       </div>
                       {mode === 'image' || generatingImage ? (
                         <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
-                          {imgProgress?.preview ? (
+                          {imageJobStage === 'enhancing' ? (
+                            <div className="mb-2 min-h-28 w-80 rounded-md border border-neutral-800 p-3">
+                              <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-600">
+                                Enhanced prompt
+                              </div>
+                              <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">
+                                {streamingEnhancedPrompt || 'Starting…'}
+                                <span className="ml-0.5 inline-block h-3 w-px animate-pulse bg-green-500" />
+                              </p>
+                            </div>
+                          ) : imgProgress?.preview ? (
                             <img
                               src={imgProgress.preview}
                               alt="forming"
@@ -4780,11 +4797,11 @@ export function MemoryChat({
                             />
                           ) : (
                             <div className="mb-2 flex h-56 w-56 items-center justify-center rounded-md border border-neutral-800 text-[11px] text-neutral-600">
-                              warming up…
+                              Preparing image…
                             </div>
                           )}
                           <div className="flex items-center justify-between text-[11px] text-neutral-500">
-                            <span>{imageProgressLabel(imgProgress)}</span>
+                            <span>{imageProgressLabel(imageJobStage, imgProgress)}</span>
                             {imgProgress ? (
                               <span className="text-neutral-600">
                                 ~

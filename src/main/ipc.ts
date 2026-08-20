@@ -1730,7 +1730,6 @@ export function setupIPC() {
     for (const window of BrowserWindow.getAllWindows()) {
       if (window.isDestroyed()) continue
       window.webContents.send('imagegen:job-state', snapshot)
-      if (snapshot.progress) window.webContents.send('imagegen:progress', snapshot.progress)
     }
   }
   const imageConversationPublisher = (conversationId: string): void => {

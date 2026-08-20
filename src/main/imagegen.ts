@@ -55,6 +55,7 @@ import {
 import { IMAGE_CANCELLED_MESSAGE, ImageGenerationLifecycle } from './imagegen/generation-lifecycle'
 import {
   imageMemoryGuardErrorMessage,
+  type ImageGenerationPipelineUpdateContract,
   type ImageGenerationOutputContract,
   type ImageGenerationRequestContract
 } from '../shared/image-generation-contract'
@@ -513,16 +514,24 @@ export function cancelImageGen(): boolean {
  */
 export async function generateImage(
   params: ImageGenParams,
-  onProgress?: (p: ImageGenProgress & { preview?: string }) => void
+  onUpdate?: (update: ImageGenerationPipelineUpdateContract) => void
 ): Promise<ImageGenOutput> {
   // Prompt enhancement runs FIRST, while the chat model is still resident — the
   // image job below evicts the LLM, so the text pass must precede it. Gated by a
   // setting; failure/timeout silently keeps the original prompt.
-  const enhanced = await maybeEnhancePrompt(params.prompt)
+  const enhanced = await maybeEnhancePrompt(params.prompt, onUpdate)
   const effective = enhanced === params.prompt ? params : { ...params, prompt: enhanced }
+  onUpdate?.({ stage: 'preparing', enhancedPrompt: enhanced })
   // The queue evicts 'llm' before this runs AND re-warms it (mode-aware) when the
   // job finishes — so the image path no longer touches llm.pause/resume itself.
-  const output = await modalityQueue.run(IMAGE_JOB, () => runImageGen(effective, onProgress))
+  const output = await modalityQueue.run(IMAGE_JOB, () =>
+    runImageGen(effective, (progress) =>
+      onUpdate?.({
+        stage: progress.phase === 'decoding' ? 'decoding' : 'generating',
+        progress
+      })
+    )
+  )
   return { ...output, prompt: effective.prompt }
 }
 
@@ -530,14 +539,35 @@ export async function generateImage(
  *  model, when `enhanceImagePrompts` is on. Runs through the queue as a foreground
  *  text job (tier 2, evicts a resident image server) so it's serialized with chat.
  *  Any failure returns the original prompt unchanged — enhancement is best-effort. */
-async function maybeEnhancePrompt(prompt: string): Promise<string> {
+async function maybeEnhancePrompt(
+  prompt: string,
+  onUpdate?: (update: ImageGenerationPipelineUpdateContract) => void
+): Promise<string> {
+  const enabled = getSetting('enhanceImagePrompts', true)
+  if (enabled) onUpdate?.({ stage: 'enhancing', enhancedPrompt: '' })
+  let streamed = ''
   return enhancePrompt(prompt, {
-    enabled: getSetting('enhanceImagePrompts', true),
+    enabled,
+    onText: (text) => {
+      streamed += text
+      onUpdate?.({ stage: 'enhancing', enhancedPrompt: streamed })
+    },
     // Foreground text job (tier 2, evicts a resident image server), serialized with
     // chat. Runs while the chat model is still resident — the image job evicts it after.
-    chat: (instruction) =>
+    chat: (instruction, onText) =>
       modalityQueue.run(CHAT_JOB, () =>
-        llm.chat(instruction, [], 60_000, 200, { temperature: 0.7, disableThinking: true })
+        llm
+          .chatStream(
+            instruction,
+            [],
+            (text, kind) => {
+              if (kind === 'content') onText(text)
+            },
+            { temperature: 0.7, thinking: false },
+            200,
+            60_000
+          )
+          .then((result) => result.content)
       )
   })
 }
@@ -900,10 +930,14 @@ async function runImageGen(
       // Pure progress reducer owns the seed parse + the denoise->decode phase
       // transition; the shell only handles the preview PNG read + the callback.
       let progress = initialProgressState(seed)
+      let progressBuffer = ''
       const capture = (d: Buffer): void => {
         const s = d.toString()
         log += s
-        const { state, event } = reduceProgress(progress, s)
+        // Terminal progress lines can arrive across multiple data chunks. Keep a
+        // short rolling buffer so "12/" and "42" still become step 12 of 42.
+        progressBuffer = `${progressBuffer}${s}`.slice(-2048)
+        const { state, event } = reduceProgress(progress, progressBuffer, params.steps)
         progress = state
         if (onProgress && event) {
           let preview: string | undefined

@@ -539,28 +539,6 @@ const offGridApi = {
   deleteGeneratedImage: (p: string) => ipcRenderer.invoke('imagegen:delete', p),
   exportGeneratedImage: (srcPath: string, suggestedName?: string) =>
     ipcRenderer.invoke('imagegen:export', srcPath, suggestedName),
-  onImageGenProgress: (
-    cb: (p: {
-      step: number
-      total: number
-      secPerStep: number
-      preview?: string
-      phase?: 'sampling' | 'decoding'
-    }) => void
-  ) => {
-    const sub = (
-      _event: unknown,
-      p: {
-        step: number
-        total: number
-        secPerStep: number
-        preview?: string
-        phase?: 'sampling' | 'decoding'
-      }
-    ): void => cb(p)
-    ipcRenderer.on('imagegen:progress', sub)
-    return unsubscribe('imagegen:progress', sub)
-  },
   onImageGenJobState: (
     cb: (state: import('../shared/image-generation-contract').ImageGenerationJobContract) => void
   ) => {

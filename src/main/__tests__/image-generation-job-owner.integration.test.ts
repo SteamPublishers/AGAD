@@ -12,7 +12,10 @@ import {
   type ImageGenerationJobRequest,
   type ImageGenerationRuntime
 } from '../imagegen/job-service'
-import type { ImageGenerationProgressContract } from '../../shared/image-generation-contract'
+import type {
+  ImageGenerationPipelineUpdateContract,
+  ImageGenerationProgressContract
+} from '../../shared/image-generation-contract'
 import type { ImageGenOutput } from '../imagegen'
 import type { GeneratedImageSidecar } from '../imagegen/gallery-sidecar'
 import { generatedImageMetadataJson, type ChatHome } from '@offgrid/sync'
@@ -36,6 +39,7 @@ const generatedFile = (name: string): string => {
 afterAll(() => fs.rmSync(workspace, { recursive: true, force: true }))
 
 interface ControlledGeneration {
+  update(update: ImageGenerationPipelineUpdateContract): void
   progress(progress: ImageGenerationProgressContract): void
   succeed(output: ImageGenOutput): void
   fail(error: unknown): void
@@ -54,7 +58,7 @@ function controlledRuntime(
 } {
   let resolveGeneration: ((output: ImageGenOutput) => void) | null = null
   let rejectGeneration: ((error: unknown) => void) | null = null
-  let reportProgress: ((progress: ImageGenerationProgressContract) => void) | null = null
+  let reportUpdate: ((update: ImageGenerationPipelineUpdateContract) => void) | null = null
   const savedScopes: { path: string; scope: GeneratedImageSidecar }[] = []
   const sharedPaths: string[] = []
   const notedMessages: { path: string; shownIn: ChatHome }[] = []
@@ -62,8 +66,8 @@ function controlledRuntime(
 
   return {
     runtime: {
-      generate: (_request, onProgress) => {
-        reportProgress = onProgress
+      generate: (_request, onUpdate) => {
+        reportUpdate = onUpdate
         return new Promise<ImageGenOutput>((resolve, reject) => {
           resolveGeneration = resolve
           rejectGeneration = reject
@@ -90,7 +94,12 @@ function controlledRuntime(
       }
     },
     generation: () => ({
-      progress: (progress) => reportProgress?.(progress),
+      update: (update) => reportUpdate?.(update),
+      progress: (progress) =>
+        reportUpdate?.({
+          stage: progress.phase === 'decoding' ? 'decoding' : 'generating',
+          progress
+        }),
       succeed: (output) => resolveGeneration?.(output),
       fail: (error) => rejectGeneration?.(error)
     }),
@@ -129,7 +138,17 @@ describe('main-owned image generation job journeys', () => {
     })
     await expect(jobs.start(request)).rejects.toThrow('already generating')
 
+    boundary.generation().update({
+      stage: 'enhancing',
+      enhancedPrompt: 'A quiet observatory under'
+    })
+    expect(jobs.status()).toMatchObject({
+      stage: 'enhancing',
+      enhancedPrompt: 'A quiet observatory under'
+    })
+
     boundary.generation().progress({ step: 2, total: 4, secPerStep: 0.5, phase: 'sampling' })
+    expect(jobs.status().stage).toBe('generating')
     const progress = jobs.status().progress
     expect(progress).toEqual({ step: 2, total: 4, secPerStep: 0.5, phase: 'sampling' })
     if (progress) progress.step = 99

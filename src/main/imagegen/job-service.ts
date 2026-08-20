@@ -3,7 +3,7 @@ import { generatedImageMetadataJson } from '@offgrid/sync'
 import type { ChatHome } from '@offgrid/sync'
 import {
   type ImageGenerationJobContract,
-  type ImageGenerationProgressContract,
+  type ImageGenerationPipelineUpdateContract,
   type ImageGenerationRequestContract,
   type ImageGenerationResultContract
 } from '../../shared/image-generation-contract'
@@ -33,7 +33,7 @@ export type ImageGenerationResult = ImageGenerationResultContract
 export interface ImageGenerationRuntime {
   generate(
     request: ImageGenerationJobRequest,
-    onProgress: (progress: ImageGenerationProgressContract) => void
+    onUpdate: (update: ImageGenerationPipelineUpdateContract) => void
   ): Promise<ImageGenOutput>
   cancel(): boolean
   /** The scope, not the whole request: the sidecar owns these facts and nothing else here. */
@@ -47,7 +47,7 @@ export interface ImageGenerationRuntime {
 }
 
 const nativeImageGenerationRuntime: ImageGenerationRuntime = {
-  generate: (request, onProgress) => generateImage(request, onProgress),
+  generate: (request, onUpdate) => generateImage(request, onUpdate),
   cancel: () => cancelImageGen(),
   saveScope: (path, facts) => saveGeneratedImageScope(path, facts),
   share: (path) => shareGeneratedImage(path),
@@ -60,6 +60,8 @@ const idleSnapshot = (): ImageGenerationJobContract => ({
   phase: 'idle',
   conversationId: null,
   projectId: null,
+  stage: null,
+  enhancedPrompt: '',
   progress: null,
   outputPath: null,
   error: null,
@@ -108,6 +110,8 @@ export class ImageGenerationJobService {
       phase: 'running',
       conversationId: request.conversationId ?? null,
       projectId: request.projectId ?? null,
+      stage: 'enhancing',
+      enhancedPrompt: '',
       progress: null,
       outputPath: null,
       error: null,
@@ -125,9 +129,7 @@ export class ImageGenerationJobService {
     )
 
     try {
-      const result = await this.runtime.generate(request, (progress) =>
-        this.updateProgress(id, progress)
-      )
+      const result = await this.runtime.generate(request, (update) => this.update(id, update))
       // Always, not only inside a chat. The syncId is what this image is called on the mesh, so an
       // image made from the tool loop or the gateway needs one exactly as much as one made in a
       // conversation; without it the gallery and the file record name the same picture differently.
@@ -173,6 +175,7 @@ export class ImageGenerationJobService {
       this.snapshot = {
         ...this.snapshot,
         phase: 'succeeded',
+        stage: null,
         outputPath: result.path,
         progress: null,
         finishedAt: Date.now()
@@ -190,6 +193,7 @@ export class ImageGenerationJobService {
       this.snapshot = {
         ...this.snapshot,
         phase: cancelled ? 'cancelled' : 'failed',
+        stage: null,
         error: message,
         progress: null,
         finishedAt: Date.now()
@@ -211,6 +215,7 @@ export class ImageGenerationJobService {
     this.snapshot = {
       ...this.snapshot,
       phase: 'cancelled',
+      stage: null,
       progress: null,
       finishedAt: Date.now()
     }
@@ -252,9 +257,14 @@ export class ImageGenerationJobService {
     return true
   }
 
-  private updateProgress(id: string, progress: ImageGenerationProgressContract): void {
+  private update(id: string, update: ImageGenerationPipelineUpdateContract): void {
     if (this.snapshot.id !== id || this.snapshot.phase !== 'running') return
-    this.snapshot = { ...this.snapshot, progress: { ...progress } }
+    this.snapshot = {
+      ...this.snapshot,
+      stage: update.stage,
+      ...(update.enhancedPrompt === undefined ? {} : { enhancedPrompt: update.enhancedPrompt }),
+      progress: update.progress === undefined ? this.snapshot.progress : update.progress
+    }
     this.publish()
   }
 
