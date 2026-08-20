@@ -28,6 +28,38 @@ afterAll(() => {
 })
 
 describe('device-transferred model registration', () => {
+  it('registers a valid vision variant whose files differ from the download catalog', async () => {
+    const primary = 'Qwen3.5-0.8B-Q4_0.gguf'
+    const projector = 'qwen3.5-0.8b-mmproj-F16.gguf'
+    const primaryBytes = validGguf(3)
+    const projectorBytes = validGguf(4)
+    fs.writeFileSync(path.join(dataDir, 'models', primary), primaryBytes)
+    fs.writeFileSync(path.join(dataDir, 'models', projector), projectorBytes)
+
+    const result = await manager.registerTransferredModel({
+      id: 'unsloth/Qwen3.5-0.8B-GGUF',
+      name: 'Qwen3.5 0.8B',
+      kind: 'vision',
+      source: 'downloaded',
+      files: [
+        { name: primary, sizeBytes: primaryBytes.length },
+        { name: projector, sizeBytes: projectorBytes.length }
+      ]
+    })
+
+    expect(result).toEqual({ success: true, id: 'unsloth/Qwen3.5-0.8B-GGUF' })
+    expect(await manager.listInstalled()).toContain('unsloth/Qwen3.5-0.8B-GGUF')
+    expect(await manager.getTransferableModel('unsloth/Qwen3.5-0.8B-GGUF')).toMatchObject({
+      id: 'unsloth/Qwen3.5-0.8B-GGUF',
+      kind: 'vision',
+      source: 'downloaded',
+      files: [
+        { name: primary, sizeBytes: primaryBytes.length },
+        { name: projector, sizeBytes: projectorBytes.length }
+      ]
+    })
+  })
+
   it('registers a verified multi-file model through the production catalog owner', async () => {
     const primary = 'shared-model-q4.gguf'
     const projector = 'mmproj-shared-model-f16.gguf'

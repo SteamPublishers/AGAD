@@ -793,10 +793,12 @@ export async function registerTransferredModel(
   if (catalog) {
     const expected = new Set(catalog.files.map((file) => file.name))
     const received = new Set(manifest.files.map((file) => file.name))
-    if (expected.size !== received.size || [...expected].some((name) => !received.has(name))) {
-      return { success: false, error: 'transferred catalog model files do not match the catalog' }
+    if (expected.size === received.size && [...expected].every((name) => received.has(name))) {
+      return { success: true, id: manifest.id }
     }
-    return { success: true, id: manifest.id }
+    // A catalog id can have several valid quantizations and projector variants. The sender's
+    // manifest owns the exact installed files; the catalog owns only its download variant.
+    // Register a verified alternate variant below so it remains installed and transferable.
   }
 
   if (manifest.source === 'local') {
