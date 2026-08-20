@@ -479,7 +479,10 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     expect(historyPanel).not.toBeNull()
     expect(historyPanel?.dataset.panelSize).toBe('20.0')
     expect(historyPanel?.querySelector('.w-64')).toBeNull()
-    expect(screen.getByTitle('Collapse sidebar (full-screen chat)')).toBeTruthy()
+    expect(
+      historyPanel?.querySelector('[aria-label="Collapse conversation list"]')
+    ).not.toBeNull()
+    expect(screen.queryByTitle('Show conversations')).toBeNull()
   })
 
   it('carries the USER-typed steps (10), not the model default (28), and the picked model', async () => {
