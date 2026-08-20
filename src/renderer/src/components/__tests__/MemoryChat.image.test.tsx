@@ -103,6 +103,7 @@ type InstallApiOptions = {
   active: string
   models: string[]
   settings?: Record<string, unknown>
+  styleThumbs?: Record<string, string>
   conversations?: TestConversation[]
   generate?: (payload: GenPayload) => Promise<ImageResult>
   chatVision?: boolean
@@ -307,7 +308,7 @@ function installApi(opts: InstallApiOptions): InstalledApi {
     listProjects: vi.fn(async () => []),
     listArtifacts: vi.fn(async () => []),
     listGeneratedImages,
-    styleThumbs: vi.fn(async () => ({})),
+    styleThumbs: vi.fn(async () => ({ ...(opts.styleThumbs ?? {}) })),
     listSkills: vi.fn(async () => []),
     onRagStream: vi.fn(() => () => {}),
     chatVisionAvailable,
@@ -406,6 +407,64 @@ describe('<MemoryChat/> image mode — the generateImage payload is the terminal
     renderChat({ openGallery: true })
     expect(await screen.findByRole('dialog', { name: 'Gallery' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /^images/i })).toBeTruthy()
+  })
+
+  it('shows bundled style previews without a runtime generation control', async () => {
+    const user = userEvent.setup()
+    installApi({
+      active: FULL,
+      models: [FULL],
+      styleThumbs: {
+        Photoreal: '/app/resources/style-thumbs/Photoreal.png',
+        Cinematic: '/app/resources/style-thumbs/Cinematic.png'
+      }
+    })
+    renderChat()
+
+    await openImageComposer(user)
+
+    expect((await screen.findByAltText('Photoreal')).getAttribute('src')).toBe(
+      'ogcapture:///app/resources/style-thumbs/Photoreal.png'
+    )
+    expect((await screen.findByAltText('Cinematic')).getAttribute('src')).toBe(
+      'ogcapture:///app/resources/style-thumbs/Cinematic.png'
+    )
+    expect(screen.queryByRole('button', { name: /generate previews/i })).toBeNull()
+  })
+
+  it('shows the same style previews inline when Image is opened in an existing chat', async () => {
+    const user = userEvent.setup()
+    const conv: TestConversation = {
+      id: 'existing-image-chat',
+      title: 'Existing image chat',
+      project_id: null,
+      created_at: '2026-07-17T00:00:00.000Z',
+      updated_at: '2026-07-17T00:00:00.000Z',
+      message_count: 1
+    }
+    installApi({
+      active: FULL,
+      models: [FULL],
+      conversations: [conv],
+      messages: {
+        [conv.id]: [{ id: 1, role: 'user', content: 'Draw a dog' }]
+      },
+      styleThumbs: {
+        Photoreal: '/app/resources/style-thumbs/Photoreal.png',
+        Cinematic: '/app/resources/style-thumbs/Cinematic.png'
+      }
+    })
+    renderChat({ conversationId: conv.id })
+
+    expect(await screen.findByText('Draw a dog')).toBeTruthy()
+    await openImageComposer(user)
+
+    expect((await screen.findByAltText('Photoreal')).getAttribute('src')).toBe(
+      'ogcapture:///app/resources/style-thumbs/Photoreal.png'
+    )
+    expect((await screen.findByAltText('Cinematic')).getAttribute('src')).toBe(
+      'ogcapture:///app/resources/style-thumbs/Cinematic.png'
+    )
   })
 
   it('reloads a received image while Gallery is open, then Escape restores trigger focus', async () => {

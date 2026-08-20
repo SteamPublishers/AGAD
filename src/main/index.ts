@@ -47,6 +47,7 @@ import { guardConsoleStreams } from './stream-guards'
 import { PRODUCT_NAME } from '../shared/product-identity'
 import { installMediaPermissionHandler } from './media-permission'
 import { localMediaRoots } from './media-roots'
+import { resourceDirs } from './runtime-env'
 import { beginProductIdentityBootstrap } from './product-identity-lifecycle'
 import { repairMissingDefaultKeychainAtBootstrap } from './secure-storage-bootstrap'
 import {
@@ -76,10 +77,7 @@ const secureStorageBootstrap = repairMissingDefaultKeychainAtBootstrap(
 )
 if (secureStorageBootstrap?.status === 'repaired') {
   console.warn(`[secure-storage] ${secureStorageBootstrap.detail}`)
-} else if (
-  secureStorageBootstrap &&
-  secureStorageBootstrap.status !== 'healthy'
-) {
+} else if (secureStorageBootstrap && secureStorageBootstrap.status !== 'healthy') {
   console.error(`[secure-storage] ${secureStorageBootstrap.detail}`)
 }
 
@@ -313,7 +311,7 @@ app.whenReady().then(async () => {
   // NOTE: keep this in sync with the dirs the renderer requests over ogcapture://.
   // 'generated-images' + 'style-thumbs' were missing, so every image-gen output and
   // every style-picker thumbnail 403'd and rendered as a broken image.
-  const ogCaptureRoots = localMediaRoots(app.getPath('userData'))
+  const ogCaptureRoots = localMediaRoots(app.getPath('userData'), resourceDirs())
   protocol.handle('ogcapture', async (request) => {
     try {
       // Parsed, not sliced: a Windows drive letter lands in the URL's host and loses its colon, so

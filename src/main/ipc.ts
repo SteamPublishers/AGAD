@@ -1804,10 +1804,6 @@ export function setupIPC() {
     const { listStyleThumbs } = await import('./imagegen')
     return listStyleThumbs()
   })
-  ipcMain.handle('imagegen:make-style-thumb', async (_e, key: string, prompt: string) => {
-    const { generateStyleThumb } = await import('./imagegen')
-    return generateStyleThumb(key, prompt)
-  })
   ipcMain.handle('imagegen:list-loras', async () => {
     const { listLoras } = await import('./imagegen')
     return listLoras()

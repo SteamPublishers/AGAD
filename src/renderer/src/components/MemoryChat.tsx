@@ -1906,110 +1906,145 @@ const IMAGE_EXAMPLES = [
   'Studio portrait of a husky, soft lighting'
 ]
 
-// Gemini-style visual style presets — pick one, then describe the subject; the
-// style text is appended to the prompt. `swatch` = a characteristic gradient so
-// the gallery is pictorial (no bundled images needed).
-// `prompt` = style modifier appended to the user's subject when generating.
-// `preview` = the subject used for the on-device style-thumbnail (varied per
-// style so the grid showcases the style, not a gallery of faces).
-const STYLE_PRESETS: { name: string; prompt: string; preview: string; swatch: string }[] = [
+// Visual style presets. The prompt modifier and bundled preview share this key.
+const STYLE_PRESETS: { name: string; prompt: string }[] = [
   {
     name: 'Photoreal',
-    prompt: 'photorealistic, sharp focus, high detail, 50mm photo',
-    preview: 'a red fox standing in a misty forest',
-    swatch: 'from-stone-400 to-stone-600'
+    prompt: 'photorealistic, sharp focus, high detail, 50mm photo'
   },
   {
     name: 'Cinematic',
-    prompt: 'cinematic film still, dramatic lighting, shallow depth of field, color graded',
-    preview: 'a lone car on a coastal highway at sunset',
-    swatch: 'from-orange-800 via-neutral-800 to-teal-800'
+    prompt: 'cinematic film still, dramatic lighting, shallow depth of field, color graded'
   },
   {
     name: 'Anime',
-    prompt: 'anime illustration, clean lineart, vibrant colors',
-    preview: 'a bustling futuristic city street with cherry blossoms',
-    swatch: 'from-pink-400 via-purple-400 to-sky-400'
+    prompt: 'anime illustration, clean lineart, vibrant colors'
   },
   {
     name: 'Sketch',
-    prompt: 'detailed pencil sketch on paper, monochrome line art',
-    preview: 'an old european cathedral',
-    swatch: 'from-neutral-300 to-neutral-500'
+    prompt: 'detailed pencil sketch on paper, monochrome line art'
   },
   {
     name: 'Watercolor',
-    prompt: 'watercolor painting, soft washes, paper texture',
-    preview: 'a serene mountain lake with pine trees',
-    swatch: 'from-rose-300 via-sky-200 to-emerald-300'
+    prompt: 'watercolor painting, soft washes, paper texture'
   },
   {
     name: 'Oil painting',
-    prompt: 'oil painting, visible brushstrokes, classical, rich color',
-    preview: 'a still life of fruit and a wine bottle on a table',
-    swatch: 'from-amber-700 via-red-800 to-yellow-700'
+    prompt: 'oil painting, visible brushstrokes, classical, rich color'
   },
   {
     name: 'Monochrome',
-    prompt: 'black and white, high contrast, monochrome',
-    preview: 'a rainy city street with umbrellas',
-    swatch: 'from-neutral-900 to-neutral-500'
+    prompt: 'black and white, high contrast, monochrome'
   },
   {
     name: 'Neon',
-    prompt: 'neon-lit cyberpunk, glowing lights, night, moody',
-    preview: 'a rain-soaked alley in a cyberpunk city',
-    swatch: 'from-fuchsia-600 via-purple-700 to-cyan-500'
+    prompt: 'neon-lit cyberpunk, glowing lights, night, moody'
   },
   {
     name: '3D render',
-    prompt: '3D render, octane, soft studio lighting, subsurface detail',
-    preview: 'a cute friendly robot character',
-    swatch: 'from-slate-300 via-slate-500 to-slate-700'
+    prompt: '3D render, octane, soft studio lighting, subsurface detail'
   },
   {
     name: 'Steampunk',
-    prompt: 'steampunk, brass and gears, victorian, intricate',
-    preview: 'a flying steampunk airship above the clouds',
-    swatch: 'from-amber-800 via-yellow-900 to-stone-700'
+    prompt: 'steampunk, brass and gears, victorian, intricate'
   },
   {
     name: 'Surreal',
-    prompt: 'surreal, dreamlike, imaginative composition',
-    preview: 'floating islands with waterfalls in a dreamlike sky',
-    swatch: 'from-indigo-500 via-fuchsia-500 to-amber-400'
+    prompt: 'surreal, dreamlike, imaginative composition'
   },
   {
     name: 'Vintage film',
-    prompt: 'vintage film photograph, faded colors, grain, 1970s',
-    preview: 'a vintage convertible car on a desert road',
-    swatch: 'from-amber-300 via-orange-300 to-rose-300'
+    prompt: 'vintage film photograph, faded colors, grain, 1970s'
   },
   {
     name: 'Minimal',
-    prompt: 'minimal flat design, clean, simple shapes, lots of negative space',
-    preview: 'a single sailboat on calm water',
-    swatch: 'from-neutral-100 to-neutral-300'
+    prompt: 'minimal flat design, clean, simple shapes, lots of negative space'
   },
   {
     name: 'Risograph',
-    prompt: 'risograph print, halftone texture, limited palette',
-    preview: 'a bicycle leaning against a wall',
-    swatch: 'from-pink-500 via-yellow-400 to-blue-500'
+    prompt: 'risograph print, halftone texture, limited palette'
   },
   {
     name: 'Fantasy art',
-    prompt: 'epic fantasy concept art, dramatic, highly detailed',
-    preview: 'a majestic dragon perched on a mountain peak',
-    swatch: 'from-purple-800 via-indigo-700 to-amber-600'
+    prompt: 'epic fantasy concept art, dramatic, highly detailed'
   },
   {
     name: 'Studio portrait',
-    prompt: 'studio portrait, soft key light, bokeh background',
-    preview: 'a golden retriever dog',
-    swatch: 'from-neutral-600 via-neutral-800 to-neutral-900'
+    prompt: 'studio portrait, soft key light, bokeh background'
   }
 ]
+
+function styleKey(name: string): string {
+  return name.replace(/[^\w-]+/g, '_')
+}
+
+function StylePresetPicker({
+  activeStyle,
+  compact = false,
+  styleThumbs,
+  onChange
+}: Readonly<{
+  activeStyle: string | null
+  compact?: boolean
+  styleThumbs: Record<string, string>
+  onChange: (style: string | null) => void
+}>): React.JSX.Element {
+  return (
+    <div className={compact ? 'mb-2 w-full' : 'mt-4 w-full'}>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-wider text-neutral-600">Style</span>
+        {activeStyle ? (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-[10px] text-neutral-600 transition-colors hover:text-neutral-300"
+          >
+            Clear {activeStyle}
+          </button>
+        ) : null}
+      </div>
+      <div
+        className={`grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4 ${compact ? 'lg:grid-cols-8' : ''}`}
+      >
+        {STYLE_PRESETS.map((style) => {
+          const thumb = styleThumbs[styleKey(style.name)]
+          const selected = activeStyle === style.name
+          return (
+            <button
+              key={style.name}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(selected ? null : style.name)}
+              className={`group relative aspect-[16/9] overflow-hidden rounded-md border transition-all ${
+                selected
+                  ? 'border-green-500 ring-1 ring-green-500'
+                  : 'border-neutral-800 hover:border-neutral-600'
+              }`}
+            >
+              {thumb ? (
+                <img
+                  src={captureUrlForPath(thumb)}
+                  alt={style.name}
+                  className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                />
+              ) : (
+                <span className="absolute inset-0 bg-neutral-900" />
+              )}
+              <span className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1.5 text-left text-[11px] font-medium text-white">
+                {style.name}
+              </span>
+              {selected ? (
+                <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-neutral-950">
+                  <Check className="h-3 w-3" weight="bold" />
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 const NEW_CHAT = '__new__' // bucket key for a fresh, not-yet-saved conversation
 const EMPTY_MSGS: ChatMessage[] = []
@@ -2185,7 +2220,6 @@ export function MemoryChat({
   const [imgParamStore, setImgParamStore] = useState<ImageParamStore>({})
   const [activeStyle, setActiveStyle] = useState<string | null>(null)
   const [styleThumbs, setStyleThumbs] = useState<Record<string, string>>({})
-  const [genThumbsBusy, setGenThumbsBusy] = useState(false)
   const [imgProgress, setImgProgress] = useState<ImageProgress | null>(null)
   // Which conversation currently owns the in-flight image generation (null = none).
   // Per-conversation so the image progress/warm-up UI shows ONLY in the conversation
@@ -2525,29 +2559,6 @@ export function MemoryChat({
       .then((t: Record<string, string>) => setStyleThumbs(t))
       .catch(() => {})
   }, [])
-
-  const styleKey = (name: string): string => name.replace(/[^\w-]+/g, '_')
-
-  // Generate on-device preview thumbnails for any styles that don't have one yet.
-  const generateStylePreviews = useCallback(async () => {
-    if (genThumbsBusy) return
-    setGenThumbsBusy(true)
-    try {
-      for (const s of STYLE_PRESETS) {
-        const k = styleKey(s.name)
-        if (styleThumbs[k]) continue
-        try {
-          await window.api.makeStyleThumb?.(s.name, `${s.preview}, ${s.prompt}`)
-          const refreshed = await window.api.styleThumbs?.()
-          if (refreshed) setStyleThumbs(refreshed)
-        } catch (e) {
-          console.error('style thumb failed', s.name, e)
-        }
-      }
-    } finally {
-      setGenThumbsBusy(false)
-    }
-  }, [genThumbsBusy, styleThumbs])
 
   // Resolve the size + steps controls for the current model: a per-model user
   // OVERRIDE (persisted in imgParamStore) wins; otherwise fall back to the model's
@@ -4667,72 +4678,11 @@ export function MemoryChat({
                           : 'Ask anything, generate images, or build — all on-device.'}
                   </p>
                   {mode === 'image' ? (
-                    <div className="mt-4 w-full">
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-[10px] uppercase tracking-wider text-neutral-600">
-                          Style
-                        </span>
-                        {Object.keys(styleThumbs).length < STYLE_PRESETS.length && (
-                          <button
-                            onClick={generateStylePreviews}
-                            disabled={genThumbsBusy}
-                            className="text-[10px] text-neutral-500 transition-colors hover:text-green-500 disabled:opacity-50"
-                          >
-                            {genThumbsBusy ? 'Generating previews…' : 'Generate previews'}
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4">
-                        {STYLE_PRESETS.map((s) => {
-                          const thumb = styleThumbs[styleKey(s.name)]
-                          return (
-                            <button
-                              key={s.name}
-                              onClick={() =>
-                                setActiveStyle((cur) => (cur === s.name ? null : s.name))
-                              }
-                              className={`group relative aspect-[16/9] overflow-hidden rounded-md border transition-all ${
-                                activeStyle === s.name
-                                  ? 'border-green-500 ring-1 ring-green-500'
-                                  : 'border-neutral-800 hover:border-neutral-600'
-                              }`}
-                            >
-                              {thumb ? (
-                                <img
-                                  src={captureUrlForPath(thumb)}
-                                  alt={s.name}
-                                  className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                />
-                              ) : (
-                                <span
-                                  className={`absolute inset-0 bg-gradient-to-br ${s.swatch} transition-transform duration-300 group-hover:scale-105`}
-                                />
-                              )}
-                              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-left text-[11px] font-medium text-white">
-                                {s.name}
-                              </span>
-                              {activeStyle === s.name && (
-                                <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-neutral-950">
-                                  <svg
-                                    className="h-3 w-3"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={3}
-                                      d="M5 13l4 4L19 7"
-                                    />
-                                  </svg>
-                                </span>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
+                    <StylePresetPicker
+                      activeStyle={activeStyle}
+                      styleThumbs={styleThumbs}
+                      onChange={setActiveStyle}
+                    />
                   ) : (
                     <div className="mt-6 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
                       {examples.map((ex) => (
@@ -4973,21 +4923,14 @@ export function MemoryChat({
                   </div>
                 )}
 
-                {/* Active style chip (image mode) */}
-                {mode === 'image' && activeStyle && (
-                  <div className="mb-2 flex items-center gap-2 text-[11px] text-neutral-500">
-                    <span>Style</span>
-                    <span className="rounded-md border border-green-500/40 px-2 py-0.5 text-green-500">
-                      {activeStyle}
-                    </span>
-                    <button
-                      onClick={() => setActiveStyle(null)}
-                      className="text-neutral-600 transition-colors hover:text-red-400"
-                    >
-                      clear
-                    </button>
-                  </div>
-                )}
+                {mode === 'image' && messages.length > 0 ? (
+                  <StylePresetPicker
+                    compact
+                    activeStyle={activeStyle}
+                    styleThumbs={styleThumbs}
+                    onChange={setActiveStyle}
+                  />
+                ) : null}
 
                 {projCreating && (
                   <div className="mb-2">

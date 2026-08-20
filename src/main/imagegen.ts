@@ -28,7 +28,7 @@ import {
   MFLUX_MODELS
 } from './mflux'
 import { getActiveModal } from './active-models'
-import { binRoots, dataDir, modelsDir, exe } from './runtime-env'
+import { binRoots, dataDir, modelsDir, resourceDirs, exe } from './runtime-env'
 import { sdServer } from './sd-server'
 import { standardModelDefaults, taesdFilename } from '../shared/image-defaults'
 import { defaultImageModelFilename } from './image-default'
@@ -163,33 +163,22 @@ export function deleteGeneratedImage(p: string): boolean {
   }
 }
 
-// --- Style-preset thumbnails (generated on-device, cached; never hotlinked) --
-function styleThumbDir(): string {
-  return path.join(dataDir(), 'style-thumbs')
-}
-
-/** Map of style key -> cached thumbnail path (on-device generated). */
+// --- Style-preset thumbnails (bundled release assets; never hotlinked) --------
+/** Map of style key -> bundled thumbnail path. */
 export function listStyleThumbs(): Record<string, string> {
   const out: Record<string, string> = {}
-  try {
-    for (const f of fs.readdirSync(styleThumbDir())) {
-      const m = f.match(/^(.+)\.png$/i)
-      if (m) out[m[1]!] = path.join(styleThumbDir(), f)
+  for (const resources of resourceDirs()) {
+    const directory = path.join(resources, 'style-thumbs')
+    try {
+      for (const file of fs.readdirSync(directory)) {
+        const match = file.match(/^(.+)\.png$/i)
+        if (match && !out[match[1]!]) out[match[1]!] = path.join(directory, file)
+      }
+    } catch {
+      /* this resource root does not contain style previews */
     }
-  } catch {
-    /* none yet */
   }
   return out
-}
-
-/** Generate one style thumbnail on-device (small/fast) and cache it. */
-export async function generateStyleThumb(key: string, prompt: string): Promise<string> {
-  const out = await generateImage({ prompt, width: 512, height: 512, steps: 6 })
-  const dir = styleThumbDir()
-  fs.mkdirSync(dir, { recursive: true })
-  const dest = path.join(dir, `${key.replace(/[^\w-]+/g, '_')}.png`)
-  fs.copyFileSync(out.path, dest)
-  return dest
 }
 
 // --- LoRA adapters -----------------------------------------------------------
@@ -450,10 +439,7 @@ export function saveGeneratedImageScope(imagePath: string, facts: GeneratedImage
  * itself, does not list an input as though the user had generated it. Returns the copy's path, or null
  * when the source cannot be read - a generation is not worth failing over its provenance.
  */
-export function preserveGeneratedImageSource(
-  syncId: string,
-  sourcePath: string
-): string | null {
+export function preserveGeneratedImageSource(syncId: string, sourcePath: string): string | null {
   try {
     const directory = path.join(dataDir(), 'generated-images', 'sources')
     fs.mkdirSync(directory, { recursive: true })

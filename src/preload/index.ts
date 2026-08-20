@@ -524,8 +524,6 @@ const offGridApi = {
   listGeneratedImages: (scope?: { conversationId?: string; projectId?: string | null }) =>
     ipcRenderer.invoke('imagegen:list', scope),
   styleThumbs: () => ipcRenderer.invoke('imagegen:style-thumbs'),
-  makeStyleThumb: (key: string, prompt: string) =>
-    ipcRenderer.invoke('imagegen:make-style-thumb', key, prompt),
   listLoras: () => ipcRenderer.invoke('imagegen:list-loras'),
   revealLoras: () => ipcRenderer.invoke('imagegen:reveal-loras'),
   downloadLora: (url: string, filename: string) =>
