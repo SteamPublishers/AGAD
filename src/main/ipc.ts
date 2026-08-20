@@ -91,6 +91,7 @@ async function regenerateMasterMemory(): Promise<string | null> {
 // Active streaming turns, keyed by streamId, so a renderer 'rag:cancel' can abort
 // an in-flight generation and keep whatever was produced so far.
 import {
+  activeChatStreamSnapshots,
   beginChatImageStream,
   bindChatStream,
   continueChatStreamWithImage,
@@ -158,6 +159,11 @@ async function streamAnswer(
   } finally {
     streamControllers.delete(streamId)
     endChatStream(streamId, controller.signal.aborted ? 'discarded' : 'record_pending')
+    try {
+      sender.send('rag:stream', { streamId, type: 'done' })
+    } catch {
+      /* window gone */
+    }
   }
 }
 
@@ -597,6 +603,7 @@ export function setupIPC() {
   })
 
   // Cancel an in-flight streaming turn; chatStream resolves with the partial answer.
+  ipcMain.handle('rag:active-streams', () => activeChatStreamSnapshots())
   ipcMain.on('rag:cancel', (_evt, streamId: string) => {
     streamControllers.get(streamId)?.abort()
   })
@@ -1926,6 +1933,11 @@ export function setupIPC() {
         streamControllers.delete(streamId)
         if (!continuesAsImage) {
           endChatStream(streamId, controller.signal.aborted ? 'discarded' : 'record_pending')
+          try {
+            sender.send('rag:stream', { streamId, type: 'done' })
+          } catch {
+            /* window gone */
+          }
         }
       }
     }

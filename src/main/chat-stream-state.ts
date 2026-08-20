@@ -19,6 +19,7 @@ import {
   type ChatStreamProgress,
   type ChatStreamTool
 } from '@offgrid/sync'
+import type { ActiveChatStreamContract } from '../shared/ipc-contracts'
 
 interface ActiveStream {
   conversationId: string
@@ -38,6 +39,19 @@ interface ActiveStream {
 }
 
 const active = new Map<string, ActiveStream>()
+
+/** Current cumulative streams. Main owns them, so renderer navigation cannot erase them. */
+export function activeChatStreamSnapshots(): ActiveChatStreamContract[] {
+  return [...active.entries()].map(([streamId, stream]) => ({
+    streamId,
+    conversationId: stream.conversationId,
+    messageId: stream.messageId,
+    content: stream.content,
+    reasoning: stream.reasoning,
+    phase: stream.phase,
+    ...(stream.tools?.length ? { tools: stream.tools.map((tool) => ({ ...tool })) } : {})
+  }))
+}
 
 /**
  * The identity minted for a conversation's current reply, until its stored record claims it.

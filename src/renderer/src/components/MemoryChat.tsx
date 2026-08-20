@@ -573,9 +573,7 @@ function standardMessageBubbleClass(message: ChatMessage, editing: boolean): str
   // as its prompt - some 1700px on a maximised window - and a picture told to fill that width was
   // gigantic. The same cap makes the two kinds of picture behave the same way.
   const width =
-    editing || message.image || message.attachments?.length
-      ? 'w-full max-w-2xl'
-      : 'max-w-[85%]'
+    editing || message.image || message.attachments?.length ? 'w-full max-w-2xl' : 'max-w-[85%]'
   const color =
     message.role === 'user'
       ? 'bg-neutral-800 text-neutral-100'
@@ -3877,9 +3875,15 @@ export function MemoryChat({
   // Use streamConvRef to find the right conversation — setMessages is stale in a
   // [] effect because it captures activeConversationId at mount time.
   useEffect(() => {
+    let disposed = false
     const off = window.api.onRagStream((data) => {
       const cid = streamConvRef.current.get(data.streamId)
       if (!cid) return
+      if (data.type === 'done') {
+        streamConvRef.current.delete(data.streamId)
+        markGenerating(cid, false)
+        return
+      }
       // Mirror reasoning into a ref as it streams, so persistence can read it
       // deterministically (not via a state-updater side effect). Rendering still
       // uses message.reasoning below; this is the durable source for the saved blob.
@@ -3900,8 +3904,41 @@ export function MemoryChat({
         )
       )
     })
-    return () => off()
-  }, [setConvMessages])
+    void (window.api.getActiveRagStreams?.() ?? Promise.resolve([]))
+      .then((streams) => {
+        if (disposed) return
+        for (const stream of streams) {
+          streamConvRef.current.set(stream.streamId, stream.conversationId)
+          reasoningByStream.current[stream.streamId] = stream.reasoning
+          answerByStream.current[stream.streamId] = stream.content
+          markGenerating(stream.conversationId, true)
+          setConvMessages(stream.conversationId, (previous) => {
+            const restored: ChatMessage = {
+              id: stream.streamId,
+              role: 'assistant',
+              content: stream.content,
+              reasoning: stream.reasoning,
+              streaming: true,
+              toolCalls: stream.tools?.map((tool) => ({
+                name: tool.name,
+                result: tool.result ?? '',
+                status: tool.status
+              }))
+            }
+            const index = previous.findIndex((message) => message.id === stream.streamId)
+            if (index < 0) return [...previous, restored]
+            return previous.map((message, messageIndex) =>
+              messageIndex === index ? { ...message, ...restored } : message
+            )
+          })
+        }
+      })
+      .catch((error) => console.error('Failed to reattach active chat streams:', error))
+    return () => {
+      disposed = true
+      off()
+    }
+  }, [markGenerating, setConvMessages])
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const copyText = useCallback(async (t: string, key?: string) => {

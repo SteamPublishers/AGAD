@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   CACHE_CLEANUP_CHANNEL,
   type ArtifactKindContract,
+  type ActiveChatStreamContract,
   type CacheCleanupResultContract,
   type RagChatResultContract,
   type SystemHealthContract
@@ -118,7 +119,7 @@ const offGridApi = {
   onRagStream: (
     callback: (data: {
       streamId: string
-      type: 'content' | 'reasoning' | 'step' | 'tool_result'
+      type: 'content' | 'reasoning' | 'step' | 'tool_result' | 'done'
       text?: string
       step?: unknown
       call?: { name: string; result: string }
@@ -128,7 +129,7 @@ const offGridApi = {
       _: unknown,
       data: {
         streamId: string
-        type: 'content' | 'reasoning' | 'step' | 'tool_result'
+        type: 'content' | 'reasoning' | 'step' | 'tool_result' | 'done'
         text?: string
         step?: unknown
         call?: { name: string; result: string }
@@ -137,6 +138,8 @@ const offGridApi = {
     ipcRenderer.on('rag:stream', sub)
     return unsubscribe('rag:stream', sub)
   },
+  getActiveRagStreams: () =>
+    ipcRenderer.invoke('rag:active-streams') as Promise<ActiveChatStreamContract[]>,
   // Stop an in-flight streaming turn; the partial answer is kept.
   cancelRag: (streamId: string) => ipcRenderer.send('rag:cancel', streamId),
 
