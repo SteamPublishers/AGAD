@@ -522,16 +522,16 @@ export async function generateImage(
   const enhanced = await maybeEnhancePrompt(params.prompt, onUpdate)
   const effective = enhanced === params.prompt ? params : { ...params, prompt: enhanced }
   onUpdate?.({ stage: 'preparing', enhancedPrompt: enhanced })
+  const progressObserver = onUpdate
+    ? (progress: ImageGenProgress & { preview?: string }) =>
+        onUpdate({
+          stage: progress.phase === 'decoding' ? 'decoding' : 'generating',
+          progress
+        })
+    : undefined
   // The queue evicts 'llm' before this runs AND re-warms it (mode-aware) when the
   // job finishes — so the image path no longer touches llm.pause/resume itself.
-  const output = await modalityQueue.run(IMAGE_JOB, () =>
-    runImageGen(effective, (progress) =>
-      onUpdate?.({
-        stage: progress.phase === 'decoding' ? 'decoding' : 'generating',
-        progress
-      })
-    )
-  )
+  const output = await modalityQueue.run(IMAGE_JOB, () => runImageGen(effective, progressObserver))
   return { ...output, prompt: effective.prompt }
 }
 
@@ -736,6 +736,7 @@ async function runImageGen(
   const residentImage = getResidencyMode('image') === 'resident'
   const eligibleForServer =
     residentImage &&
+    !onProgress &&
     !coreml &&
     !isZImage &&
     !loras.length &&
@@ -753,20 +754,17 @@ async function runImageGen(
         taesdPath: taesd ?? undefined
       })
       generationLifecycle.throwIfCancelled()
-      const { png, seed: usedSeed } = await sdServer.generate(
-        {
-          prompt: params.prompt,
-          negativePrompt: params.negativePrompt?.trim() || DEFAULT_NEGATIVE,
-          width: params.width ?? defaultSize,
-          height: params.height ?? defaultSize,
-          steps: params.steps ?? defaultSteps,
-          cfgScale: params.cfgScale ?? defaultCfg,
-          sampleMethod: sampler,
-          scheduler,
-          seed
-        },
-        (p) => onProgress?.({ step: p.step, total: p.total, secPerStep: 0 })
-      )
+      const { png, seed: usedSeed } = await sdServer.generate({
+        prompt: params.prompt,
+        negativePrompt: params.negativePrompt?.trim() || DEFAULT_NEGATIVE,
+        width: params.width ?? defaultSize,
+        height: params.height ?? defaultSize,
+        steps: params.steps ?? defaultSteps,
+        cfgScale: params.cfgScale ?? defaultCfg,
+        sampleMethod: sampler,
+        scheduler,
+        seed
+      })
       await fs.promises.writeFile(outPath, png)
       return {
         dataUrl: `data:image/png;base64,${png.toString('base64')}`,
