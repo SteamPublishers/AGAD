@@ -216,7 +216,7 @@ function imageProgressLabel(
   stage: ImageGenerationJobContract['stage'],
   progress: ImageProgress | null
 ): string {
-  if (stage === 'enhancing') return 'Enhancing prompt…'
+  if (stage === 'enhancing') return 'Preparing image…'
   if (stage === 'preparing') return 'Preparing image…'
   if (!progress) return stage === 'decoding' ? 'Decoding image…' : 'Generating image…'
   const phase = progress.phase === 'decoding' ? 'Decoding' : 'Step'
@@ -4778,52 +4778,56 @@ export function MemoryChat({
                         Off Grid AI
                       </div>
                       {mode === 'image' || generatingImage ? (
-                        <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
-                          {imageJobStage === 'enhancing' ? (
-                            <div className="mb-2 min-h-28 w-80 rounded-md border border-neutral-800 p-3">
-                              <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-600">
-                                Enhanced prompt
+                        <div className="flex w-full flex-col items-start gap-2">
+                          {imageJobStage === 'enhancing' || streamingEnhancedPrompt ? (
+                            <ChatThinkingBlock
+                              content={streamingEnhancedPrompt || 'Starting…'}
+                              live={imageJobStage === 'enhancing'}
+                              label={
+                                imageJobStage === 'enhancing'
+                                  ? 'Enhancing prompt…'
+                                  : 'Enhanced prompt'
+                              }
+                            />
+                          ) : null}
+                          <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3">
+                            {imgProgress?.preview ? (
+                              <img
+                                src={imgProgress.preview}
+                                alt="forming"
+                                className="mb-2 w-56 rounded-md border border-neutral-800"
+                              />
+                            ) : (
+                              <div className="mb-2 flex h-56 w-56 items-center justify-center rounded-md border border-neutral-800 text-[11px] text-neutral-600">
+                                Preparing image…
                               </div>
-                              <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">
-                                {streamingEnhancedPrompt || 'Starting…'}
-                                <span className="ml-0.5 inline-block h-3 w-px animate-pulse bg-green-500" />
-                              </p>
+                            )}
+                            <div className="flex items-center justify-between text-[11px] text-neutral-500">
+                              <span>{imageProgressLabel(imageJobStage, imgProgress)}</span>
+                              {imgProgress ? (
+                                <span className="text-neutral-600">
+                                  ~
+                                  {Math.max(
+                                    0,
+                                    Math.round(
+                                      (imgProgress.total - imgProgress.step) *
+                                        imgProgress.secPerStep
+                                    )
+                                  )}
+                                  s left
+                                </span>
+                              ) : null}
                             </div>
-                          ) : imgProgress?.preview ? (
-                            <img
-                              src={imgProgress.preview}
-                              alt="forming"
-                              className="mb-2 w-56 rounded-md border border-neutral-800"
-                            />
-                          ) : (
-                            <div className="mb-2 flex h-56 w-56 items-center justify-center rounded-md border border-neutral-800 text-[11px] text-neutral-600">
-                              Preparing image…
+                            <div className="mt-1.5 h-1 w-56 overflow-hidden rounded-full bg-neutral-800">
+                              <div
+                                className="h-full bg-green-500 transition-all duration-300"
+                                style={{
+                                  width: imgProgress
+                                    ? `${(imgProgress.step / imgProgress.total) * 100}%`
+                                    : '5%'
+                                }}
+                              />
                             </div>
-                          )}
-                          <div className="flex items-center justify-between text-[11px] text-neutral-500">
-                            <span>{imageProgressLabel(imageJobStage, imgProgress)}</span>
-                            {imgProgress ? (
-                              <span className="text-neutral-600">
-                                ~
-                                {Math.max(
-                                  0,
-                                  Math.round(
-                                    (imgProgress.total - imgProgress.step) * imgProgress.secPerStep
-                                  )
-                                )}
-                                s left
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-1.5 h-1 w-56 overflow-hidden rounded-full bg-neutral-800">
-                            <div
-                              className="h-full bg-green-500 transition-all duration-300"
-                              style={{
-                                width: imgProgress
-                                  ? `${(imgProgress.step / imgProgress.total) * 100}%`
-                                  : '5%'
-                              }}
-                            />
                           </div>
                         </div>
                       ) : (
