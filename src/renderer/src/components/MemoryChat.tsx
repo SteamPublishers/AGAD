@@ -2772,7 +2772,7 @@ export function MemoryChat({
           if (
             conversationId &&
             conversationId === activeConversationId &&
-            !generatingConvs.has(conversationId)
+            !generatingRef.current.has(conversationId)
           ) {
             await refreshConversationMessages(conversationId)
           }
@@ -2784,7 +2784,7 @@ export function MemoryChat({
     })
     return () => off?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId, generatingConvs, refreshConversationMessages])
+  }, [activeConversationId, refreshConversationMessages])
 
   // Open a target passed from the Projects tab (an existing chat, or a new chat
   // scoped to a project). Resolves project from the DB to avoid stale state.
@@ -3938,7 +3938,7 @@ export function MemoryChat({
       disposed = true
       off()
     }
-  }, [markGenerating, setConvMessages])
+  }, [activeConversationId, markGenerating, setConvMessages])
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const copyText = useCallback(async (t: string, key?: string) => {
