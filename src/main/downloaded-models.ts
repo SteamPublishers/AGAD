@@ -2,9 +2,9 @@
 // opposed to catalog entries and locally-imported .gguf files. Without this, a
 // downloaded HF model (e.g. MiniCPM-V) has its files on disk but nothing records
 // it as installed, so it's flagged as "unused" and never offered as a usable
-// option (the bug). We key entries by the HF REPO ID so the rest of the app's
-// `CATALOG.find(id) ?? resolveHuggingFaceModel(id)` lookups re-resolve them for
-// activate/delete with zero extra branching.
+// option (the bug). Direct downloads keep their HF repo id. Device-transferred variants use the
+// shared exact package identity and keep the HF/catalog family id as separate provenance. This lets
+// Q4_0 and Q4_K_M from one repository coexist without either one replacing the other.
 //
 // Pure/IO-only + parameterized by the models dir, so it's testable against a real
 // temp directory with real files (no Electron, no network, no mocks).
@@ -13,8 +13,12 @@ import fs from 'fs'
 import path from 'path'
 
 export interface DownloadedModel {
-  /** The Hugging Face repo id (e.g. "openbmb/MiniCPM-V-2_6-gguf"). */
+  /** Exact installed variant key. Legacy entries use the Hugging Face family id. */
   id: string
+  /** Human/catalog family identity used for display and upstream repair. */
+  familyId?: string
+  /** Deterministic runnable-package identity for device-transferred variants. */
+  packageIdentity?: string
   name: string
   kind: string
   /** On-disk filenames this model comprises (primary + any mmproj/companions). */

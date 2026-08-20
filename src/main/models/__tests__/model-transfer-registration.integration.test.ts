@@ -47,10 +47,13 @@ describe('device-transferred model registration', () => {
       ]
     })
 
-    expect(result).toEqual({ success: true, id: 'unsloth/Qwen3.5-0.8B-GGUF' })
-    expect(await manager.listInstalled()).toContain('unsloth/Qwen3.5-0.8B-GGUF')
-    expect(await manager.getTransferableModel('unsloth/Qwen3.5-0.8B-GGUF')).toMatchObject({
-      id: 'unsloth/Qwen3.5-0.8B-GGUF',
+    expect(result.success).toBe(true)
+    expect(result.id).toMatch(/^model-package-v1:[0-9a-f]{64}$/)
+    expect(await manager.listInstalled()).toContain(result.id)
+    expect(await manager.getTransferableModel(result.id!)).toMatchObject({
+      id: result.id,
+      familyId: 'unsloth/Qwen3.5-0.8B-GGUF',
+      packageIdentity: result.id,
       kind: 'vision',
       source: 'downloaded',
       files: [
@@ -58,6 +61,23 @@ describe('device-transferred model registration', () => {
         { name: projector, sizeBytes: projectorBytes.length }
       ]
     })
+
+    const otherPrimary = 'Qwen3.5-0.8B-Q5_K_M.gguf'
+    const otherBytes = validGguf(5)
+    fs.writeFileSync(path.join(dataDir, 'models', otherPrimary), otherBytes)
+    const other = await manager.registerTransferredModel({
+      id: 'unsloth/Qwen3.5-0.8B-GGUF',
+      name: 'Qwen3.5 0.8B',
+      kind: 'vision',
+      source: 'downloaded',
+      files: [
+        { name: otherPrimary, sizeBytes: otherBytes.length },
+        { name: projector, sizeBytes: projectorBytes.length }
+      ]
+    })
+    expect(other.success).toBe(true)
+    expect(other.id).not.toBe(result.id)
+    expect(await manager.listInstalled()).toEqual(expect.arrayContaining([result.id, other.id]))
   })
 
   it('registers a verified multi-file model through the production catalog owner', async () => {
@@ -79,11 +99,13 @@ describe('device-transferred model registration', () => {
       ]
     })
 
-    expect(result).toEqual({ success: true, id: 'off-grid/test-shared-model' })
-    expect(await manager.listInstalled()).toContain('off-grid/test-shared-model')
+    expect(result.success).toBe(true)
+    expect(result.id).toMatch(/^model-package-v1:[0-9a-f]{64}$/)
+    expect(await manager.listInstalled()).toContain(result.id)
     expect((await manager.getStorageInfo()).orphans).toEqual([])
-    expect(await manager.getTransferableModel('off-grid/test-shared-model')).toMatchObject({
-      id: 'off-grid/test-shared-model',
+    expect(await manager.getTransferableModel(result.id!)).toMatchObject({
+      id: result.id,
+      familyId: 'off-grid/test-shared-model',
       name: 'Test shared model',
       kind: 'vision',
       source: 'downloaded',

@@ -39,6 +39,7 @@ import {
   type VisionStatus
 } from './models/catalog-logic'
 import { writeDiagnosticLog } from './diagnostics-log'
+import { modelPackageIdentity, type TransferredModelManifest } from '@offgrid/sync'
 
 export interface DownloadProgress {
   modelId: string
@@ -640,18 +641,12 @@ export interface TransferableModelFile {
 
 export interface TransferableModel {
   id: string
+  familyId: string
+  packageIdentity?: string
   name: string
   kind: string
   source: TransferableModelSource
   files: TransferableModelFile[]
-}
-
-export interface TransferredModelManifest {
-  id: string
-  name: string
-  kind: string
-  source: TransferableModelSource
-  files: Array<{ name: string; sizeBytes: number }>
 }
 
 function localRegistryFile(dir = llm.getModelsDir()): string {
@@ -758,6 +753,8 @@ export async function getTransferableModel(
 
   return {
     id: modelId,
+    familyId: downloaded?.familyId ?? catalog?.id ?? local?.id ?? modelId,
+    packageIdentity: downloaded?.packageIdentity,
     name: local?.name ?? downloaded?.name ?? catalog?.name ?? modelId,
     kind: local?.kind ?? downloaded?.kind ?? catalog?.kind ?? 'text',
     source,
@@ -827,19 +824,22 @@ export async function registerTransferredModel(
     return { success: true, id }
   }
 
+  const exactPackageId = manifest.packageIdentity ?? modelPackageIdentity(manifest)
   recordDownloaded(dir, {
-    id: manifest.id,
+    id: exactPackageId,
+    familyId: manifest.id,
+    packageIdentity: exactPackageId,
     name: manifest.name,
     kind: manifest.kind,
     files: manifest.files.map((file) => file.name)
   })
-  if (!findDownloaded(dir, manifest.id)) {
+  if (!findDownloaded(dir, exactPackageId)) {
     return { success: false, error: 'could not register the transferred model' }
   }
   if (dir === llm.getModelsDir()) {
     await reconcileActiveModelProjector().catch(() => false)
   }
-  return { success: true, id: manifest.id }
+  return { success: true, id: exactPackageId }
 }
 
 /** Set of every filename referenced by the local registry (primary + mmproj), so
