@@ -400,7 +400,10 @@ describe('<MemoryChat/> - chat lifecycle integration (#36-#42, #47-#48)', () => 
     // selector (targeted by its title so it is not confused with the header's "In Project…"
     // link, which shares the project name). The header then reflects the new active project;
     // the already-sent turn must stay attributed to alpha (asserted below).
-    await user.click(screen.getByTitle(/choose what this chat can draw on/i))
+    const scopeButton = screen.getByTitle(/choose what this chat can draw on/i)
+    scopeButton.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(scopeButton.getAttribute('data-state')).toBe('open'))
     await user.click(await screen.findByRole('menuitem', { name: /project beta/i }))
     expect(await screen.findByRole('button', { name: /in project beta/i })).toBeTruthy()
 
