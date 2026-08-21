@@ -402,6 +402,10 @@ export function ModelsScreen(): React.JSX.Element {
           }
         })
         if (d.status === 'completed') {
+          api.getModelCatalog?.().then((c: { kinds: string[]; models: ModelEntry[] }) => {
+            setKinds(c.kinds)
+            setModels(c.models)
+          })
           api.getInstalledModels?.().then(setInstalled)
           refreshVision()
           // Adding a projector for the active model turns its vision on in MAIN

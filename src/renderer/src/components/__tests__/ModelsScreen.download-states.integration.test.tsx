@@ -24,6 +24,17 @@ const MODEL = {
   ]
 }
 
+const TRANSFERRED_MODEL = {
+  ...MODEL,
+  id: 'model-package-v1:transferred-qwen-variant',
+  name: 'Qwen3.5-0.8B-GGUF',
+  params: 0.8,
+  files: [
+    { name: 'Qwen3.5-0.8B-Q4_K_M.gguf', role: 'primary', sizeBytes: 703e6 },
+    { name: 'qwen3.5-0.8b-mmproj-F16.gguf', role: 'mmproj', sizeBytes: 9e6 }
+  ]
+}
+
 /** The real DOWNLOAD_INTERRUPTED_ERROR string the main process returns for a refused request. */
 const INTERRUPTED = 'interrupted - retry to resume'
 
@@ -48,11 +59,13 @@ let onDownload: (id: string) => Promise<{ success: boolean; error?: string }> = 
   success: true
 })
 let onCancel: (id: string) => void = () => {}
+let catalogModels = [MODEL]
+let installedModels: string[] = []
 
 ;(globalThis as unknown as { window: { api: unknown } }).window.api = {
   systemHealth: async () => ({ ramGb: 32 }),
-  getModelCatalog: async () => ({ kinds: ['vision'], models: [MODEL] }),
-  getInstalledModels: async () => [],
+  getModelCatalog: async () => ({ kinds: ['vision'], models: catalogModels }),
+  getInstalledModels: async () => installedModels,
   getModelVisionStatus: async () => ({}),
   getActiveModelIds: async () => [],
   estimateModelFit: async () => ({ level: 'ok' }),
@@ -74,6 +87,8 @@ beforeEach(() => {
   listeners = []
   onDownload = async () => ({ success: true })
   onCancel = () => {}
+  catalogModels = [MODEL]
+  installedModels = []
 })
 afterEach(cleanup)
 
@@ -81,6 +96,19 @@ afterEach(cleanup)
 // query cannot be satisfied by a neighbour.
 
 describe('<ModelsScreen/> — what a download looks like', () => {
+  it('shows a received model without closing and reopening Models', async () => {
+    render(<ModelsScreen />)
+    expect(await screen.findByText(MODEL.name)).toBeTruthy()
+    expect(screen.queryByText(TRANSFERRED_MODEL.name)).toBeNull()
+
+    catalogModels = [MODEL, TRANSFERRED_MODEL]
+    installedModels = [TRANSFERRED_MODEL.id]
+    emit({ modelId: TRANSFERRED_MODEL.id, status: 'completed', percent: 100 })
+
+    const installedList = await screen.findByRole('list', { name: 'Models on this device' })
+    expect(installedList.textContent).toContain(TRANSFERRED_MODEL.name)
+  })
+
   it('a refused download says why, and offers one way forward — never a silent 0%', async () => {
     // The main process refuses the request: it publishes 'failed' and resolves unsuccessfully.
     onDownload = async (id) => {
