@@ -945,33 +945,41 @@ export async function registerTransferredModel(
   const resolved = transferredFilesOnDisk(dir, manifest.files)
   if (!resolved.files) return { success: false, error: resolved.error }
 
+  // Projector presence is the package capability SSOT. A caller can still label an older catalog
+  // entry as text, but the installed package and its deterministic identity must be vision.
+  const normalizedManifest: TransferredModelManifest = manifest.files.some(
+    (file) => file.role === 'projector' || isProjectorFileName(file.name)
+  )
+    ? { ...manifest, kind: 'vision' }
+    : manifest
+
   const { CATALOG } = await import('@offgrid/models')
-  const catalog = CATALOG.find((model) => model.id === manifest.id)
+  const catalog = CATALOG.find((model) => model.id === normalizedManifest.id)
   if (catalog) {
     const expected = new Set(catalog.files.map((file) => file.name))
-    const received = new Set(manifest.files.map((file) => file.name))
+    const received = new Set(normalizedManifest.files.map((file) => file.name))
     if (expected.size === received.size && [...expected].every((name) => received.has(name))) {
-      return { success: true, id: manifest.id }
+      return { success: true, id: normalizedManifest.id }
     }
     // A catalog id can have several valid quantizations and projector variants. The sender's
     // manifest owns the exact installed files; the catalog owns only its download variant.
     // Register a verified alternate variant below so it remains installed and transferable.
   }
 
-  if (manifest.source === 'local') {
+  if (normalizedManifest.source === 'local') {
     const primary =
-      manifest.files.find(
+      normalizedManifest.files.find(
         (file) => /\.gguf$/i.test(file.name) && !/mmproj|projector/i.test(file.name)
-      ) ?? manifest.files.find((file) => /\.gguf$/i.test(file.name))
+      ) ?? normalizedManifest.files.find((file) => /\.gguf$/i.test(file.name))
     if (!primary) return { success: false, error: 'local model transfer requires a GGUF file' }
-    const mmproj = manifest.files.find(
+    const mmproj = normalizedManifest.files.find(
       (file) => file.name !== primary.name && /\.gguf$/i.test(file.name)
     )
     const id = `local:${primary.name}`
     const list = getLocalModels(dir).filter((model) => model.id !== id)
     list.push({
       id,
-      name: manifest.name,
+      name: normalizedManifest.name,
       primary: primary.name,
       mmproj: mmproj?.name,
       kind: mmproj ? 'vision' : 'text',
@@ -984,14 +992,15 @@ export async function registerTransferredModel(
     return { success: true, id }
   }
 
-  const exactPackageId = manifest.packageIdentity ?? modelPackageIdentity(manifest)
+  const exactPackageId =
+    normalizedManifest.packageIdentity ?? modelPackageIdentity(normalizedManifest)
   recordDownloaded(dir, {
     id: exactPackageId,
-    familyId: manifest.id,
+    familyId: normalizedManifest.id,
     packageIdentity: exactPackageId,
-    name: manifest.name,
-    kind: manifest.kind,
-    files: manifest.files.map((file) => file.name)
+    name: normalizedManifest.name,
+    kind: normalizedManifest.kind,
+    files: normalizedManifest.files.map((file) => file.name)
   })
   if (!findDownloaded(dir, exactPackageId)) {
     return { success: false, error: 'could not register the transferred model' }
