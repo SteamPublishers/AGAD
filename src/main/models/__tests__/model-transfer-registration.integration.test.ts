@@ -116,6 +116,48 @@ describe('device-transferred model registration', () => {
     })
   })
 
+  it('deletes the selected transferred variant and keeps files owned by a sibling variant', async () => {
+    const sharedProjector = 'mmproj-delete-family-f16.gguf'
+    const firstPrimary = 'delete-family-q4_0.gguf'
+    const secondPrimary = 'delete-family-q5_k_m.gguf'
+    const projectorBytes = validGguf(6)
+    const firstBytes = validGguf(7)
+    const secondBytes = validGguf(8)
+    fs.writeFileSync(path.join(dataDir, 'models', sharedProjector), projectorBytes)
+    fs.writeFileSync(path.join(dataDir, 'models', firstPrimary), firstBytes)
+    fs.writeFileSync(path.join(dataDir, 'models', secondPrimary), secondBytes)
+
+    const register = (
+      primary: string,
+      bytes: Buffer
+    ): ReturnType<typeof manager.registerTransferredModel> =>
+      manager.registerTransferredModel({
+        id: 'off-grid/delete-family',
+        name: 'Delete family',
+        kind: 'vision',
+        source: 'downloaded',
+        files: [
+          { name: primary, sizeBytes: bytes.length },
+          { name: sharedProjector, sizeBytes: projectorBytes.length }
+        ]
+      })
+    const first = await register(firstPrimary, firstBytes)
+    const second = await register(secondPrimary, secondBytes)
+    expect(first.success).toBe(true)
+    expect(second.success).toBe(true)
+
+    expect(await manager.deleteModel(first.id!)).toEqual({ success: true, freedFiles: 1 })
+    expect(fs.existsSync(path.join(dataDir, 'models', firstPrimary))).toBe(false)
+    expect(fs.existsSync(path.join(dataDir, 'models', sharedProjector))).toBe(true)
+    expect(await manager.listInstalled()).not.toContain(first.id)
+    expect(await manager.listInstalled()).toContain(second.id)
+
+    expect(await manager.deleteModel(second.id!)).toEqual({ success: true, freedFiles: 2 })
+    expect(fs.existsSync(path.join(dataDir, 'models', secondPrimary))).toBe(false)
+    expect(fs.existsSync(path.join(dataDir, 'models', sharedProjector))).toBe(false)
+    expect(await manager.listInstalled()).not.toContain(second.id)
+  })
+
   it('rejects traversal and corrupt GGUF manifests without registering them', async () => {
     expect(
       await manager.registerTransferredModel({

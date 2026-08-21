@@ -428,10 +428,91 @@ export async function downloadModel(
   )
 }
 
+interface DeleteModelResult {
+  success: boolean
+  error?: string
+  freedFiles?: number
+}
+
+interface TransferredDeletionContext {
+  dir: string
+  requestedId: string
+  target: DownloadedModel
+  downloaded: DownloadedModel[]
+  catalog: CatalogEntry[]
+}
+
+function retainedTransferredFileNames(context: TransferredDeletionContext): Set<string> {
+  const { target, downloaded, catalog, dir } = context
+  const retained = new Set<string>()
+  catalog.forEach((model) => model.files.forEach((file) => retained.add(file.name)))
+  getLocalModels(dir).forEach((model) => {
+    retained.add(model.primary)
+    if (model.mmproj) retained.add(model.mmproj)
+  })
+  downloaded
+    .filter((model) => model.id !== target.id)
+    .forEach((model) => model.files.forEach((name) => retained.add(name)))
+  return retained
+}
+
+function clearTransferredModelSelections(target: DownloadedModel, requestedId: string): void {
+  const activeId = getActiveModel()
+  if (activeId === target.id || activeId === requestedId) {
+    try {
+      fs.rmSync(activeModelFile(), { force: true })
+    } catch {
+      /* already clear */
+    }
+    llm.reloadModel()
+  }
+  const primary = downloadedPrimary(target)
+  const modals = getAllActiveModals()
+  ;(Object.keys(modals) as Modality[]).forEach((kind) => {
+    if (
+      modalSelectionMatches(modals[kind], target.id, primary) ||
+      modalSelectionMatches(modals[kind], requestedId, primary)
+    ) {
+      setModal(kind, null)
+    }
+  })
+}
+
+function deleteTransferredModel(context: TransferredDeletionContext): DeleteModelResult {
+  const { dir, requestedId, target } = context
+  // A projector can be shared by two installed quants. Delete only files that no other installed
+  // model owns, then remove this exact package from the registry projection.
+  const retainedNames = retainedTransferredFileNames(context)
+  let freedFiles = 0
+  for (const name of target.files) {
+    if (!retainedNames.has(name)) {
+      try {
+        const filePath = path.join(dir, name)
+        if (fs.existsSync(filePath)) {
+          fs.rmSync(filePath, { force: true })
+          freedFiles++
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : `could not delete ${name}`,
+          freedFiles
+        }
+      }
+    }
+    try {
+      fs.rmSync(path.join(dir, `${name}.part`), { force: true })
+    } catch {
+      /* the installed package remains authoritative */
+    }
+  }
+  removeDownloaded(dir, target.id)
+  clearTransferredModelSelections(target, requestedId)
+  return { success: true, freedFiles }
+}
+
 /** Delete a model's files from disk. Clears it as active if it was selected. */
-export async function deleteModel(
-  modelId: string
-): Promise<{ success: boolean; error?: string; freedFiles?: number }> {
+export async function deleteModel(modelId: string): Promise<DeleteModelResult> {
   const dir = llm.getModelsDir()
   // Imported local model: remove its files + registry entry, clear if active.
   if (modelId.startsWith('local:')) {
@@ -459,6 +540,19 @@ export async function deleteModel(
     return { success: true, freedFiles: freedLocal }
   }
   const { CATALOG, resolveHuggingFaceModel } = await import('@offgrid/models')
+  const catalog = CATALOG as unknown as CatalogEntry[]
+  const downloaded = reconcileDownloadedModelRegistry(dir, catalog)
+  const transferred = downloadedVariant(downloaded, modelId)
+  if (transferred) {
+    return deleteTransferredModel({
+      dir,
+      requestedId: modelId,
+      target: transferred,
+      downloaded,
+      catalog
+    })
+  }
+
   const entry = CATALOG.find((m) => m.id === modelId) ?? (await resolveHuggingFaceModel(modelId))
   if (!entry) return { success: false, error: 'unknown model' }
   let freed = 0
