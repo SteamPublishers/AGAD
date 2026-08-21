@@ -54,7 +54,14 @@ export default defineConfig({
         '**/__tests__/**',
         '**/*.d.ts',
         '**/dist/**',
-        'packages/**'
+        'packages/**',
+        // V8 reports transitive imports even when they do not match `include`. Keep this DB
+        // report on its declared service surface: renderer components are exercised by the
+        // rendered-behaviour suites and Playwright, not by a Node SQLite journey.
+        'src/renderer/src/**/*.ts',
+        'src/renderer/src/**/*.tsx',
+        'pro/renderer/**/*.ts',
+        'pro/renderer/**/*.tsx'
       ],
       reporter: ['text-summary', 'json-summary', 'json'],
       reportsDirectory: 'coverage-db'

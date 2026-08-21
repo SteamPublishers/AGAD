@@ -91,9 +91,18 @@ async function regenerateMasterMemory(): Promise<string | null> {
 // Active streaming turns, keyed by streamId, so a renderer 'rag:cancel' can abort
 // an in-flight generation and keep whatever was produced so far.
 import {
+  activeChatStreamSnapshots,
+  beginChatImageStream,
   bindChatStream,
+  continueChatStreamWithImage,
+  currentChatStreamMessageId,
   endChatStream,
-  noteChatStreamDelta
+  endChatStreamForConversation,
+  noteChatStreamImageProgress,
+  noteChatStreamDelta,
+  noteChatStreamToolCompleted,
+  noteChatStreamToolStarted,
+  takeChatStreamMessageId
 } from './chat-stream-state'
 
 const streamControllers = new Map<string, AbortController>()
@@ -149,7 +158,12 @@ async function streamAnswer(
     })
   } finally {
     streamControllers.delete(streamId)
-    endChatStream(streamId)
+    endChatStream(streamId, controller.signal.aborted ? 'discarded' : 'record_pending')
+    try {
+      sender.send('rag:stream', { streamId, type: 'done' })
+    } catch {
+      /* window gone */
+    }
   }
 }
 
@@ -427,7 +441,6 @@ async function extractEntitiesForSession(sessionId: string): Promise<void> {
         console.error('[IPC] Failed to update entity summary:', e)
       }
     }
-
   } catch (e) {
     console.error('[IPC] Entity extraction failed:', e)
   }
@@ -590,6 +603,7 @@ export function setupIPC() {
   })
 
   // Cancel an in-flight streaming turn; chatStream resolves with the partial answer.
+  ipcMain.handle('rag:active-streams', () => activeChatStreamSnapshots())
   ipcMain.on('rag:cancel', (_evt, streamId: string) => {
     streamControllers.get(streamId)?.abort()
   })
@@ -611,7 +625,7 @@ export function setupIPC() {
       const imgs = images || []
       // Before the classifier, so the whole turn - including its thinking - is attributable to the
       // conversation it belongs to.
-      bindChatStream(streamId, conversationId)
+      bindChatStream(streamId, conversationId, thinking ? 'thinking' : 'waiting')
       // Intelligence layer: a grammar-constrained classifier picks the output
       // format (build / image / chat) and extracts URLs to read — replacing the
       // brittle keyword gate. Skip it in project mode (that path is its own thing).
@@ -1180,7 +1194,12 @@ export function setupIPC() {
   ipcMain.handle(
     'rag:add-message',
     (_, conversationId: string, role: 'user' | 'assistant', content: string, context?: any) => {
-      return addRagMessage(conversationId, role, content, context)
+      // A reply that was streamed is already named, and keeps that name: every paired device has been
+      // rendering it under this id, so the arriving record retires their live preview instead of
+      // standing beside it. Read from the one owner of "what this device is generating", so no caller
+      // has to pass it and none can forget to.
+      const streamed = role === 'assistant' ? takeChatStreamMessageId(conversationId) : undefined
+      return addRagMessage(conversationId, role, content, context, streamed)
     }
   )
 
@@ -1383,7 +1402,6 @@ export function setupIPC() {
           console.error(`[IPC] Failed to reprocess session ${session.id}:`, e)
         }
       }
-
     } else {
       // Additive reprocess: keep existing data, just re-run entity extraction on top
       console.log(
@@ -1698,10 +1716,20 @@ export function setupIPC() {
   const imageJobPublisher = (
     snapshot: import('../shared/image-generation-contract').ImageGenerationJobContract
   ): void => {
+    if (snapshot.phase === 'running') {
+      noteChatStreamImageProgress(
+        snapshot.conversationId,
+        snapshot.progress?.step,
+        snapshot.progress?.total
+      )
+    } else if (snapshot.phase === 'succeeded') {
+      endChatStreamForConversation(snapshot.conversationId, 'record_pending')
+    } else if (snapshot.phase === 'failed' || snapshot.phase === 'cancelled') {
+      endChatStreamForConversation(snapshot.conversationId, 'discarded')
+    }
     for (const window of BrowserWindow.getAllWindows()) {
       if (window.isDestroyed()) continue
       window.webContents.send('imagegen:job-state', snapshot)
-      if (snapshot.progress) window.webContents.send('imagegen:progress', snapshot.progress)
     }
   }
   const imageConversationPublisher = (conversationId: string): void => {
@@ -1733,7 +1761,20 @@ export function setupIPC() {
       }
     ) => {
       const imageGenerationJobs = await imageJobPublisherReady
-      return imageGenerationJobs.start(params)
+      // Admission belongs to the job service. Reject before changing the conversation stream, so a
+      // second request cannot reset or discard the identity of the image that is already running.
+      imageGenerationJobs.assertCanStart()
+      beginChatImageStream(params.conversationId)
+      try {
+        const messageId = currentChatStreamMessageId(params.conversationId)
+        return await imageGenerationJobs.start({
+          ...params,
+          ...(messageId ? { messageId } : {})
+        })
+      } catch (error) {
+        endChatStreamForConversation(params.conversationId, 'discarded')
+        throw error
+      }
     }
   )
 
@@ -1761,10 +1802,6 @@ export function setupIPC() {
   ipcMain.handle('imagegen:style-thumbs', async () => {
     const { listStyleThumbs } = await import('./imagegen')
     return listStyleThumbs()
-  })
-  ipcMain.handle('imagegen:make-style-thumb', async (_e, key: string, prompt: string) => {
-    const { generateStyleThumb } = await import('./imagegen')
-    return generateStyleThumb(key, prompt)
   })
   ipcMain.handle('imagegen:list-loras', async () => {
     const { listLoras } = await import('./imagegen')
@@ -1845,9 +1882,10 @@ export function setupIPC() {
       // thinking -> tool-call activity -> answer, and the stop button (rag:cancel) aborts it.
       const controller = new AbortController()
       streamControllers.set(streamId, controller)
-      bindChatStream(streamId, opts?.conversationId)
+      bindChatStream(streamId, opts.conversationId, opts.thinking ? 'thinking' : 'waiting')
+      let continuesAsImage = false
       try {
-        return await modalityQueue.run(CHAT_JOB, () =>
+        const result = await modalityQueue.run(CHAT_JOB, () =>
           toolChat(query, history || [], {
             ...opts,
             thinking: opts.thinking,
@@ -1861,6 +1899,7 @@ export function setupIPC() {
               }
             },
             onStep: (call) => {
+              noteChatStreamToolStarted(streamId, call.name)
               try {
                 sender.send('rag:stream', {
                   streamId,
@@ -1872,6 +1911,7 @@ export function setupIPC() {
               }
             },
             onToolResult: (call) => {
+              noteChatStreamToolCompleted(streamId, call.name, call.result)
               try {
                 sender.send('rag:stream', { streamId, type: 'tool_result', call })
               } catch {
@@ -1880,9 +1920,20 @@ export function setupIPC() {
             }
           })
         )
+        if (result.imageRequests.length > 0) {
+          continuesAsImage = continueChatStreamWithImage(streamId)
+        }
+        return result
       } finally {
         streamControllers.delete(streamId)
-        endChatStream(streamId)
+        if (!continuesAsImage) {
+          endChatStream(streamId, controller.signal.aborted ? 'discarded' : 'record_pending')
+          try {
+            sender.send('rag:stream', { streamId, type: 'done' })
+          } catch {
+            /* window gone */
+          }
+        }
       }
     }
   )
