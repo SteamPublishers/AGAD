@@ -1269,3 +1269,20 @@ concludes the transfer failed.
 **Fix:** classify by MIME/extension into the kinds the union already declares, carry `path` for
 binary kinds rather than `text`, and render a PDF/document viewer for them. `src/main/mime.ts`
 already exists and is the obvious source of truth.
+
+---
+
+## Model transfer can use more of a fast local network
+
+**Status:** open, non-blocking for the current release. Filed 2026-08-21.
+
+The current release removes the JavaScript checksum bottleneck, receives complete authenticated
+frames on iOS, and keeps a bounded encrypted send window full. The real desktop-to-iPhone test then
+reached about 6.5 MB/s on a 5 GHz connection while a second desktop-to-Android transfer used the same
+uplink. The Mac had negotiated a 195 Mb/s Wi-Fi link at -68 dBm, so this test does not establish the
+maximum rate of either device or the new transport.
+
+Follow up with an isolated physical-device benchmark on a strong 5 GHz or 6 GHz link. Measure one
+desktop-to-phone transfer at a time, separate checksum preparation from wire time, and compare both
+directions. Also persist verified file checksums so a repeat send does not hash the same multi-GB
+model again after an app restart. Keep the 4 MiB authenticated frame format and bounded memory.
