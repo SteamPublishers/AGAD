@@ -11,6 +11,8 @@
 
 import fs from 'fs'
 import path from 'path'
+import { modelPackageIdentity } from '@offgrid/sync'
+import { isProjectorFileName } from './models/catalog-logic'
 
 export interface DownloadedModel {
   /** Exact installed variant key. Legacy entries use the Hugging Face family id. */
@@ -44,6 +46,80 @@ function writeDownloaded(dir: string, list: DownloadedModel[]): void {
   } catch {
     /* best effort */
   }
+}
+
+export interface DownloadedRegistryCatalogEntry {
+  id: string
+  files: Array<{ name: string }>
+}
+
+/**
+ * Migrate the old catalog-family alias used by transferred variants.
+ *
+ * Older receivers stored an alternate quant/projector package under its catalog family id. That
+ * made activation resolve the catalog files and made the UI project both rows. The migration gives
+ * an alternate package its exact shared identity and keeps the family separately. An entry whose
+ * files exactly match the catalog is redundant and is removed from the registry only; model files
+ * are never deleted here.
+ */
+export function reconcileDownloadedModelRegistry(
+  dir: string,
+  catalog: readonly DownloadedRegistryCatalogEntry[]
+): DownloadedModel[] {
+  const current = readDownloaded(dir)
+  let changed = false
+  const migrated: DownloadedModel[] = []
+  for (const model of current) {
+    if (model.familyId || model.packageIdentity) {
+      migrated.push(model)
+      continue
+    }
+    const family = catalog.find((entry) => entry.id === model.id)
+    if (!family) {
+      migrated.push(model)
+      continue
+    }
+    const expected = new Set(family.files.map((file) => file.name))
+    if (expected.size === model.files.length && model.files.every((name) => expected.has(name))) {
+      changed = true
+      continue
+    }
+    const files = model.files.map((name) => {
+      let sizeBytes = 0
+      try {
+        sizeBytes = fs.statSync(path.join(dir, name)).size
+      } catch {
+        /* keep the legacy row until its package is complete */
+      }
+      return {
+        name,
+        sizeBytes,
+        role: isProjectorFileName(name) ? ('projector' as const) : ('primary' as const)
+      }
+    })
+    if (files.some((file) => file.sizeBytes <= 0)) {
+      migrated.push(model)
+      continue
+    }
+    const packageIdentity = modelPackageIdentity({
+      id: model.id,
+      name: model.name,
+      kind: model.kind,
+      source: 'downloaded',
+      files: files as [(typeof files)[number], ...Array<(typeof files)[number]>],
+      engine: model.kind === 'text' || model.kind === 'vision' ? 'llama' : undefined
+    })
+    migrated.push({
+      ...model,
+      id: packageIdentity,
+      familyId: model.id,
+      packageIdentity
+    })
+    changed = true
+  }
+  const unique = [...new Map(migrated.map((model) => [model.id, model])).values()]
+  if (changed || unique.length !== current.length) writeDownloaded(dir, unique)
+  return unique
 }
 
 /** Record a downloaded model (replacing any existing entry with the same id). */

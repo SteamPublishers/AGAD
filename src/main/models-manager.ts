@@ -21,7 +21,8 @@ import {
   findDownloaded,
   installedDownloadedIds,
   downloadedProtectedNames,
-  readDownloaded
+  reconcileDownloadedModelRegistry,
+  type DownloadedModel
 } from './downloaded-models'
 import {
   mergeCatalog,
@@ -35,6 +36,7 @@ import {
   isChatLoadable,
   visionStatus,
   projectorToHeal,
+  isProjectorFileName,
   type CatalogEntry,
   type VisionStatus
 } from './models/catalog-logic'
@@ -75,6 +77,22 @@ function fileSizeOf(dir: string, name: string): number {
   }
 }
 
+function downloadedPrimary(model: DownloadedModel): string | undefined {
+  return model.files.find((name) => !isProjectorFileName(name)) ?? model.files[0]
+}
+
+function downloadedProjector(model: DownloadedModel): string | undefined {
+  return model.files.find(isProjectorFileName)
+}
+
+/** Exact id first; a unique family match keeps a stale pre-migration selection working. */
+function downloadedVariant(models: DownloadedModel[], id: string): DownloadedModel | undefined {
+  const exact = models.find((model) => model.id === id)
+  if (exact) return exact
+  const family = models.filter((model) => model.familyId === id)
+  return family.length === 1 ? family[0] : undefined
+}
+
 export async function getCatalog(): Promise<{ kinds: readonly string[]; models: unknown[] }> {
   const { CATALOG, MODEL_KINDS } = await import('@offgrid/models')
   const dir = llm.getModelsDir()
@@ -83,9 +101,10 @@ export async function getCatalog(): Promise<{ kinds: readonly string[]; models: 
   // catalog) in that exact order - decision in catalog-logic, filesystem probe
   // injected as a closure so it stays pure.
   const present = (name: string): boolean => fileSizeOf(dir, name) > 0
+  const downloaded = reconcileDownloadedModelRegistry(dir, CATALOG as unknown as CatalogEntry[])
   const models = mergeCatalog({
     locals: getLocalModels(),
-    downloaded: readDownloaded(dir),
+    downloaded,
     installedDownloadedIds: installedDownloadedIds(dir),
     catalog: CATALOG as unknown as CatalogEntry[],
     present
@@ -102,9 +121,10 @@ export async function getVisionStatuses(): Promise<Record<string, VisionStatus>>
   const { CATALOG } = await import('@offgrid/models')
   const dir = llm.getModelsDir()
   const present = (name: string): boolean => fileSizeOf(dir, name) > 0
+  const downloaded = reconcileDownloadedModelRegistry(dir, CATALOG as unknown as CatalogEntry[])
   const merged = mergeCatalog({
     locals: getLocalModels(),
-    downloaded: readDownloaded(dir),
+    downloaded,
     installedDownloadedIds: installedDownloadedIds(dir),
     catalog: CATALOG as unknown as CatalogEntry[],
     present
@@ -124,9 +144,11 @@ export async function listInstalled(): Promise<string[]> {
   const { CATALOG } = await import('@offgrid/models')
   const { isMfluxModelCached } = await import('./mflux')
   const dir = llm.getModelsDir()
+  const downloaded = reconcileDownloadedModelRegistry(dir, CATALOG as unknown as CatalogEntry[])
   return installedIds({
     locals: getLocalModels(),
     installedDownloadedIds: installedDownloadedIds(dir),
+    downloaded,
     catalog: CATALOG as unknown as CatalogEntry[],
     present: (name) => fileSizeOf(dir, name) > 0,
     mfluxCached: (id) => isMfluxModelCached(id)
@@ -504,6 +526,26 @@ export async function setActiveModel(
     return { success: true }
   }
   const { CATALOG, resolveHuggingFaceModel } = await import('@offgrid/models')
+  const dir = llm.getModelsDir()
+  const downloaded = reconcileDownloadedModelRegistry(dir, CATALOG as unknown as CatalogEntry[])
+  const transferred = downloadedVariant(downloaded, modelId)
+  if (transferred) {
+    if (!isChatLoadable(transferred.kind)) {
+      return {
+        success: false,
+        error: `${transferred.kind} models are not loadable as the chat LLM`
+      }
+    }
+    const primary = downloadedPrimary(transferred)
+    if (!primary) return { success: false, error: 'transferred model has no primary file' }
+    const mmproj = downloadedProjector(transferred) ?? null
+    fs.writeFileSync(
+      activeModelFile(),
+      JSON.stringify({ id: transferred.id, primary, mmproj }, null, 2)
+    )
+    llm.reloadModel()
+    return { success: true }
+  }
   const entry = CATALOG.find((m) => m.id === modelId) ?? (await resolveHuggingFaceModel(modelId))
   if (!entry) return { success: false, error: 'unknown model' }
   if (!isChatLoadable(entry.kind)) {
@@ -541,8 +583,29 @@ export async function reconcileActiveModelProjector(): Promise<boolean> {
   }
   const { CATALOG } = await import('@offgrid/models')
   const dir = llm.getModelsDir()
-  const entry = (CATALOG as unknown as CatalogEntry[]).find((m) => m.id === cfg!.id)
-  const projector = projectorToHeal(cfg, entry, (name) => fileSizeOf(dir, name) > 0)
+  const downloaded = reconcileDownloadedModelRegistry(dir, CATALOG as unknown as CatalogEntry[])
+  const active = cfg!
+  const transferred = active.id ? downloadedVariant(downloaded, active.id) : undefined
+  if (transferred) {
+    const primary = downloadedPrimary(transferred)
+    const mmproj = downloadedProjector(transferred)
+    if (
+      primary &&
+      mmproj &&
+      fileSizeOf(dir, primary) > 0 &&
+      fileSizeOf(dir, mmproj) > 0 &&
+      (active.id !== transferred.id || active.primary !== primary || active.mmproj !== mmproj)
+    ) {
+      fs.writeFileSync(
+        activeModelFile(),
+        JSON.stringify({ id: transferred.id, primary, mmproj }, null, 2)
+      )
+      llm.reloadModel()
+      return true
+    }
+  }
+  const entry = (CATALOG as unknown as CatalogEntry[]).find((m) => m.id === active.id)
+  const projector = projectorToHeal(active, entry, (name) => fileSizeOf(dir, name) > 0)
   if (!projector) {
     return false // already has one / no projector / not downloaded yet — leave as is
   }
@@ -727,9 +790,12 @@ export async function getTransferableModel(
   dir = llm.getModelsDir()
 ): Promise<TransferableModel | null> {
   const local = getLocalModels(dir).find((model) => model.id === modelId)
-  const downloaded = findDownloaded(dir, modelId)
   const { CATALOG } = await import('@offgrid/models')
   const catalog = CATALOG.find((model) => model.id === modelId)
+  const downloaded = downloadedVariant(
+    reconcileDownloadedModelRegistry(dir, CATALOG as unknown as CatalogEntry[]),
+    modelId
+  )
 
   const source: TransferableModelSource | null = local
     ? 'local'
@@ -752,7 +818,7 @@ export async function getTransferableModel(
   if (!files) return null
 
   return {
-    id: modelId,
+    id: downloaded?.id ?? modelId,
     familyId: downloaded?.familyId ?? catalog?.id ?? local?.id ?? modelId,
     packageIdentity: downloaded?.packageIdentity,
     name: local?.name ?? downloaded?.name ?? catalog?.name ?? modelId,
@@ -941,6 +1007,7 @@ export async function getStorageInfo(): Promise<StorageInfo> {
   const dir = llm.getModelsDir()
   const { CATALOG } = await import('@offgrid/models')
   const catalog = CATALOG as unknown as CatalogEntry[]
+  const reconciledDownloaded = reconcileDownloadedModelRegistry(dir, catalog)
   // Protect catalog + imported-local + free-form-download files, plus the active
   // chat selection's files, from being flagged/deleted as orphans.
   let activePrimary: string | null = null
@@ -969,7 +1036,7 @@ export async function getStorageInfo(): Promise<StorageInfo> {
   const locals = getLocalModels()
   const installed = await listInstalled()
   const sizeOf = (name: string): number => fileSizeOf(dir, name)
-  const downloaded = readDownloaded(dir)
+  const downloaded = reconciledDownloaded
   const catalogIds = new Set(catalog.map((m) => m.id))
   const catalogById = (id: string): CatalogEntry | undefined => catalog.find((m) => m.id === id)
   const models: ModelDiskEntry[] = installed.map((id) =>
