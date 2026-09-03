@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AltGridLib</RootNamespace>
+    <AssemblyName>AltGridLib</AssemblyName>
+    <PackageId>Alternative.Grid.Library</PackageId>
+    <Authors>Alternative Grid Team</Authors>
+    <Description>Cross-platform .NET library for local AI model orchestration, inspired by Off Grid but rebuilt in pure .NET</Description>
+    <RepositoryUrl>https://github.com/your-org/altgrid</RepositoryUrl>
+    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    
+    <!-- Cross-platform support -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- HTTP Client for llama-server communication -->
+    <PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
+    
+    <!-- JSON Serialization -->
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+    
+    <!-- SQLite for local storage (Memory, Entities, Todos) -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
+    
+    <!-- Dependency Injection -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    
+    <!-- Async Streams for SSE (Server-Sent Events) -->
+    <PackageReference Include="System.Linq.Async" Version="6.0.1" />
+  </ItemGroup>
+
+</Project>
