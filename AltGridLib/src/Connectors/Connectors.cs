@@ -8,11 +8,11 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public interface IConnector
 {
-    string PlatformName { get; }
-    bool IsConnected { get; }
-    Task<bool> ConnectAsync(string authCode, CancellationToken cancellationToken = default);
-    Task DisconnectAsync();
-    Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default);
+  string PlatformName { get; }
+  bool IsConnected { get; }
+  Task<bool> ConnectAsync(string authCode, CancellationToken cancellationToken = default);
+  Task DisconnectAsync();
+  Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -21,51 +21,51 @@ public interface IConnector
 /// </summary>
 public abstract class OAuth2Connector : IConnector
 {
-    protected readonly ILogger? _logger;
-    protected readonly HttpClient _httpClient;
-    protected string? _accessToken;
-    protected string? _refreshToken;
-    protected DateTime? _tokenExpiry;
-    
-    public abstract string PlatformName { get; }
-    public bool IsConnected => !string.IsNullOrEmpty(_accessToken) && (_tokenExpiry == null || _tokenExpiry > DateTime.UtcNow);
-    
-    protected OAuth2Connector(HttpClient httpClient, ILogger? logger = null)
-    {
-        _httpClient = httpClient;
-        _logger = logger;
-    }
-    
-    public virtual async Task<bool> ConnectAsync(string authCode, CancellationToken cancellationToken = default)
-    {
-        // TODO: Implement OAuth2 token exchange
-        // This is a placeholder - actual implementation requires:
-        // 1. Exchange auth code for tokens
-        // 2. Store tokens securely (encrypted)
-        // 3. Set up token refresh mechanism
-        await Task.CompletedTask;
-        return false;
-    }
-    
-    public virtual Task DisconnectAsync()
-    {
-        _accessToken = null;
-        _refreshToken = null;
-        _tokenExpiry = null;
-        return Task.CompletedTask;
-    }
-    
-    public abstract Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default);
-    
-    /// <summary>
-    /// Refresh access token using refresh token
-    /// </summary>
-    protected virtual async Task<bool> RefreshTokenAsync(CancellationToken cancellationToken = default)
-    {
-        // TODO: Implement token refresh
-        await Task.CompletedTask;
-        return false;
-    }
+  protected readonly ILogger? _logger;
+  protected readonly HttpClient _httpClient;
+  protected string? _accessToken;
+  protected string? _refreshToken;
+  protected DateTime? _tokenExpiry;
+
+  public abstract string PlatformName { get; }
+  public bool IsConnected => !string.IsNullOrEmpty(_accessToken) && (_tokenExpiry == null || _tokenExpiry > DateTime.UtcNow);
+
+  protected OAuth2Connector(HttpClient httpClient, ILogger? logger = null)
+  {
+    _httpClient = httpClient;
+    _logger = logger;
+  }
+
+  public virtual async Task<bool> ConnectAsync(string authCode, CancellationToken cancellationToken = default)
+  {
+    // TODO: Implement OAuth2 token exchange
+    // This is a placeholder - actual implementation requires:
+    // 1. Exchange auth code for tokens
+    // 2. Store tokens securely (encrypted)
+    // 3. Set up token refresh mechanism
+    await Task.CompletedTask;
+    return false;
+  }
+
+  public virtual Task DisconnectAsync()
+  {
+    _accessToken = null;
+    _refreshToken = null;
+    _tokenExpiry = null;
+    return Task.CompletedTask;
+  }
+
+  public abstract Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default);
+
+  /// <summary>
+  /// Refresh access token using refresh token
+  /// </summary>
+  protected virtual async Task<bool> RefreshTokenAsync(CancellationToken cancellationToken = default)
+  {
+    // TODO: Implement token refresh
+    await Task.CompletedTask;
+    return false;
+  }
 }
 
 /// <summary>
@@ -73,11 +73,11 @@ public abstract class OAuth2Connector : IConnector
 /// </summary>
 public class SyncResult
 {
-    public bool Success { get; set; }
-    public int ItemsSynced { get; set; }
-    public DateTime LastSyncTime { get; set; } = DateTime.UtcNow;
-    public string? Error { get; set; }
-    public IEnumerable<object> Items { get; set; } = Array.Empty<object>();
+  public bool Success { get; set; }
+  public int ItemsSynced { get; set; }
+  public DateTime LastSyncTime { get; set; } = DateTime.UtcNow;
+  public string? Error { get; set; }
+  public IEnumerable<object> Items { get; set; } = Array.Empty<object>();
 }
 
 /// <summary>
@@ -86,22 +86,22 @@ public class SyncResult
 /// </summary>
 public class GmailConnectorStub : OAuth2Connector
 {
-    public override string PlatformName => "Gmail";
-    
-    public GmailConnectorStub(HttpClient httpClient, ILogger<GmailConnectorStub>? logger = null) 
-        : base(httpClient, logger)
+  public override string PlatformName => "Gmail";
+
+  public GmailConnectorStub(HttpClient httpClient, ILogger<GmailConnectorStub>? logger = null)
+      : base(httpClient, logger)
+  {
+  }
+
+  public override Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default)
+  {
+    // Stub - returns empty result
+    return Task.FromResult(new SyncResult
     {
-    }
-    
-    public override Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default)
-    {
-        // Stub - returns empty result
-        return Task.FromResult(new SyncResult 
-        { 
-            Success = false, 
-            Error = "Gmail connector not implemented (requires Pro submodule)" 
-        });
-    }
+      Success = false,
+      Error = "Gmail connector not implemented (requires Pro submodule)"
+    });
+  }
 }
 
 /// <summary>
@@ -110,22 +110,22 @@ public class GmailConnectorStub : OAuth2Connector
 /// </summary>
 public class GoogleCalendarConnectorStub : OAuth2Connector
 {
-    public override string PlatformName => "Google Calendar";
-    
-    public GoogleCalendarConnectorStub(HttpClient httpClient, ILogger<GoogleCalendarConnectorStub>? logger = null) 
-        : base(httpClient, logger)
+  public override string PlatformName => "Google Calendar";
+
+  public GoogleCalendarConnectorStub(HttpClient httpClient, ILogger<GoogleCalendarConnectorStub>? logger = null)
+      : base(httpClient, logger)
+  {
+  }
+
+  public override Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default)
+  {
+    // Stub - returns empty result
+    return Task.FromResult(new SyncResult
     {
-    }
-    
-    public override Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default)
-    {
-        // Stub - returns empty result
-        return Task.FromResult(new SyncResult 
-        { 
-            Success = false, 
-            Error = "Google Calendar connector not implemented (requires Pro submodule)" 
-        });
-    }
+      Success = false,
+      Error = "Google Calendar connector not implemented (requires Pro submodule)"
+    });
+  }
 }
 
 /// <summary>
@@ -134,27 +134,27 @@ public class GoogleCalendarConnectorStub : OAuth2Connector
 /// </summary>
 public class SlackConnectorStub : IConnector
 {
-    public string PlatformName => "Slack";
-    public bool IsConnected => false;
-    
-    public Task<bool> ConnectAsync(string authCode, CancellationToken cancellationToken = default)
+  public string PlatformName => "Slack";
+  public bool IsConnected => false;
+
+  public Task<bool> ConnectAsync(string authCode, CancellationToken cancellationToken = default)
+  {
+    return Task.FromResult(false);
+  }
+
+  public Task DisconnectAsync()
+  {
+    return Task.CompletedTask;
+  }
+
+  public Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default)
+  {
+    return Task.FromResult(new SyncResult
     {
-        return Task.FromResult(false);
-    }
-    
-    public Task DisconnectAsync()
-    {
-        return Task.CompletedTask;
-    }
-    
-    public Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(new SyncResult 
-        { 
-            Success = false, 
-            Error = "Slack connector not implemented (requires Pro submodule)" 
-        });
-    }
+      Success = false,
+      Error = "Slack connector not implemented (requires Pro submodule)"
+    });
+  }
 }
 
 /// <summary>
@@ -163,25 +163,25 @@ public class SlackConnectorStub : IConnector
 /// </summary>
 public class GitHubConnectorStub : IConnector
 {
-    public string PlatformName => "GitHub";
-    public bool IsConnected => false;
-    
-    public Task<bool> ConnectAsync(string authCode, CancellationToken cancellationToken = default)
+  public string PlatformName => "GitHub";
+  public bool IsConnected => false;
+
+  public Task<bool> ConnectAsync(string authCode, CancellationToken cancellationToken = default)
+  {
+    return Task.FromResult(false);
+  }
+
+  public Task DisconnectAsync()
+  {
+    return Task.CompletedTask;
+  }
+
+  public Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default)
+  {
+    return Task.FromResult(new SyncResult
     {
-        return Task.FromResult(false);
-    }
-    
-    public Task DisconnectAsync()
-    {
-        return Task.CompletedTask;
-    }
-    
-    public Task<SyncResult> SyncAsync(DateTime? since = null, CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(new SyncResult 
-        { 
-            Success = false, 
-            Error = "GitHub connector not implemented (requires Pro submodule)" 
-        });
-    }
+      Success = false,
+      Error = "GitHub connector not implemented (requires Pro submodule)"
+    });
+  }
 }

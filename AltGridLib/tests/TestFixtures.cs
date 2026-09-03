@@ -1,6 +1,3 @@
-using System.Text;
-using System.Text.Json;
-
 namespace AltGridLib.Tests;
 
 /// <summary>
@@ -9,7 +6,7 @@ namespace AltGridLib.Tests;
 /// </summary>
 public static class TestFixtures
 {
-    public static readonly string ChatCompletionResponse = """
+  public static readonly string ChatCompletionResponse = """
         {
             "id": "chatcmpl-8f9a7b2c",
             "object": "chat.completion",
@@ -33,7 +30,7 @@ public static class TestFixtures
         }
         """;
 
-    public static readonly string ChatChunkResponse = """
+  public static readonly string ChatChunkResponse = """
         data: {"id":"chatcmpl-8f9a7b2c","object":"chat.completion.chunk","created":1704067200,"model":"llama-3.2-3b-instruct","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
         
         data: {"id":"chatcmpl-8f9a7b2c","object":"chat.completion.chunk","created":1704067200,"model":"llama-3.2-3b-instruct","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
@@ -46,7 +43,7 @@ public static class TestFixtures
         
         """;
 
-    public static readonly string ModelsListResponse = """
+  public static readonly string ModelsListResponse = """
         {
             "object": "list",
             "data": [
@@ -66,7 +63,7 @@ public static class TestFixtures
         }
         """;
 
-    public static readonly string ErrorResponse503 = """
+  public static readonly string ErrorResponse503 = """
         {
             "error": {
                 "message": "Service unavailable - model is loading",
@@ -76,7 +73,7 @@ public static class TestFixtures
         }
         """;
 
-    public static readonly string ErrorResponse404 = """
+  public static readonly string ErrorResponse404 = """
         {
             "error": {
                 "message": "Model 'nonexistent-model' not found",
@@ -86,14 +83,14 @@ public static class TestFixtures
         }
         """;
 
-    public static byte[] GetTestEncryptionKey()
-    {
-        // 32-byte key for AES-256
-        return Encoding.UTF8.GetBytes("AltGridTestKey12345678901234567890");
-    }
+  public static string GetTestEncryptionKey()
+  {
+    // password is string, the library will generate bytes
+    return "AltGridTestKey12345678901234567890";
+  }
 
-    public static string GetTestPlaintext()
-    {
-        return "This is a secret vault entry for testing encryption.";
-    }
+  public static string GetTestPlaintext()
+  {
+    return "This is a secret vault entry for testing encryption.";
+  }
 }

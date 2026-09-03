@@ -5,16 +5,16 @@ namespace AltGridLib.Models;
 /// </summary>
 public class ChatMessage
 {
-    public string Role { get; set; } = "user"; // "system", "user", "assistant"
-    public string Content { get; set; } = string.Empty;
-    
-    public ChatMessage() { }
-    
-    public ChatMessage(string role, string content)
-    {
-        Role = role;
-        Content = content;
-    }
+  public string Role { get; set; } = "user"; // "system", "user", "assistant"
+  public string Content { get; set; } = string.Empty;
+
+  public ChatMessage() { }
+
+  public ChatMessage(string role, string content)
+  {
+    Role = role;
+    Content = content;
+  }
 }
 
 /// <summary>
@@ -22,12 +22,12 @@ public class ChatMessage
 /// </summary>
 public class ChatRequest
 {
-    public string Model { get; set; } = string.Empty;
-    public IList<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
-    public float Temperature { get; set; } = 0.7f;
-    public int MaxTokens { get; set; } = -1; // -1 means unlimited
-    public bool Stream { get; set; } = false;
-    public ChatCompletionOptions? Options { get; set; }
+  public string Model { get; set; } = string.Empty;
+  public IList<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
+  public float Temperature { get; set; } = 0.7f;
+  public int MaxTokens { get; set; } = -1; // -1 means unlimited
+  public bool Stream { get; set; } = false;
+  public ChatCompletionOptions? Options { get; set; }
 }
 
 /// <summary>
@@ -35,10 +35,10 @@ public class ChatRequest
 /// </summary>
 public class ChatCompletionOptions
 {
-    public float TopP { get; set; } = 0.9f;
-    public int TopK { get; set; } = 40;
-    public float RepeatPenalty { get; set; } = 1.1f;
-    public int RepeatLastN { get; set; } = 64;
+  public float TopP { get; set; } = 0.9f;
+  public int TopK { get; set; } = 40;
+  public float RepeatPenalty { get; set; } = 1.1f;
+  public int RepeatLastN { get; set; } = 64;
 }
 
 /// <summary>
@@ -46,12 +46,12 @@ public class ChatCompletionOptions
 /// </summary>
 public class ChatResponse
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string Object { get; set; } = "chat.completion";
-    public long Created { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-    public string Model { get; set; } = string.Empty;
-    public ChatChoice[] Choices { get; set; } = Array.Empty<ChatChoice>();
-    public UsageInfo? Usage { get; set; }
+  public string Id { get; set; } = Guid.NewGuid().ToString("N");
+  public string Object { get; set; } = "chat.completion";
+  public long Created { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+  public string Model { get; set; } = string.Empty;
+  public ChatChoice[] Choices { get; set; } = Array.Empty<ChatChoice>();
+  public UsageInfo? Usage { get; set; }
 }
 
 /// <summary>
@@ -59,9 +59,9 @@ public class ChatResponse
 /// </summary>
 public class ChatChoice
 {
-    public int Index { get; set; }
-    public ChatMessage Message { get; set; } = new();
-    public string FinishReason { get; set; } = "stop";
+  public int Index { get; set; }
+  public ChatMessage Message { get; set; } = new();
+  public string FinishReason { get; set; } = "stop";
 }
 
 /// <summary>
@@ -69,11 +69,11 @@ public class ChatChoice
 /// </summary>
 public class ChatChunk
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string Object { get; set; } = "chat.completion.chunk";
-    public long Created { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-    public string Model { get; set; } = string.Empty;
-    public ChatChunkChoice[] Choices { get; set; } = Array.Empty<ChatChunkChoice>();
+  public string Id { get; set; } = Guid.NewGuid().ToString("N");
+  public string Object { get; set; } = "chat.completion.chunk";
+  public long Created { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+  public string Model { get; set; } = string.Empty;
+  public ChatChunkChoice[] Choices { get; set; } = Array.Empty<ChatChunkChoice>();
 }
 
 /// <summary>
@@ -81,9 +81,9 @@ public class ChatChunk
 /// </summary>
 public class ChatChunkChoice
 {
-    public int Index { get; set; }
-    public ChatChunkDelta Delta { get; set; } = new();
-    public string? FinishReason { get; set; }
+  public int Index { get; set; }
+  public ChatChunkDelta Delta { get; set; } = new();
+  public string? FinishReason { get; set; }
 }
 
 /// <summary>
@@ -91,8 +91,8 @@ public class ChatChunkChoice
 /// </summary>
 public class ChatChunkDelta
 {
-    public string? Role { get; set; }
-    public string? Content { get; set; }
+  public string? Role { get; set; }
+  public string? Content { get; set; }
 }
 
 /// <summary>
@@ -100,7 +100,7 @@ public class ChatChunkDelta
 /// </summary>
 public class UsageInfo
 {
-    public int PromptTokens { get; set; }
-    public int CompletionTokens { get; set; }
-    public int TotalTokens { get; set; }
+  public int PromptTokens { get; set; }
+  public int CompletionTokens { get; set; }
+  public int TotalTokens { get; set; }
 }

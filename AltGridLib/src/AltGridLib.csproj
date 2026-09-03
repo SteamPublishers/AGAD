@@ -18,20 +18,21 @@
 
   <ItemGroup>
     <!-- HTTP Client for llama-server communication -->
-    <PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.11" />
+    <PackageReference Include="System.Net.Http.Json" Version="10.0.11" />
     
     <!-- JSON Serialization -->
-    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+    <PackageReference Include="System.Text.Json" Version="10.0.11" />
     
     <!-- SQLite for local storage (Memory, Entities, Todos) -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     
     <!-- Dependency Injection -->
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
     
     <!-- Async Streams for SSE (Server-Sent Events) -->
-    <PackageReference Include="System.Linq.Async" Version="6.0.1" />
+    <PackageReference Include="System.Linq.Async" Version="7.0.1" />
   </ItemGroup>
 
 </Project>

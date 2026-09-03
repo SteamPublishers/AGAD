@@ -1,44 +1,28 @@
 {
   "version": 2,
-  "dgSpecHash": "D1dBlKvJuw8=",
+  "dgSpecHash": "ADgdiza1G6g=",
   "success": true,
-  "projectFilePath": "/workspace/AltGridLib/src/AltGridLib.csproj",
+  "projectFilePath": "X:\\AGAD\\AltGridLib\\src\\AltGridLib.csproj",
   "expectedPackageFiles": [
-    "/root/.nuget/packages/microsoft.bcl.asyncinterfaces/6.0.0/microsoft.bcl.asyncinterfaces.6.0.0.nupkg.sha512",
-    "/root/.nuget/packages/microsoft.data.sqlite/8.0.0/microsoft.data.sqlite.8.0.0.nupkg.sha512",
-    "/root/.nuget/packages/microsoft.data.sqlite.core/8.0.0/microsoft.data.sqlite.core.8.0.0.nupkg.sha512",
-    "/root/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/8.0.0/microsoft.extensions.dependencyinjection.abstractions.8.0.0.nupkg.sha512",
-    "/root/.nuget/packages/microsoft.extensions.logging.abstractions/8.0.0/microsoft.extensions.logging.abstractions.8.0.0.nupkg.sha512",
-    "/root/.nuget/packages/sqlitepclraw.bundle_e_sqlite3/2.1.6/sqlitepclraw.bundle_e_sqlite3.2.1.6.nupkg.sha512",
-    "/root/.nuget/packages/sqlitepclraw.core/2.1.6/sqlitepclraw.core.2.1.6.nupkg.sha512",
-    "/root/.nuget/packages/sqlitepclraw.lib.e_sqlite3/2.1.6/sqlitepclraw.lib.e_sqlite3.2.1.6.nupkg.sha512",
-    "/root/.nuget/packages/sqlitepclraw.provider.e_sqlite3/2.1.6/sqlitepclraw.provider.e_sqlite3.2.1.6.nupkg.sha512",
-    "/root/.nuget/packages/system.linq.async/6.0.1/system.linq.async.6.0.1.nupkg.sha512",
-    "/root/.nuget/packages/system.memory/4.5.3/system.memory.4.5.3.nupkg.sha512",
-    "/root/.nuget/packages/system.net.http.json/8.0.0/system.net.http.json.8.0.0.nupkg.sha512",
-    "/root/.nuget/packages/system.text.encodings.web/8.0.0/system.text.encodings.web.8.0.0.nupkg.sha512",
-    "/root/.nuget/packages/system.text.json/8.0.0/system.text.json.8.0.0.nupkg.sha512"
+    "C:\\Users\\BigCat\\.nuget\\packages\\microsoft.data.sqlite\\10.0.11\\microsoft.data.sqlite.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\microsoft.data.sqlite.core\\10.0.11\\microsoft.data.sqlite.core.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\10.0.11\\microsoft.extensions.dependencyinjection.abstractions.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\10.0.11\\microsoft.extensions.logging.abstractions.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\microsoft.extensions.options\\10.0.11\\microsoft.extensions.options.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\microsoft.extensions.primitives\\10.0.11\\microsoft.extensions.primitives.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\sqlitepclraw.bundle_e_sqlite3\\2.1.12\\sqlitepclraw.bundle_e_sqlite3.2.1.12.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\sqlitepclraw.core\\2.1.12\\sqlitepclraw.core.2.1.12.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\sqlitepclraw.lib.e_sqlite3\\2.1.12\\sqlitepclraw.lib.e_sqlite3.2.1.12.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\sqlitepclraw.provider.e_sqlite3\\2.1.12\\sqlitepclraw.provider.e_sqlite3.2.1.12.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.diagnostics.diagnosticsource\\10.0.11\\system.diagnostics.diagnosticsource.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.interactive.async\\7.0.1\\system.interactive.async.7.0.1.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.io.pipelines\\10.0.11\\system.io.pipelines.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.linq.async\\7.0.1\\system.linq.async.7.0.1.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.linq.asyncenumerable\\10.0.6\\system.linq.asyncenumerable.10.0.6.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.memory\\4.5.3\\system.memory.4.5.3.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.net.http.json\\10.0.11\\system.net.http.json.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.text.encodings.web\\10.0.11\\system.text.encodings.web.10.0.11.nupkg.sha512",
+    "C:\\Users\\BigCat\\.nuget\\packages\\system.text.json\\10.0.11\\system.text.json.10.0.11.nupkg.sha512"
   ],
-  "logs": [
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'System.Text.Json' 8.0.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-8g4q-xg66-9fp4",
-      "libraryId": "System.Text.Json",
-      "targetGraphs": [
-        "net8.0"
-      ]
-    },
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'System.Text.Json' 8.0.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-hh2w-p6rv-4g7w",
-      "libraryId": "System.Text.Json",
-      "targetGraphs": [
-        "net8.0"
-      ]
-    }
-  ]
+  "logs": []
 }
