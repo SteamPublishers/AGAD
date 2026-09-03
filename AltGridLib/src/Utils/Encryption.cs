@@ -26,13 +26,19 @@ public static class EncryptionHelper
     var tag = new byte[16]; // GCM tag size
 
     // Derive key from password using PBKDF2
-    using var deriveBytes = new Rfc2898DeriveBytes(password, salt, Iterations, HashAlgorithmName.SHA256);
-    var key = deriveBytes.GetBytes(KeySize / 8);
+
+    var key = Rfc2898DeriveBytes.Pbkdf2(
+        password,
+        salt,
+        Iterations,
+        HashAlgorithmName.SHA256,
+        32 // 256 bits for AES-256
+    );
 
     using var aes = new AesGcm(key, 16);
     // Encrypt
     var cipherData = new byte[plainData.Length];
-    aes.Encrypt(key, iv, plainData, cipherData, tag);
+    aes.Encrypt(iv, plainData, cipherData, tag);
 
     // Combine salt + iv + tag + encrypted data
     var result = new byte[SaltSize + iv.Length + tag.Length + cipherData.Length];
@@ -62,13 +68,21 @@ public static class EncryptionHelper
     Buffer.BlockCopy(encryptedData, SaltSize + iv.Length + tag.Length, cipherData, 0, cipherData.Length);
 
     // Derive key from password
-    using var deriveBytes = new Rfc2898DeriveBytes(password, salt, Iterations, HashAlgorithmName.SHA256);
-    var key = deriveBytes.GetBytes(KeySize / 8);
+    //using var deriveBytes = new Rfc2898DeriveBytes(password, salt, Iterations, HashAlgorithmName.SHA256);
+    //var key = deriveBytes.GetBytes(KeySize / 8);
+
+    var key = Rfc2898DeriveBytes.Pbkdf2(
+        password,
+        salt,
+        Iterations,
+        HashAlgorithmName.SHA256,
+        32 // 256 bits for AES-256
+    );
 
     using var aes = new AesGcm(key, 16);
     // Decrypt
     var plainData = new byte[cipherData.Length];
-    aes.Decrypt(key, iv, cipherData, tag, plainData);
+    aes.Decrypt(iv, cipherData, tag, plainData);
 
     return plainData;
   }
