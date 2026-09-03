@@ -1,113 +1,26 @@
-node_modules
-dist
-out
-.DS_Store
-.eslintcache
-*.log*
-
-# Google OAuth client (secret) — do not commit
-src/main/google-client.ts
-
-# Local reference component library (not part of the app build)
-component-library-animations/
-
-# Bundled MLX (mflux) Python env — large, rebuilt via scripts/build-mflux-env.sh
-resources/bin/mflux/
-
-# Off Grid SD-GGUF conversion build dir
-build-sd-gguf/
-
-# Swift build artifacts (embedded repos)
-electron/coreml-sd/.build/
-electron/coreml-sd/.swiftpm/
-electron/accessibility/ocr
-
-# Bundled runtime binaries live in Git LFS (see .gitattributes) so CI can bundle
-# them. Only the heavy optional runtimes we don't ship are excluded.
-resources/bin/coreml-sd/
-resources/bin/mflux/
-# Parakeet STT runtime — CI-staged via scripts/fetch-parakeet.sh (like mflux/coreml-sd),
-# not committed. Devs stage it locally with the same script.
-resources/bin/parakeet/
-# Pro MultipeerConnectivity helper - built from the private Pro repo and staged for packaging.
-resources/bin/proximity-helper
-resources/bin/keychain-bootstrap.node
-# Gateway probe scratch output
-.gateway-probe/
-# TS build cache
-*.tsbuildinfo
-
-# Private pro features — a separate repo, tracked as a git submodule now that the remote exists.
-# The submodule records only a URL and a commit, so this open repo still never carries pro source -
-# while pinning exactly which pro revision belongs with this branch. NOT ignored any more: while it
-# was, six licensing tests under pro/ stayed tracked here AND in desktop-pro, so an edit showed up in
-# both repos and the two could diverge with no signal.
-
-# Vendored @offgrid packages ship their built dist
-!packages/*/dist/
-!packages/*/dist/**
-
-# Local env (telemetry/keys) — never commit
-.env
-.env.local
-test-results/
-
-# Marketing material (dev.to drafts, emails, assets) — publishing, not app code
-/marketing/
-scripts/dictation-hotkey/dictation-hotkey
-
-# Local demo profile — synthetic-data run target for `npm run demo` (never real userData)
-.demo-profile/
-
-# Local test/runtime profile — generated dummy models + gateway logs, never real userData
-.offgrid/
-
-# Local machine-specific build/signing notes (keychain-dependent, not portable)
-local-build.local.md
-
-# Test coverage output
-coverage/
-swift-tests/**/.build/
-
-# Off Grid AI Pro early-bird campaign (customer PII + send tooling - do not commit)
-marketing/emails/pro-earlybird/
-
-# Coverage report from the DB journey suite (npm run test:db --coverage)
-coverage-db/
-
-# Raw V8 output and the converted report from the e2e coverage capture
-coverage-e2e-raw/
-coverage-e2e/
-
-
-## new dotnet 8 project
-AltGridLib/src/bin/
-AltGridLib/src/.vs/
-AltGridLib/src/obj/
-AltGridLib/tests/bin/
-AltGridLib/tests/obj/
-
+```
 # Build artifacts
 *.dll
 *.exe
 *.pdb
-*.so
-*.dylib
-*.a
-*.lib
-*.obj
-*.o
-*.out
+*.nupkg
+**/bin/
+**/obj/
+**/out/
 
 # Dependencies
 packages/
 node_modules/
-.nuget/
-.nuget/packages/
+vendor/
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+*.userprefs
 
 # Logs
 *.log
-**/logs/
 
 # Environment
 .env
@@ -118,20 +31,12 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
 # Test coverage
 coverage/
 htmlcov/
-.coverage
+*.coverage
 
-# Package manager
-*.nupkg
-*.deb
-packages-*.deb
+# Temporary files
+*.tmp
+*.temp
 ```
