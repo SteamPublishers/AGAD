@@ -81,6 +81,7 @@ coverage-e2e/
 
 
 ## new dotnet 8 project
+AltGridLib/.vs/
 AltGridLib/src/bin/
 AltGridLib/src/.vs/
 AltGridLib/src/obj/

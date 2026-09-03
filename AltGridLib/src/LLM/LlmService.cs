@@ -140,10 +140,10 @@ public class LlmService : ILlmService
 
     await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
     using var reader = new StreamReader(stream);
-
-    while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+    string? line;
+    while ((line = await reader.ReadLineAsync(cancellationToken)) != null
+           && !cancellationToken.IsCancellationRequested)
     {
-      var line = await reader.ReadLineAsync(cancellationToken);
 
       if (string.IsNullOrEmpty(line))
         continue;
