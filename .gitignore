@@ -92,23 +92,24 @@ AltGridLib/tests/obj/
 *.dll
 *.exe
 *.pdb
-*.so
-*.dylib
-*.a
-*.lib
-*.obj
-*.o
-*.out
+*.nupkg
+**/bin/
+**/obj/
+**/out/
 
 # Dependencies
 packages/
 node_modules/
-.nuget/
-.nuget/packages/
+vendor/
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+*.userprefs
 
 # Logs
 *.log
-**/logs/
 
 # Environment
 .env
@@ -119,20 +120,12 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
 # Test coverage
 coverage/
 htmlcov/
-.coverage
+*.coverage
 
-# Package manager
-*.nupkg
-*.deb
-packages-*.deb
+# Temporary files
+*.tmp
+*.temp
 ```

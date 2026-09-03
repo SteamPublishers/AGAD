@@ -1,0 +1,89 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="AltGrid.MainWindow"
+        Title="AltGrid - .NET 10 + Avalonia Demo"
+        Width="900" Height="700">
+    
+    <Design.DataContext>
+        <!-- This only sets the DataContext for the designer preview in an IDE,
+             it is not intended to be used by your application. Ideally it
+             should match your ViewModel's real type -->
+        <local:MainViewModel xmlns:local="using:AltGrid"/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Spacing="10" Margin="0,0,0,20">
+            <TextBlock Text="AltGrid Library Demo" FontSize="24" FontWeight="Bold"/>
+            <TextBlock Text="Demonstrating AltGridLib features in an Avalonia UI" 
+                       FontSize="14" Foreground="Gray"/>
+        </StackPanel>
+
+        <!-- Main Content -->
+        <Border Grid.Row="1" BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Padding="20">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnDefinitions="150,*" Spacing="15">
+                
+                <!-- Llama Server URL Configuration -->
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Server URL:" VerticalAlignment="Center"/>
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding LlamaServerUrl}" Watermark="http://127.0.0.1:8439"/>
+
+                <!-- Get Models Button -->
+                <Button Grid.Row="1" Grid.Column="0" Content="Get Models" 
+                        Command="{Binding GetModelsCommand}" HorizontalAlignment="Left"/>
+                <ListBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Models}" 
+                         Height="100" SelectionMode="Single">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- Chat Input -->
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Message:" VerticalAlignment="Top" Margin="0,5,0,0"/>
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding UserMessage}" 
+                         AcceptsReturn="True" TextWrapping="Wrap" Height="80"
+                         Watermark="Enter your message here..."/>
+
+                <!-- Chat Actions -->
+                <StackPanel Grid.Row="3" Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                    <Button Content="Send (Non-Stream)" Command="{Binding SendChatCommand}" IsEnabled="{Binding CanSendChat}"/>
+                    <Button Content="Stream" Command="{Binding StreamChatCommand}" IsEnabled="{Binding CanSendChat}"/>
+                </StackPanel>
+
+                <!-- Chat Response Display -->
+                <Border Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" 
+                        BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4" Padding="10">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Response:" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding ChatResponse}" TextWrapping="Wrap"/>
+                            
+                            <!-- Streaming Response -->
+                            <TextBlock Text="Streaming Response:" FontWeight="Bold" Margin="0,10,0,0"/>
+                            <Border Background="#F5F5F5" CornerRadius="4" Padding="10">
+                                <TextBlock Text="{Binding StreamingResponse}" TextWrapping="Wrap" 
+                                           FontFamily="Consolas,Monaco,monospace"/>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+
+                <!-- Status -->
+                <StackPanel Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="15">
+                    <TextBlock Text="Status:" FontWeight="Bold"/>
+                    <TextBlock Text="{Binding StatusText}" Foreground="Gray"/>
+                    <Ellipse Width="10" Height="10" Fill="{Binding StatusColor}" Margin="5,0,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Footer -->
+        <StackPanel Grid.Row="2" Margin="0,20,0,0" Spacing="5">
+            <TextBlock Text="AltGridLib demonstrates local AI model orchestration" 
+                       FontSize="12" Foreground="Gray" HorizontalAlignment="Center"/>
+            <TextBlock Text="Powered by llama-server • .NET 10 • Avalonia UI" 
+                       FontSize="11" Foreground="LightGray" HorizontalAlignment="Center"/>
+        </StackPanel>
+    </Grid>
+</Window>
