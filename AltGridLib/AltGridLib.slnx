@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="../AltGrid/AltGrid.csproj" />
   <Project Path="src/AltGridLib.csproj" />
   <Project Path="tests/AltGridLib.Tests.csproj" />
 </Solution>

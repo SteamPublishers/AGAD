@@ -1,52 +1,50 @@
+using AltGridLib;
 using Avalonia;
-using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using AltGridLib;
-using AltGridLib.LLM;
 
 namespace AltGrid;
 
 class Program
 {
-    [STAThread]
-    public static void Main(string[] args)
+  [STAThread]
+  public static void Main(string[] args)
+  {
+    // Setup dependency injection
+    var services = new ServiceCollection();
+    ConfigureServices(services);
+    var serviceProvider = services.BuildServiceProvider();
+
+    // Build and run the app
+    BuildAvaloniaApp(serviceProvider).StartWithClassicDesktopLifetime(args);
+  }
+
+  private static void ConfigureServices(IServiceCollection services)
+  {
+    // Register AltGrid library services
+    services.AddAltGrid(options =>
     {
-        // Setup dependency injection
-        var services = new ServiceCollection();
-        ConfigureServices(services);
-        var serviceProvider = services.BuildServiceProvider();
+      options.LlamaServerUrl = "http://127.0.0.1:8439";
+      options.GatewayPort = 7878;
+      options.EnableVerboseLogging = true;
+    });
 
-        // Build and run the app
-        BuildAvaloniaApp(serviceProvider).StartWithClassicDesktopLifetime(args);
-    }
-
-    private static void ConfigureServices(IServiceCollection services)
+    // Register logging
+    services.AddLogging(builder =>
     {
-        // Register AltGrid library services
-        services.AddAltGrid(options =>
-        {
-            options.LlamaServerUrl = "http://127.0.0.1:8439";
-            options.GatewayPort = 7878;
-            options.EnableVerboseLogging = true;
-        });
+      builder.SetMinimumLevel(LogLevel.Debug);
+      builder.AddConsole();
+    });
 
-        // Register logging
-        services.AddLogging(builder =>
-        {
-            builder.SetMinimumLevel(LogLevel.Debug);
-            builder.AddConsole();
-        });
+    // Register views and viewmodels
+    services.AddSingleton<MainViewModel>();
+    services.AddSingleton<MainWindow>();
+  }
 
-        // Register views and viewmodels
-        services.AddSingleton<MainViewModel>();
-        services.AddSingleton<MainWindow>();
-    }
-
-    // Avalonia configuration, don't remove; also used by visual designer.
-    public static AppBuilder BuildAvaloniaApp(IServiceProvider serviceProvider)
-        => AppBuilder.Configure<App>(serviceProvider)
-            .UsePlatformDetect()
-            .WithInterFont()
-            .LogToTrace();
+  // Avalonia configuration, don't remove; also used by visual designer.
+  public static AppBuilder BuildAvaloniaApp(IServiceProvider serviceProvider)
+      => AppBuilder.Configure<App>(() => new App(serviceProvider))
+          .UsePlatformDetect()
+          .WithInterFont()
+          .LogToTrace();
 }

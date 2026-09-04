@@ -1,5 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:AltGrid"
+        x:DataType="local:MainViewModel"
         x:Class="AltGrid.MainWindow"
         Title="AltGrid - .NET 10 + Avalonia Demo"
         Width="900" Height="700">
@@ -8,7 +10,7 @@
         <!-- This only sets the DataContext for the designer preview in an IDE,
              it is not intended to be used by your application. Ideally it
              should match your ViewModel's real type -->
-        <local:MainViewModel xmlns:local="using:AltGrid"/>
+        <local:MainViewModel/>
     </Design.DataContext>
 
     <Grid RowDefinitions="Auto,*,Auto" Margin="20">
@@ -21,11 +23,11 @@
 
         <!-- Main Content -->
         <Border Grid.Row="1" BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Padding="20">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnDefinitions="150,*" Spacing="15">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnDefinitions="150,*">
                 
                 <!-- Llama Server URL Configuration -->
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Server URL:" VerticalAlignment="Center"/>
-                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding LlamaServerUrl}" Watermark="http://127.0.0.1:8439"/>
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding LlamaServerUrl}" PlaceholderText="http://127.0.0.1:8439"/>
 
                 <!-- Get Models Button -->
                 <Button Grid.Row="1" Grid.Column="0" Content="Get Models" 
@@ -43,7 +45,7 @@
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Message:" VerticalAlignment="Top" Margin="0,5,0,0"/>
                 <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding UserMessage}" 
                          AcceptsReturn="True" TextWrapping="Wrap" Height="80"
-                         Watermark="Enter your message here..."/>
+                         PlaceholderText="Enter your message here..."/>
 
                 <!-- Chat Actions -->
                 <StackPanel Grid.Row="3" Grid.Column="0" Orientation="Horizontal" Spacing="10">
